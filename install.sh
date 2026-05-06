@@ -90,6 +90,9 @@ StartLimitBurst=5
 Type=simple
 User=root
 WorkingDirectory=/opt/synthtel
+# .env is sourced first (contains SYNTHTEL_GH_OWNER/REPO/BRANCH/TOKEN
+# written by bootstrap.sh).  Missing file is silently ignored.
+EnvironmentFile=-/opt/synthtel/.env
 ExecStart=/usr/bin/python3 /opt/synthtel/core/server.py
 Restart=on-failure
 RestartSec=3
@@ -98,6 +101,8 @@ StandardError=journal
 Environment=PYTHONUNBUFFERED=1
 Environment=SYNTHTEL_DB=/opt/synthtel/synthtel.db
 Environment=SYNTHTEL_LOG=/opt/synthtel/synthtel.log
+Environment=SYNTHTEL_INSTALL_DIR=/opt/synthtel
+Environment=SYNTHTEL_WEB_DIR=/var/www/html
 
 [Install]
 WantedBy=multi-user.target
@@ -287,11 +292,16 @@ echo -e "${GREEN}  http://${VPS_IP} — placeholder page serving${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "${CYAN}Next steps:${NC}"
-echo "  1. From your LOCAL machine, edit deploy.sh and set VPS_IP=${VPS_IP}"
-echo "  2. Run: bash deploy.sh"
-echo "     This uploads index.html + all core/*.py modules"
-echo "  3. (Optional) Run: bash /root/harden-nginx.sh"
-echo "     Adds SSL, HSTS, security headers (A+ grade)"
+echo "  Option A — auto-deploy from GitHub (recommended for fresh VPS):"
+echo "    curl -fsSL https://raw.githubusercontent.com/malikbalogun/zzz/main/bootstrap.sh | bash"
+echo "    (idempotent — pulls latest commit, deploys core+index, pins SHA"
+echo "     for the in-app auto-updater, restarts the service.)"
+echo ""
+echo "  Option B — deploy from your local machine:"
+echo "    1. Edit deploy.sh and set VPS_IP=${VPS_IP}"
+echo "    2. Run: bash deploy.sh"
+echo ""
+echo "  (Optional) SSL hardening:  bash /root/harden-nginx.sh"
 echo ""
 echo -e "${CYAN}Default login after deploy:${NC}"
 echo "  Username: admin"
