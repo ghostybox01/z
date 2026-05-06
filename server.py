@@ -113,11 +113,45 @@ except Exception:
 
 DB_PATH         = os.environ.get("SYNTHTEL_DB", "/opt/synthtel/synthtel.db")
 FILES_DIR       = os.environ.get("SYNTHTEL_FILES", "/opt/synthtel/files")
+INSTALL_DIR     = os.environ.get("SYNTHTEL_INSTALL_DIR", "/opt/synthtel")
+WEB_DIR         = os.environ.get("SYNTHTEL_WEB_DIR", "/var/www/html")
 SESSION_HOURS   = 24
 MAX_ATTEMPTS    = 10
 LOCKOUT_MINUTES = 15
 MIN_PW_LEN      = 8
 MAX_BODY_BYTES  = 50 * 1024 * 1024   # 50 MB hard cap (files can be larger)
+
+# GitHub repo to check for updates.  Owner/repo + branch can be overridden
+# via env vars or by writing to the kv_settings table at runtime via the
+# /api/update/config endpoint (admin only).
+GITHUB_OWNER  = os.environ.get("SYNTHTEL_GH_OWNER",  "malikbalogun")
+GITHUB_REPO   = os.environ.get("SYNTHTEL_GH_REPO",   "zzz")
+GITHUB_BRANCH = os.environ.get("SYNTHTEL_GH_BRANCH", "main")
+GITHUB_TOKEN  = os.environ.get("SYNTHTEL_GH_TOKEN",  "")  # optional, raises rate limits
+
+# Files we know how to update from the repo.  Anything else is left alone.
+UPDATE_TRACKED_FILES = [
+    "core/server.py",
+    "core/campaign.py",
+    "core/api_sender.py",
+    "core/b2b_manager.py",
+    "core/crm_sender.py",
+    "core/email_checker.py",
+    "core/email_sorter.py",
+    "core/imap_extractor.py",
+    "core/link_encoder.py",
+    "core/mime_builder.py",
+    "core/mx_sender.py",
+    "core/o365_relay.py",
+    "core/owa_sender.py",
+    "core/smtp_sender.py",
+    "core/spam_filter.py",
+    "core/suppression_list.py",
+    "core/tags.py",
+    "core/telegram_bot.py",
+    "core/tunnel_manager.py",
+]
+# index.html is special — installed to WEB_DIR not INSTALL_DIR.
 
 # Pre-configured Azure App — set these once as env vars or in /opt/synthtel/.env
 # Users will never need to enter credentials manually if these are set
@@ -345,6 +379,222 @@ def _campaign_worker(uid, data, run_id, camp_name, total_count, tg_msg_id, start
 
 db_lock       = Lock()
 sessions_lock = Lock()
+
+
+# ═══════════════════════════════════════════════════════════════
+# GITHUB AUTO-UPDATE HELPERS
+# ═══════════════════════════════════════════════════════════════
+# Lightweight, dependency-free check against GitHub's REST API.  Compares
+# the latest commit SHA on the configured branch against a SHA we cache
+# locally at /opt/synthtel/.installed_sha.  Apply downloads files via
+# raw.githubusercontent.com (or `git pull` if INSTALL_DIR is a git repo).
+#
+# Endpoints:
+#   GET  /api/update/check  → {current_sha, latest_sha, behind, files_changed}
+#   POST /api/update/apply  → {ok, applied_files, restart_required}
+#   GET  /api/update/config → {owner, repo, branch, auto_check, auto_apply}
+#   POST /api/update/config → save settings (admin)
+
+UPDATE_SHA_FILE   = os.path.join(INSTALL_DIR, ".installed_sha")
+UPDATE_LOCK       = Lock()
+UPDATE_STATE      = {"in_progress": False, "last_check": 0,
+                     "last_result": None, "last_apply": None}
+
+def _gh_request(path: str, accept: str = "application/vnd.github+json"):
+    """GET https://api.github.com/{path} → parsed JSON.
+
+    Raises HTTPError on non-2xx.  Sends Authorization: Bearer when
+    GITHUB_TOKEN is set, raising the unauthenticated 60/hr rate limit
+    to 5000/hr.
+    """
+    url = "https://api.github.com/" + path.lstrip("/")
+    req = Request(url, headers={
+        "Accept": accept,
+        "User-Agent": "synthtel-update-checker",
+    })
+    if GITHUB_TOKEN:
+        req.add_header("Authorization", f"Bearer {GITHUB_TOKEN}")
+    with urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _gh_raw(path: str) -> bytes:
+    """Download a single file from raw.githubusercontent.com."""
+    url = (f"https://raw.githubusercontent.com/{GITHUB_OWNER}/"
+           f"{GITHUB_REPO}/{GITHUB_BRANCH}/{path.lstrip('/')}")
+    req = Request(url, headers={"User-Agent": "synthtel-update-fetch"})
+    with urlopen(req, timeout=30) as resp:
+        return resp.read()
+
+
+def _read_installed_sha() -> str:
+    try:
+        if os.path.exists(UPDATE_SHA_FILE):
+            return open(UPDATE_SHA_FILE).read().strip()[:64]
+    except Exception:
+        pass
+    return ""
+
+
+def _write_installed_sha(sha: str):
+    try:
+        os.makedirs(INSTALL_DIR, exist_ok=True)
+        with open(UPDATE_SHA_FILE, "w") as f:
+            f.write(sha.strip()[:64])
+    except Exception as e:
+        log.warning("[update] failed to write SHA file: %s", e)
+
+
+def _check_for_update() -> dict:
+    """Compare local installed SHA to latest commit on the tracked branch.
+
+    Returns: {
+      current_sha, latest_sha, behind (bool), commit_msg, commit_date,
+      compare_url, files_changed (list[str])
+    }
+    Raises Exception on network / API error so caller can surface it.
+    """
+    current = _read_installed_sha()
+    branch_info = _gh_request(
+        f"repos/{GITHUB_OWNER}/{GITHUB_REPO}/branches/{GITHUB_BRANCH}")
+    latest = (branch_info.get("commit") or {}).get("sha", "")
+    commit = (branch_info.get("commit") or {}).get("commit") or {}
+    msg    = (commit.get("message") or "").splitlines()[0][:200]
+    date   = ((commit.get("author") or {}).get("date") or "")
+    behind = bool(latest) and (latest != current)
+
+    files_changed = []
+    compare_url = ""
+    if current and behind and len(current) >= 7:
+        try:
+            cmp = _gh_request(
+                f"repos/{GITHUB_OWNER}/{GITHUB_REPO}/compare/"
+                f"{current}...{latest}")
+            files_changed = [f.get("filename","") for f in cmp.get("files", [])]
+            compare_url   = cmp.get("html_url", "")
+        except Exception:
+            files_changed = []
+
+    return {
+        "current_sha":    current,
+        "latest_sha":     latest,
+        "short":          (latest or "")[:7],
+        "behind":         behind,
+        "commit_msg":     msg,
+        "commit_date":    date,
+        "compare_url":    compare_url,
+        "files_changed":  files_changed,
+        "owner":          GITHUB_OWNER,
+        "repo":           GITHUB_REPO,
+        "branch":         GITHUB_BRANCH,
+    }
+
+
+def _apply_update() -> dict:
+    """Download every tracked file from the configured branch, write to
+    INSTALL_DIR / WEB_DIR atomically, and update the installed-SHA marker.
+
+    Returns: {applied: [files], failed: [{file, error}], new_sha,
+              restart_required: bool}
+    Raises if the lock can't be acquired (concurrent apply in progress).
+    """
+    if not UPDATE_LOCK.acquire(blocking=False):
+        raise RuntimeError("Another update is already in progress")
+    try:
+        UPDATE_STATE["in_progress"] = True
+        check = _check_for_update()
+        latest = check["latest_sha"]
+        if not latest:
+            raise RuntimeError("Could not resolve latest commit SHA")
+
+        applied = []
+        failed  = []
+
+        # 1. Tracked Python core files → INSTALL_DIR/<path>
+        for rel in UPDATE_TRACKED_FILES:
+            try:
+                data = _gh_raw(rel)
+                # Sanity: refuse to overwrite with empty file.
+                if not data or len(data) < 50:
+                    failed.append({"file": rel, "error": "Downloaded file too small"})
+                    continue
+                # For .py files, syntax-check before writing.
+                if rel.endswith(".py"):
+                    try:
+                        compile(data, rel, "exec")
+                    except SyntaxError as se:
+                        failed.append({"file": rel, "error": f"Syntax error in downloaded file: {se}"})
+                        continue
+                dest = os.path.join(INSTALL_DIR, rel)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                tmp = dest + ".new"
+                with open(tmp, "wb") as f:
+                    f.write(data)
+                # Backup current then atomic rename.
+                if os.path.exists(dest):
+                    try: os.replace(dest, dest + ".bak")
+                    except Exception: pass
+                os.replace(tmp, dest)
+                applied.append(rel)
+            except Exception as e:
+                failed.append({"file": rel, "error": str(e)[:200]})
+
+        # 2. index.html → WEB_DIR/index.html  (best-effort; may not be writable)
+        try:
+            data = _gh_raw("index.html")
+            if data and len(data) > 1000 and os.path.isdir(WEB_DIR):
+                dest = os.path.join(WEB_DIR, "index.html")
+                tmp  = dest + ".new"
+                with open(tmp, "wb") as f:
+                    f.write(data)
+                if os.path.exists(dest):
+                    try: os.replace(dest, dest + ".bak")
+                    except Exception: pass
+                os.replace(tmp, dest)
+                applied.append("index.html")
+            elif data:
+                # Not writable — write to INSTALL_DIR as fallback
+                fallback = os.path.join(INSTALL_DIR, "index.html")
+                with open(fallback, "wb") as f:
+                    f.write(data)
+                applied.append("index.html (fallback)")
+        except Exception as e:
+            failed.append({"file": "index.html", "error": str(e)[:200]})
+
+        # 3. Mark installed SHA
+        if applied:
+            _write_installed_sha(latest)
+
+        result = {
+            "ok":               True,
+            "applied":          applied,
+            "failed":           failed,
+            "new_sha":          latest,
+            "restart_required": any(f.endswith(".py") for f in applied),
+        }
+        UPDATE_STATE["last_apply"] = {"ts": int(time.time()), "result": result}
+        return result
+    finally:
+        UPDATE_STATE["in_progress"] = False
+        UPDATE_LOCK.release()
+
+
+def _bootstrap_installed_sha():
+    """Write the installed-SHA marker on first start if it doesn't exist.
+    Best-effort — uses the latest commit on the configured branch as the
+    baseline so subsequent /api/update/check is meaningful from day one.
+    """
+    if _read_installed_sha():
+        return
+    try:
+        info = _gh_request(
+            f"repos/{GITHUB_OWNER}/{GITHUB_REPO}/branches/{GITHUB_BRANCH}")
+        sha = (info.get("commit") or {}).get("sha", "")
+        if sha:
+            _write_installed_sha(sha)
+            log.info("[update] bootstrapped installed SHA → %s", sha[:7])
+    except Exception as e:
+        log.info("[update] bootstrap skipped: %s", e)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1490,6 +1740,32 @@ if(code && window.opener){{
                 entries = list(_DEBUG_BUF)
                 if clear: _DEBUG_BUF.clear()
             self._json(200, {"entries": entries, "count": len(entries)})
+
+        # ── GitHub update: check for newer commit on tracked branch ───
+        elif p == "/api/update/check":
+            if not (sess := self._auth()): return
+            try:
+                info = _check_for_update()
+                UPDATE_STATE["last_check"]  = int(time.time())
+                UPDATE_STATE["last_result"] = info
+                self._json(200, {"ok": True, **info,
+                                 "in_progress": UPDATE_STATE.get("in_progress", False)})
+            except HTTPError as he:
+                self._json(200, {"ok": False, "error": f"GitHub API {he.code}: {he.reason}"})
+            except Exception as e:
+                self._json(200, {"ok": False, "error": str(e)[:200]})
+
+        elif p == "/api/update/config":
+            if not (sess := self._auth()): return
+            self._json(200, {
+                "owner":  GITHUB_OWNER,
+                "repo":   GITHUB_REPO,
+                "branch": GITHUB_BRANCH,
+                "current_sha":  _read_installed_sha(),
+                "last_check":   UPDATE_STATE.get("last_check", 0),
+                "last_apply":   UPDATE_STATE.get("last_apply"),
+                "in_progress":  UPDATE_STATE.get("in_progress", False),
+            })
 
         # ── Public IP of this server (for proxy whitelists) ─────────
         elif p == "/api/server-ip":
@@ -4349,6 +4625,68 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             except Exception as e:
                 self._json(200, {"error": str(e)[:200]})
 
+        # ── GitHub update: apply latest tracked files (admin only) ─
+        elif p == "/api/update/apply":
+            if not (sess := self._admin()): return
+            # Optional: trigger a service restart after a successful update.
+            try:
+                req_data = self._read_body() if self._body_bytes else {}
+            except Exception:
+                req_data = {}
+            do_restart = bool(req_data.get("restart", False))
+            try:
+                result = _apply_update()
+            except RuntimeError as re:
+                self._json(409, {"ok": False, "error": str(re)}); return
+            except HTTPError as he:
+                self._json(200, {"ok": False, "error": f"GitHub {he.code}: {he.reason}"}); return
+            except Exception as e:
+                self._json(200, {"ok": False, "error": str(e)[:300]}); return
+
+            # If restart requested AND we updated any .py file, schedule a
+            # systemctl restart in the background (after the response is
+            # written) so the client gets a clean response first.
+            if do_restart and result.get("restart_required"):
+                def _restart_later():
+                    time.sleep(1.5)
+                    try:
+                        # Try systemctl restart synthtel; fall back to
+                        # exec'ing python on argv[0].  systemd is the
+                        # supported deployment, so prefer that.
+                        rc = subprocess.call(
+                            ["systemctl", "restart", "synthtel"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+                        if rc != 0:
+                            # Fall back to in-process re-exec if no systemd.
+                            os.execv(sys.executable, [sys.executable] + sys.argv)
+                    except Exception as e:
+                        log.warning("[update] restart failed: %s", e)
+                threading.Thread(target=_restart_later, daemon=True).start()
+                result["restart_scheduled"] = True
+            self._json(200, result)
+
+        # ── GitHub update: save repo / branch settings (admin) ─────
+        elif p == "/api/update/config":
+            if not (sess := self._admin()): return
+            try:
+                data = self._read_body()
+            except Exception:
+                self._json(400, {"error": "Invalid JSON"}); return
+            global GITHUB_OWNER, GITHUB_REPO, GITHUB_BRANCH, GITHUB_TOKEN
+            if isinstance(data.get("owner"),  str) and data["owner"].strip():
+                GITHUB_OWNER  = data["owner"].strip()[:80]
+            if isinstance(data.get("repo"),   str) and data["repo"].strip():
+                GITHUB_REPO   = data["repo"].strip()[:120]
+            if isinstance(data.get("branch"), str) and data["branch"].strip():
+                GITHUB_BRANCH = data["branch"].strip()[:80]
+            if isinstance(data.get("token"),  str):
+                GITHUB_TOKEN  = data["token"].strip()
+            self._json(200, {"ok": True,
+                             "owner": GITHUB_OWNER, "repo": GITHUB_REPO,
+                             "branch": GITHUB_BRANCH,
+                             "token_set": bool(GITHUB_TOKEN)})
+
         # ── File upload ──────────────────────────────────────
         elif p == "/api/files/upload":
             if not (sess := self._auth()): return
@@ -6015,6 +6353,13 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
 def main():
     init_db()
     os.makedirs(FILES_DIR, exist_ok=True)
+    # Best-effort: write the installed SHA on first start so /api/update/check
+    # has a meaningful baseline.  Runs in a thread so a slow GitHub doesn't
+    # delay startup, and silently no-ops if offline.
+    try:
+        threading.Thread(target=_bootstrap_installed_sha, daemon=True).start()
+    except Exception:
+        pass
     # Start Telegram bot polling if configured
     if TG_AVAILABLE:
         try:
