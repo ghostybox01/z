@@ -248,6 +248,51 @@ def _campaign_worker(uid, data, run_id, camp_name, total_count, tg_msg_id, start
         with active_campaigns_lock:
             CAMPAIGN_SENT_RECORDS[uid] = []
 
+        # ── Resolve user-selected attachment file IDs to disk paths ──
+        # The frontend ships {"fileIds": [12, 34]}; we look each id up in
+        # user_files (scoped to this user) and emit
+        #   attachments.files = [{path, name}, ...]
+        # which mime_builder._build_generic_attachment understands.
+        try:
+            atts = data.get("attachments") or {}
+            file_ids = atts.get("fileIds") or []
+            if file_ids:
+                resolved = list(atts.get("files") or [])
+                missing  = []
+                with db_lock:
+                    conn = sqlite3.connect(DB_PATH)
+                    for fid in file_ids:
+                        try:
+                            fid_i = int(fid)
+                        except (ValueError, TypeError):
+                            continue
+                        row = conn.execute(
+                            "SELECT filename, orig_name, display_name, category "
+                            "FROM user_files WHERE id=? AND user_id=?",
+                            (fid_i, uid)
+                        ).fetchone()
+                        if not row:
+                            missing.append(fid_i); continue
+                        path = os.path.join(FILES_DIR, str(uid), row[3], row[0])
+                        if not os.path.exists(path):
+                            missing.append(fid_i); continue
+                        resolved.append({
+                            "path": path,
+                            "name": row[2] or row[1],
+                        })
+                    conn.close()
+                atts["files"] = resolved
+                data["attachments"] = atts
+                if resolved:
+                    _put({"type": "info",
+                          "msg": f"📎 {len(resolved)} attachment{'s' if len(resolved)!=1 else ''} attached"})
+                if missing:
+                    _put({"type": "warn",
+                          "msg": f"⚠ {len(missing)} attachment file(s) missing — skipped"})
+        except Exception as _ae:
+            log.warning("[campaign worker] uid=%s attachment resolve failed: %s", uid, _ae)
+            _put({"type": "warn", "msg": f"⚠ Attachment resolve failed: {str(_ae)[:160]}"})
+
         campaign_iter = iter(process_campaign(data))
         while True:
             with active_campaigns_lock:

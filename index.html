@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.19.20260506-update">
+  <meta name="version" content="v5.20.20260506-attach">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -2445,6 +2445,7 @@ function TabCompose({
   spamFilter = false, setSpamFilter,
   htmlBodies = [], setHtmlBodies, htmlRotateMode = "random", setHtmlRotateMode,
   preheader = "", setPreheader,
+  selectedAttachIds = [], setSelectedAttachIds = ()=>{},
 }) {
   const isMobile = useIsMobile();
   const [subTab, setSubTab] = React.useState("editor");
@@ -2685,20 +2686,45 @@ function TabCompose({
 
           {/* Attachments */}
           <div className="card mb16">
-            <div className="card-title">📎 Select Attachments</div>
+            <div className="row jb ac-center mb8">
+              <div className="card-title" style={{margin:0}}>📎 Select Attachments</div>
+              {selectedAttachIds.length>0 && (
+                <span className="bdg bdg-ok" style={{fontSize:11}}>
+                  {selectedAttachIds.length} selected
+                </span>
+              )}
+            </div>
             <div className="dim sm mb12">Choose from your uploaded attachments. Upload files first in the <strong>Attachments</strong> tab.</div>
             {filesList.filter(f=>f.category==="attachments").length===0 ? (
               <div className="ib ib-i"><span className="ib-ic">ℹ</span><span>No attachments uploaded yet. Go to the <strong>Attachments</strong> tab to upload files.</span></div>
             ) : (
               <div className="col g8">
-                {filesList.filter(f=>f.category==="attachments").map(file=>(
-                  <div key={file.id} className="row ac-center g10 card card-sm">
-                    <input type="checkbox" style={{width:"auto",flexShrink:0}}/>
-                    <span className="sm f1">{file.display_name||file.name}</span>
-                    <span className="bdg bdg-n">{(file.mime||"").split("/")[1]||"file"}</span>
-                    <span className="dim2 xs">{fmtBytes(file.size)}</span>
+                {filesList.filter(f=>f.category==="attachments").map(file=>{
+                  const checked = selectedAttachIds.includes(file.id);
+                  return (
+                    <label key={file.id} className="row ac-center g10 card card-sm"
+                           style={{cursor:"pointer", borderColor: checked ? "var(--accent)" : undefined}}>
+                      <input type="checkbox"
+                        checked={checked}
+                        onChange={e=>{
+                          setSelectedAttachIds(prev => e.target.checked
+                            ? Array.from(new Set([...(prev||[]), file.id]))
+                            : (prev||[]).filter(id => id !== file.id));
+                        }}
+                        style={{width:18,height:18,flexShrink:0,margin:0,cursor:"pointer"}}/>
+                      <span className="sm f1">{file.display_name||file.name}</span>
+                      <span className="bdg bdg-n">{(file.mime||"").split("/")[1]||"file"}</span>
+                      <span className="dim2 xs">{fmtBytes(file.size)}</span>
+                    </label>
+                  );
+                })}
+                {selectedAttachIds.length>0 && (
+                  <div className="row g8 mt6">
+                    <button className="btn btn-g btn-xs" onClick={()=>setSelectedAttachIds([])}>
+                      Clear selection
+                    </button>
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
@@ -7580,6 +7606,9 @@ function App() {
   // ── Attachments ──
   const [selectedType, setSelectedType] = useState(null);
   const [attachConfig, setAttachConfig] = useState({});
+  // Set of file IDs (numbers) checked in the Compose → Select Attachments
+  // panel.  Persisted in localStorage so it survives reloads.
+  const [selectedAttachIds, setSelectedAttachIds] = useState(_g("selectedAttachIds",[]));
 
   // ── Campaign ──
   const [campName, setCampName]     = useState(_g("campName","Campaign "+new Date().toLocaleDateString()));
@@ -7621,6 +7650,7 @@ function App() {
       skipPreflightDns, threadSimulate, arcSimulate, msExchangeHdrs,
       proxies, proxyType, campName,
       bccEnabled, bccEmail,
+      selectedAttachIds,
     };
     try{ localStorage.setItem("st_camp", JSON.stringify(state)); }catch(e){}
     // Debounced server sync so draft is available on any device
@@ -7644,6 +7674,7 @@ function App() {
     skipPreflightDns, threadSimulate, arcSimulate, msExchangeHdrs,
     proxies, proxyType, campName,
     bccEnabled, bccEmail,
+    selectedAttachIds,
   ]);
 
   // ── New Campaign — reset all campaign fields to defaults ───────────────
@@ -7652,6 +7683,7 @@ function App() {
     setSubject(""); setExtraSubjects(""); setPreheader(""); setHtmlBody(""); setPlainBody("");
     setLinkRot([]); setLinkRotDraft(""); setLeadsRaw(""); setLeads([]); setCampName("Campaign "+new Date().toLocaleDateString());
     setCampLog([]); setCampStats({total:0,sent:0,failed:0,pending:0});
+    setSelectedAttachIds([]);
     // Keep: smtpList, apiList, tunnelList, senderName, sendersRaw, proxies — these are reusable infrastructure
   }
 
@@ -7696,6 +7728,7 @@ function App() {
       _s("msExchangeHdrs",setMsExchangeHdrs);
       _s("proxies",setProxies); _s("proxyType",setProxyType); _s("campName",setCampName);
       _s("bccEnabled",setBccEnabled); _s("bccEmail",setBccEmail);
+      _s("selectedAttachIds",setSelectedAttachIds);
     } catch(e) {}
   }
 
@@ -8068,15 +8101,18 @@ function App() {
       bcc: bccEnabled && bccEmail.trim() ? bccEmail.trim() : null,
       campaignName:campName, rotationMode:rotMode,
       linkRotation:linkRot.length>0 ? linkRot : linkRotDraft.split('\n').map(s=>s.trim()).filter(Boolean), linkRotMode,
-      // Dynamic attachment config
-      attachments: selectedType ? (() => {
+      // Attachment config: dynamic generators (ics/pdf/ghost_pdf/html_image)
+      // PLUS user-uploaded files selected in the Compose → Select Attachments
+      // panel (sent as `fileIds`; server resolves them to absolute paths).
+      attachments: (() => {
         const cfg = {};
         if(selectedType==="ics") cfg.ics = {title:attachConfig.title, dtStart:attachConfig.dtStart, duration:attachConfig.duration, location:attachConfig.location};
         if(selectedType==="pdf") cfg.pdf = {name:attachConfig.fileName, content:attachConfig.content};
         if(selectedType==="ghost_pdf") cfg.ghost_pdf = {link:attachConfig.ghostLink, title:attachConfig.ghostTitle, name:attachConfig.ghostName, text:attachConfig.ghostText};
         if(selectedType==="html_image") cfg.html_image = {width:attachConfig.imgWidth||650, height:attachConfig.imgHeight||800, format:attachConfig.imgFormat||"png", name:attachConfig.imgName, inline_replace:attachConfig.imgInlineReplace||false};
+        if(selectedAttachIds && selectedAttachIds.length) cfg.fileIds = selectedAttachIds;
         return cfg;
-      })() : {},
+      })(),
     };
 
     // Reset the polling cursor so we replay all events of this run from idx 0.
@@ -8548,7 +8584,7 @@ function App() {
 
     switch(tab) {
       case "campaign":    return <>{isMobile&&<MobTopBar/>}{isMobile ? <MobileMonitor/> : <TabCampaign {...commonCampProps}/>}{isMobile&&<MobSpacer/>}</>;
-      case "compose":     return <>{isMobile&&<MobTopBar/>}<TabCompose subject={subject} setSubject={setSubject} extraSubjects={extraSubjects} setExtraSubjects={setExtraSubjects} htmlBody={htmlBody} setHtmlBody={setHtmlBody} plainBody={plainBody} setPlainBody={setPlainBody} autoPlain={autoPlain} filesList={filesList} sendersRaw={sendersRaw} linkRot={linkRot} setLinkRot={setLinkRot} linkRotDraft={linkRotDraft} setLinkRotDraft={setLinkRotDraft} linkRotMode={linkRotMode} setLinkRotMode={setLinkRotMode} spamFilter={spamFilter} setSpamFilter={setSpamFilter} htmlBodies={htmlBodies} setHtmlBodies={setHtmlBodies} htmlRotateMode={htmlRotateMode} setHtmlRotateMode={setHtmlRotateMode} preheader={preheader} setPreheader={setPreheader}/>{isMobile&&<MobSpacer/>}</>;
+      case "compose":     return <>{isMobile&&<MobTopBar/>}<TabCompose subject={subject} setSubject={setSubject} extraSubjects={extraSubjects} setExtraSubjects={setExtraSubjects} htmlBody={htmlBody} setHtmlBody={setHtmlBody} plainBody={plainBody} setPlainBody={setPlainBody} autoPlain={autoPlain} filesList={filesList} sendersRaw={sendersRaw} linkRot={linkRot} setLinkRot={setLinkRot} linkRotDraft={linkRotDraft} setLinkRotDraft={setLinkRotDraft} linkRotMode={linkRotMode} setLinkRotMode={setLinkRotMode} spamFilter={spamFilter} setSpamFilter={setSpamFilter} htmlBodies={htmlBodies} setHtmlBodies={setHtmlBodies} htmlRotateMode={htmlRotateMode} setHtmlRotateMode={setHtmlRotateMode} preheader={preheader} setPreheader={setPreheader} selectedAttachIds={selectedAttachIds} setSelectedAttachIds={setSelectedAttachIds}/>{isMobile&&<MobSpacer/>}</>;
       case "leads":       return <>{isMobile&&<MobTopBar/>}<TabLeads leadsRaw={leadsRaw} setLeadsRaw={setLeadsRaw} leads={leads} setLeads={setLeads} filesList={filesList} uploadFile={uploadFile} allowDupes={allowDupes} setAllowDupes={setAllowDupes}/>{isMobile&&<MobSpacer/>}</>;
       case "senders":     return <>{isMobile&&<MobTopBar/>}<TabSenders sendersRaw={sendersRaw} setSendersRaw={setSendersRaw} senderName={senderName} setSenderName={setSenderName} senderNames={senderNames} setSenderNames={setSenderNames} senderReplyTo={senderReplyTo} setSenderReplyTo={setSenderReplyTo} rotMode={rotMode} setRotMode={setRotMode} filesList={filesList} uploadFile={uploadFile}/>{isMobile&&<MobSpacer/>}</>;
       case "method":      return <>{isMobile&&<MobTopBar/>}<TabMethod activeMethod={activeMethod} setActiveMethod={setActiveMethod} smtpList={smtpList} setSmtpList={setSmtpList} smtpDraft={smtpDraft} setSmtpDraft={setSmtpDraft} apiList={apiList} setApiList={setApiList} apiDraft={apiDraft} setApiDraft={setApiDraft} owaConfig={owaConfig} setOwaConfig={setOwaConfig} crmConfig={crmConfig} setCrmConfig={setCrmConfig} tunnelList={tunnelList} setTunnelList={setTunnelList} tunnelDraft={tunnelDraft} setTunnelDraft={setTunnelDraft}/>{isMobile&&<MobSpacer/>}</>;
