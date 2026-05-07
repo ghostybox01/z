@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.24.20260507-stop-fix">
+  <meta name="version" content="v5.25.20260507-nameerror-fix">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -8286,8 +8286,10 @@ function App() {
   // list, so polling /api/campaign/events?since=N gives us a full replay
   // (including any events emitted while the browser was disconnected).
   const [remoteRunning, setRemoteRunning] = useState(false);
+  const remoteRunningRef = useRef(false);
   const campEventCursor = useRef(0);   // index of next event to fetch
   const campSeenDone    = useRef(false);
+  useEffect(() => { remoteRunningRef.current = remoteRunning; }, [remoteRunning]);
   useEffect(()=>{
     if(!token) return;
     let active = true;
@@ -8299,6 +8301,7 @@ function App() {
         // Sync live stats first so the UI reacts even before we drain events.
         if(d.live) {
           setRemoteRunning(true);
+          remoteRunningRef.current = true;
           setCampRunning(true);
           setCampPaused((d.live.status||"") === "paused");
           setCampStats(s => ({
@@ -8320,15 +8323,20 @@ function App() {
         if(d.done && !campSeenDone.current) {
           campSeenDone.current = true;
         }
+        // Always flip out of "running" when the worker is no longer
+        // active.  Previously this was gated by `remoteRunning`, but
+        // that closure goes stale and on a worker crash the UI got
+        // stuck on "Sending…".  Use the ref-tracked value instead so
+        // the gate still works and we don't fire loadHistory() on
+        // every idle poll.
         if(!d.active && (d.done || campSeenDone.current)) {
-          if(remoteRunning) {
+          if(remoteRunningRef.current) {
+            remoteRunningRef.current = false;
             setRemoteRunning(false);
             setCampRunning(false);
             setCampPaused(false);
             loadHistory();
           }
-        } else if(!d.active && !d.events?.length && campEventCursor.current === 0) {
-          // No active run and nothing buffered — quiet idle state.
         }
       } catch(e) {}
     }
@@ -8865,6 +8873,14 @@ function App() {
         // tell the user the worker may still be draining one final send.
         addLog("🛑 Force-stopped — worker thread orphaned (will exit on next network response)","err");
         setCampRunning(false);
+      } else if(d && d.status === "no_campaign") {
+        // Worker already exited (likely crashed or finished).  Nothing
+        // to stop — just clean up the UI so the user can start a new
+        // campaign.
+        addLog("ℹ No active campaign on the server — clearing UI state","inf");
+        setCampRunning(false);
+        remoteRunningRef.current = false;
+        setRemoteRunning(false);
       } else {
         addLog("⛔ Stop requested — press Stop again to force-stop","wrn");
       }
