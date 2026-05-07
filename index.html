@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.27.20260507-letter-ripper">
+  <meta name="version" content="v5.28.20260507-split-default">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -2496,8 +2496,19 @@ function TabCompose({
 }) {
   const isMobile = useIsMobile();
   const [subTab, setSubTab] = React.useState("editor");
+  // Split View now defaults to ON for new users; the toggle is still
+  // available in the editor header.  We use "0"/"1" so the explicit
+  // "I disabled it" preference survives, and only fall back to ON
+  // when no preference is stored at all.
   const [splitView, setSplitView] = React.useState(()=>{
-    try { return localStorage.getItem("st_compose_split") === "1"; } catch(e) { return false; }
+    try {
+      const v = localStorage.getItem("st_compose_split");
+      if (v === "0") return false;
+      if (v === "1") return true;
+      // First-time user — start in split view.  Auto-disable on mobile
+      // because a 1fr 1fr grid doesn't fit on a phone.
+      return window.innerWidth >= 1024;
+    } catch(e) { return true; }
   });
   React.useEffect(()=>{
     try { localStorage.setItem("st_compose_split", splitView ? "1" : "0"); } catch(e){}
@@ -5687,6 +5698,10 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
   const [lripPreview,  setLripPreview]  = useState(null);   // {html, plain, subject, from, ...}
   const [lripPasteRaw, setLripPasteRaw] = useState("");
   const [lripMode,     setLripMode]     = useState("inbox"); // 'inbox' | 'paste'
+  // Edit-in-place: toggle a side-by-side editor inside Letter Ripper so
+  // the user can tweak the ripped HTML without leaving the tab.  Edits
+  // mutate lripPreview.html so the iframe stays in sync.
+  const [lripEditing,  setLripEditing]  = useState(false);
   React.useEffect(()=>{ localStorage.setItem("st_lrip_email", lripEmail||""); }, [lripEmail]);
 
   async function loadLetters() {
@@ -6776,7 +6791,16 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
 
               {/* RIGHT: preview + use-as-template */}
               <div className="card">
-                <div className="card-title">👁 Letter Preview</div>
+                <div className="row jb ac-center mb8">
+                  <div className="card-title" style={{margin:0}}>👁 Letter Preview</div>
+                  {lripPreview && lripPreview.html && (
+                    <button className={`btn btn-sm ${lripEditing?"btn-p":"btn-g"}`}
+                      onClick={()=>setLripEditing(v=>!v)}
+                      title="Edit the ripped HTML side-by-side with live preview">
+                      {lripEditing ? "👁 Preview only" : "✏️ Edit live"}
+                    </button>
+                  )}
+                </div>
                 {!lripPreview && <div className="dim sm">Load messages on the left, then click one to preview its HTML.</div>}
                 {lripPreview && (
                   <div>
@@ -6790,13 +6814,27 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
                     </div>
 
                     {lripPreview.html ? (
-                      <div style={{background:"#fff",borderRadius:6,overflow:"auto",
-                                   border:"1px solid var(--border)",
-                                   height:"calc(100vh - 480px)",minHeight:300}}>
-                        <iframe srcDoc={lripPreview.html}
-                          style={{width:"100%",height:"100%",border:"none"}}
-                          sandbox="allow-same-origin"/>
-                      </div>
+                      lripEditing ? (
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,height:"calc(100vh - 480px)",minHeight:380}}>
+                          <textarea value={lripPreview.html}
+                            onChange={e=>setLripPreview({...lripPreview, html:e.target.value})}
+                            spellCheck="false"
+                            style={{width:"100%",height:"100%",fontFamily:"var(--font-mono)",fontSize:11,lineHeight:1.5,padding:"10px 12px",resize:"none",boxSizing:"border-box"}}/>
+                          <div style={{background:"#fff",borderRadius:6,overflow:"auto",border:"1px solid var(--border)"}}>
+                            <iframe srcDoc={lripPreview.html}
+                              style={{width:"100%",height:"100%",border:"none"}}
+                              sandbox="allow-same-origin"/>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{background:"#fff",borderRadius:6,overflow:"auto",
+                                     border:"1px solid var(--border)",
+                                     height:"calc(100vh - 480px)",minHeight:380}}>
+                          <iframe srcDoc={lripPreview.html}
+                            style={{width:"100%",height:"100%",border:"none"}}
+                            sandbox="allow-same-origin"/>
+                        </div>
+                      )
                     ) : (
                       <pre className="code" style={{maxHeight:300,overflow:"auto",fontSize:11,whiteSpace:"pre-wrap"}}>
                         {lripPreview.plain||"(empty)"}
@@ -6809,7 +6847,10 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
                           if(lripPreview.html) setHtmlBody(lripPreview.html);
                           if(lripPreview.plain) setPlainBody(lripPreview.plain);
                           if(lripPreview.subject) setSubject(lripPreview.subject);
-                          addLog(`📋 Letter loaded into Compose: "${lripPreview.subject}"`,"inf");
+                          // Force split view on so the user lands on the
+                          // side-by-side editor and can edit live.
+                          try { localStorage.setItem("st_compose_split","1"); } catch(e){}
+                          addLog(`📋 Letter loaded into Compose: "${lripPreview.subject}" — split view enabled`,"inf");
                           setTab("compose");
                         }}>
                         ✏️ Use as Template → Compose
@@ -6862,7 +6903,16 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
               </div>
 
               <div className="card">
-                <div className="card-title">👁 Extracted Letter</div>
+                <div className="row jb ac-center mb8">
+                  <div className="card-title" style={{margin:0}}>👁 Extracted Letter</div>
+                  {lripPreview && lripPreview.html && (
+                    <button className={`btn btn-sm ${lripEditing?"btn-p":"btn-g"}`}
+                      onClick={()=>setLripEditing(v=>!v)}
+                      title="Edit the ripped HTML side-by-side with live preview">
+                      {lripEditing ? "👁 Preview only" : "✏️ Edit live"}
+                    </button>
+                  )}
+                </div>
                 {!lripPreview && <div className="dim sm">Paste raw email source on the left and click "Extract HTML".</div>}
                 {lripPreview && (
                   <div>
@@ -6876,13 +6926,27 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
                     </div>
 
                     {lripPreview.html ? (
-                      <div style={{background:"#fff",borderRadius:6,overflow:"auto",
-                                   border:"1px solid var(--border)",
-                                   height:"calc(100vh - 480px)",minHeight:300}}>
-                        <iframe srcDoc={lripPreview.html}
-                          style={{width:"100%",height:"100%",border:"none"}}
-                          sandbox="allow-same-origin"/>
-                      </div>
+                      lripEditing ? (
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,height:"calc(100vh - 480px)",minHeight:380}}>
+                          <textarea value={lripPreview.html}
+                            onChange={e=>setLripPreview({...lripPreview, html:e.target.value})}
+                            spellCheck="false"
+                            style={{width:"100%",height:"100%",fontFamily:"var(--font-mono)",fontSize:11,lineHeight:1.5,padding:"10px 12px",resize:"none",boxSizing:"border-box"}}/>
+                          <div style={{background:"#fff",borderRadius:6,overflow:"auto",border:"1px solid var(--border)"}}>
+                            <iframe srcDoc={lripPreview.html}
+                              style={{width:"100%",height:"100%",border:"none"}}
+                              sandbox="allow-same-origin"/>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{background:"#fff",borderRadius:6,overflow:"auto",
+                                     border:"1px solid var(--border)",
+                                     height:"calc(100vh - 480px)",minHeight:380}}>
+                          <iframe srcDoc={lripPreview.html}
+                            style={{width:"100%",height:"100%",border:"none"}}
+                            sandbox="allow-same-origin"/>
+                        </div>
+                      )
                     ) : (
                       <pre className="code" style={{maxHeight:300,overflow:"auto",fontSize:11,whiteSpace:"pre-wrap"}}>
                         {lripPreview.plain||"(empty)"}
@@ -6895,7 +6959,8 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
                           if(lripPreview.html) setHtmlBody(lripPreview.html);
                           if(lripPreview.plain) setPlainBody(lripPreview.plain);
                           if(lripPreview.subject) setSubject(lripPreview.subject);
-                          addLog(`📋 Letter loaded into Compose: "${lripPreview.subject}"`,"inf");
+                          try { localStorage.setItem("st_compose_split","1"); } catch(e){}
+                          addLog(`📋 Letter loaded into Compose: "${lripPreview.subject}" — split view enabled`,"inf");
                           setTab("compose");
                         }}>
                         ✏️ Use as Template → Compose
