@@ -1388,6 +1388,30 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         }
         return
 
+    # ── Early validation: senders + leads ──────────────────────
+    # Without these we silently loop forever (no work submitted to the
+    # thread pool, no events emitted, UI shows 'Started' indefinitely).
+    if not opts.senders:
+        yield {
+            "type": "error",
+            "msg": (
+                "No senders configured — add at least one From email in "
+                "the Senders tab.  Even API methods (SES, SendGrid, etc.) "
+                "need a verified sender address."
+            ),
+        }
+        yield {"type": "done", "stopped": True, "success": 0, "fail": 0,
+               "total": len(opts.leads)}
+        return
+    if not opts.leads:
+        yield {
+            "type": "error",
+            "msg": "No leads to send to — paste recipients in the Leads tab.",
+        }
+        yield {"type": "done", "stopped": True, "success": 0, "fail": 0,
+               "total": 0}
+        return
+
     # ── Sender/server pairing ────────────────────────────────
     sender_rot = opts.rotation.get("sender", "random")
     srv_rot    = opts.rotation.get(method, opts.rotation.get("smtp", "random"))
@@ -1888,9 +1912,23 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 break
             if _campaign_abort_requested(campaign_uid):
                 stopped = True
-                yield {"type": "warn", "msg": "⛔ Campaign stop requested — halting remaining sends"}
+                yield {"type": "warn", "msg": "⛔ Stop pressed — cancelling pending sends"}
+                # Cancel everything that hasn't started executing yet so the
+                # ThreadPoolExecutor.shutdown() in the finally block returns
+                # quickly instead of waiting for queued requests to finish.
+                for _f in list(_pending_futures.keys()):
+                    try: _f.cancel()
+                    except Exception: pass
                 break
-            done, _ = _cf.wait(list(_pending_futures.keys()), return_when=_cf.FIRST_COMPLETED)
+            # Wait with a short timeout so abort checks fire even when every
+            # in-flight send is blocked on a slow API call.  Without a
+            # timeout, a single 30s urlopen() pins the abort flag check
+            # for 30s — making the Stop button feel broken.
+            done, _ = _cf.wait(list(_pending_futures.keys()),
+                               timeout=1.0,
+                               return_when=_cf.FIRST_COMPLETED)
+            if not done:
+                continue   # nothing finished this tick, re-check abort
             for fut in done:
                 work_meta = _pending_futures.pop(fut)
                 i, lead, pre_sender, resolved_html, resolved_plain = work_meta
@@ -2198,7 +2236,16 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                         fut_n, rsen_n, rhtml_n, rplain_n = result_n
                         _pending_futures[fut_n] = (i_n, lead_n, rsen_n, rhtml_n, rplain_n)
 
-        _executor.shutdown(wait=not stopped)
+        # On stop: shutdown without waiting + cancel pending futures
+        # (cancel_futures was added in 3.9; safe to use as we require 3.10+).
+        if stopped:
+            try:
+                _executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                # Older Python — cancel_futures kwarg not supported.
+                _executor.shutdown(wait=False)
+        else:
+            _executor.shutdown(wait=True)
 
         # ── Done ─────────────────────────────────────────────
         warmup_msg = ""

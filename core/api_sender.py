@@ -214,25 +214,50 @@ def _api_request(
     raw    = json.dumps(payload).encode("utf-8")
     delay  = _RETRY_DELAY
 
+    # Best-effort campaign-abort hook so retry loops bail out quickly when
+    # the user presses Stop instead of waiting through 4×30s of timeouts.
+    def _aborted() -> bool:
+        try:
+            from core.server import (active_campaigns_lock, CAMPAIGN_CONTROLS)
+            with active_campaigns_lock:
+                for ctrl in CAMPAIGN_CONTROLS.values():
+                    if ctrl and ctrl.get("abort"):
+                        return True
+        except Exception:
+            pass
+        return False
+
     for attempt in range(retries + 1):
+        if _aborted():
+            raise Exception(f"API {provider}: aborted by user")
         req = Request(url, data=raw if method == "POST" else None, headers=headers,
                       method=method)
         try:
-            resp = urlopen(req, timeout=30)
+            # Tighter timeout — 15s instead of 30s.  Most providers respond
+            # in well under a second; 15s is plenty for a worst-case TLS
+            # handshake + slow region.  Cuts max stop-time roughly in half.
+            resp = urlopen(req, timeout=15)
             return resp.status
 
         except HTTPError as exc:
             if exc.code in _RETRY_STATUSES and attempt < retries:
-                # Respect Retry-After if present
+                # Respect Retry-After if present (capped so a 60s response
+                # doesn't pin the worker indefinitely).
                 retry_after = exc.headers.get("Retry-After")
                 if retry_after:
                     try:
-                        delay = float(retry_after)
+                        delay = min(float(retry_after), 10.0)
                     except (ValueError, TypeError):
                         delay = _RETRY_DELAY
                 log.warning("[ApiSender] %s HTTP %d — retrying in %.0fs (attempt %d/%d)",
                             provider, exc.code, delay, attempt + 1, retries)
-                time.sleep(delay)
+                # Sleep in 0.5s slices so we react to abort within ~0.5s.
+                _slept = 0.0
+                while _slept < delay:
+                    if _aborted():
+                        raise Exception(f"API {provider}: aborted by user during retry")
+                    time.sleep(min(0.5, delay - _slept))
+                    _slept += 0.5
                 continue
 
             # Parse error body for actionable message
@@ -276,7 +301,12 @@ def _api_request(
         except URLError as exc:
             if attempt < retries:
                 log.warning("[ApiSender] %s network error — retrying: %s", provider, exc)
-                time.sleep(delay)
+                _slept = 0.0
+                while _slept < delay:
+                    if _aborted():
+                        raise Exception(f"API {provider}: aborted by user during retry")
+                    time.sleep(min(0.5, delay - _slept))
+                    _slept += 0.5
                 continue
             raise Exception(f"API {provider} network error: {exc.reason}")
 

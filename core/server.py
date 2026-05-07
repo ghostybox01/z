@@ -2071,9 +2071,72 @@ if(code && window.opener){{
                         live["status"] = "running"
                     self._json(200, {"status": "ok", "message": "Campaign resumed"})
                 elif action == "stop":
+                    # First stop: set abort, push terminal "done" into the
+                    # buffer immediately so the polling client transitions
+                    # to "Stopped" without having to wait for the worker
+                    # thread to acknowledge (which can take seconds if it's
+                    # blocked in a 30s urlopen retry).
+                    was_aborting = bool(ctrl.get("abort", False))
                     ctrl["abort"] = True
                     if live:
                         live["status"] = "stopping"
+                    # Push a synthetic "stopping" notice + immediate "done"
+                    # so the UI flips state right away.  The real worker
+                    # will append its own done shortly after; the polling
+                    # consumer dedupes on type=="done".
+                    try:
+                        buf_lock = CAMPAIGN_BUFFER_LOCK.get(uid)
+                        if buf_lock is not None:
+                            stats = ctrl.get("stats", {}) or {}
+                            with buf_lock:
+                                lst = CAMPAIGN_EVENT_BUFFER.setdefault(uid, [])
+                                lst.append({"type": "warn",
+                                            "msg": "⛔ Stop requested — flushing in-flight sends"})
+                                lst.append({"type": "done",
+                                            "stopped": True,
+                                            "msg": "⛔ Campaign stopped",
+                                            "success": stats.get("sent", 0),
+                                            "fail":    stats.get("failed", 0),
+                                            "total":   stats.get("total", 0)})
+                    except Exception:
+                        pass
+                    # Second stop press within 5s → HARD reset.  Forcibly
+                    # release UI from this campaign even if the worker is
+                    # still draining a stuck network call: tear down stats,
+                    # queue, controls, decrement ACTIVE_CAMPAIGNS so /api/send
+                    # is allowed again.  The orphaned worker thread will
+                    # exit on its own when its current network call returns.
+                    last_stop = ctrl.get("_stop_pressed_at", 0)
+                    now = time.time()
+                    if was_aborting and (now - last_stop) < 5:
+                        log.info("[campaign] uid=%s HARD STOP (second press)", uid)
+                        if uid in ACTIVE_CAMPAIGNS:
+                            ACTIVE_CAMPAIGNS[uid] = 0
+                        LIVE_CAMPAIGN_STATS.pop(uid, None)
+                        CAMPAIGN_CONTROLS.pop(uid, None)
+                        CAMPAIGN_THREADS.pop(uid, None)
+                        # Push a final "force-stopped" event before tearing
+                        # down the buffer, then drop the queue so any
+                        # tail-readers exit cleanly.
+                        try:
+                            buf_lock2 = CAMPAIGN_BUFFER_LOCK.get(uid)
+                            if buf_lock2 is not None:
+                                with buf_lock2:
+                                    CAMPAIGN_EVENT_BUFFER.setdefault(uid, []).append({
+                                        "type": "warn",
+                                        "msg": "🛑 Force-stopped — worker thread orphaned (will exit on next network response)",
+                                    })
+                        except Exception:
+                            pass
+                        q = CAMPAIGN_QUEUES.pop(uid, None)
+                        if q is not None:
+                            try: q.put_nowait(_CAMP_STREAM_END)
+                            except Exception: pass
+                        self._json(200, {"status": "ok",
+                                         "message": "Campaign force-stopped",
+                                         "hard": True})
+                        return
+                    ctrl["_stop_pressed_at"] = now
                     self._json(200, {"status": "ok", "message": "Campaign stopping"})
                 elif action == "stats":
                     self._json(200, {
