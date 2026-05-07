@@ -5382,6 +5382,98 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     pass
 
+        # ── AWS region auto-detect ─────────────────────────────────
+        # Given an IAM access key + secret, probe SES GetSendQuota in every
+        # SES-enabled region in parallel and report which one(s) auth
+        # successfully.  This lets the UI fill the region picker
+        # automatically — users no longer need to remember which region
+        # their IAM credentials were issued in.
+        elif p == "/api/tools/aws-detect-region":
+            if not (sess := self._auth()): return
+            try:
+                data = self._read_body()
+            except Exception:
+                self._json(400, {"error": "Invalid JSON"}); return
+            ak = (data.get("accessKey") or data.get("key") or "").strip()
+            sk = (data.get("secretKey") or data.get("secret") or "").strip()
+            service = (data.get("service") or "ses").strip().lower()
+            if not ak or not sk:
+                self._json(400, {"error": "accessKey and secretKey required"}); return
+
+            # All SES-enabled regions as of 2026-05.  If a region is not
+            # listed here it'll never auto-detect; safe to add new ones
+            # over time.
+            SES_REGIONS = [
+                "us-east-1","us-east-2","us-west-1","us-west-2",
+                "af-south-1",
+                "ap-northeast-1","ap-northeast-2","ap-northeast-3",
+                "ap-south-1","ap-southeast-1","ap-southeast-2","ap-southeast-3",
+                "ca-central-1",
+                "eu-central-1","eu-north-1","eu-south-1",
+                "eu-west-1","eu-west-2","eu-west-3",
+                "il-central-1","me-south-1","me-central-1",
+                "sa-east-1",
+            ]
+
+            try:
+                import boto3 as _boto3
+                from botocore.exceptions import ClientError as _BotoErr
+                from botocore.config import Config as _BotoCfg
+            except ImportError:
+                self._json(200, {"ok": False,
+                                 "error": "boto3 not installed on the server. Run: pip install boto3"})
+                return
+
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            _cfg = _BotoCfg(connect_timeout=4, read_timeout=4, retries={"max_attempts": 1})
+
+            def _probe(region):
+                try:
+                    if service == "ses":
+                        c = _boto3.client("ses", region_name=region,
+                                          aws_access_key_id=ak,
+                                          aws_secret_access_key=sk,
+                                          config=_cfg)
+                        q = c.get_send_quota()
+                        return {"region": region, "ok": True,
+                                "max24Hour":  q.get("Max24HourSend"),
+                                "sentLast24": q.get("SentLast24Hours"),
+                                "sendRate":   q.get("MaxSendRate")}
+                    else:
+                        # Generic STS probe — works in every region, only
+                        # validates the key is real.  Doesn't tell us about
+                        # service availability per region.
+                        c = _boto3.client("sts", region_name=region,
+                                          aws_access_key_id=ak,
+                                          aws_secret_access_key=sk,
+                                          config=_cfg)
+                        ident = c.get_caller_identity()
+                        return {"region": region, "ok": True,
+                                "account":  ident.get("Account"),
+                                "arn":      ident.get("Arn")}
+                except _BotoErr as e:
+                    err = e.response.get("Error", {}).get("Code", str(e))
+                    return {"region": region, "ok": False, "error": err}
+                except Exception as e:
+                    return {"region": region, "ok": False, "error": str(e)[:120]}
+
+            results = []
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                futures = {ex.submit(_probe, r): r for r in SES_REGIONS}
+                for fut in as_completed(futures, timeout=20):
+                    try: results.append(fut.result())
+                    except Exception: pass
+            ok_regions = [r for r in results if r.get("ok")]
+            self._json(200, {
+                "ok":          True,
+                "service":     service,
+                "tried":       len(results),
+                "matched":     len(ok_regions),
+                "regions":     ok_regions,
+                "all":         sorted(results, key=lambda r: r["region"]),
+                "primary":     ok_regions[0]["region"] if ok_regions else None,
+            })
+
         elif p == "/api/tools/check-esp":
             if not (sess := self._auth()): return
             try:

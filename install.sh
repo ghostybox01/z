@@ -50,8 +50,8 @@ step 2 "Python packages"
 # upfront so first-use isn't a surprise.
 pip3 install --break-system-packages -q \
     bcrypt msal requests dnspython pysocks paramiko \
-    fpdf2 Pillow qrcode
-ok "Python packages: bcrypt msal requests dnspython pysocks paramiko fpdf2 Pillow qrcode"
+    fpdf2 Pillow qrcode boto3
+ok "Python packages: bcrypt msal requests dnspython pysocks paramiko fpdf2 Pillow qrcode boto3"
 
 # impacket is optional (used by the SMB / Windows auto-deploy path).
 # Pip-built impacket is fragile on bare Debian, so try apt first.

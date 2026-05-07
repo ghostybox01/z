@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.22.20260506-lambda">
+  <meta name="version" content="v5.23.20260507-aws-regions">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -1188,6 +1188,58 @@ const ATTACH_TYPES = [
   {id:"html_image",lbl:"HTML→Image",ico:"🖼", col:"#0891b2", mime:"image/png"},
 ];
 
+// Every public AWS region.  Used by the SMTP / API / S3 / ESP region
+// pickers so the user never has to wonder why their region is missing.
+// Format: [code, friendly_name, has_ses].  has_ses tells the SES dropdowns
+// to omit / asterisk regions where SES isn't available yet.
+const AWS_REGIONS = [
+  ["us-east-1",      "US East (N. Virginia)",       true],
+  ["us-east-2",      "US East (Ohio)",              true],
+  ["us-west-1",      "US West (N. California)",     true],
+  ["us-west-2",      "US West (Oregon)",            true],
+  ["af-south-1",     "Africa (Cape Town)",          true],
+  ["ap-east-1",      "Asia Pacific (Hong Kong)",    false],
+  ["ap-south-1",     "Asia Pacific (Mumbai)",       true],
+  ["ap-south-2",     "Asia Pacific (Hyderabad)",    false],
+  ["ap-northeast-1", "Asia Pacific (Tokyo)",        true],
+  ["ap-northeast-2", "Asia Pacific (Seoul)",        true],
+  ["ap-northeast-3", "Asia Pacific (Osaka)",        true],
+  ["ap-southeast-1", "Asia Pacific (Singapore)",    true],
+  ["ap-southeast-2", "Asia Pacific (Sydney)",       true],
+  ["ap-southeast-3", "Asia Pacific (Jakarta)",      true],
+  ["ap-southeast-4", "Asia Pacific (Melbourne)",    false],
+  ["ca-central-1",   "Canada (Central)",            true],
+  ["ca-west-1",      "Canada West (Calgary)",       false],
+  ["eu-central-1",   "Europe (Frankfurt)",          true],
+  ["eu-central-2",   "Europe (Zurich)",             false],
+  ["eu-west-1",      "Europe (Ireland)",            true],
+  ["eu-west-2",      "Europe (London)",             true],
+  ["eu-west-3",      "Europe (Paris)",              true],
+  ["eu-north-1",     "Europe (Stockholm)",          true],
+  ["eu-south-1",     "Europe (Milan)",              true],
+  ["eu-south-2",     "Europe (Spain)",              false],
+  ["il-central-1",   "Israel (Tel Aviv)",           true],
+  ["me-south-1",     "Middle East (Bahrain)",       true],
+  ["me-central-1",   "Middle East (UAE)",           true],
+  ["sa-east-1",      "South America (São Paulo)",   true],
+];
+// Convenience lists for dropdowns — kept in module scope so every
+// component can use the same options.
+const AWS_REGIONS_ALL  = AWS_REGIONS.map(r => r[0]);
+const AWS_SES_REGIONS  = AWS_REGIONS.filter(r => r[2]).map(r => r[0]);
+const AWS_REGION_LABEL = Object.fromEntries(AWS_REGIONS.map(r => [r[0], r[1]]));
+
+// Build the SES preset list automatically from AWS_SES_REGIONS so adding
+// a new SES region only needs one line in AWS_REGIONS above.
+const _SES_PRESETS = AWS_SES_REGIONS.map(r => ({
+  name:   `AWS SES — ${r}`,
+  host:   `email-smtp.${r}.amazonaws.com`,
+  port:   587,
+  ssl:    false,
+  ses:    true,
+  region: r,
+}));
+
 const SMTP_PRESETS = [
   {name:"Gmail (STARTTLS)",      host:"smtp.gmail.com",                            port:587, ssl:false, note:"Use an App Password — not your Google account password. Enable 2FA first, then: Google Account → Security → App Passwords."},
   {name:"Gmail (SSL)",           host:"smtp.gmail.com",                            port:465, ssl:true,  note:"Use an App Password — not your Google account password."},
@@ -1196,12 +1248,7 @@ const SMTP_PRESETS = [
   {name:"Zoho",                  host:"smtp.zoho.com",                             port:587, ssl:false, note:"Use your Zoho email and password."},
   {name:"SendGrid",              host:"smtp.sendgrid.net",                         port:587, ssl:false, note:"Username is always 'apikey'. Password is your SendGrid API Key."},
   {name:"Mailgun",               host:"smtp.mailgun.org",                          port:587, ssl:false, note:"Username: postmaster@yourdomain.com. Password: Mailgun SMTP password (not API key)."},
-  {name:"AWS SES — us-east-1",   host:"email-smtp.us-east-1.amazonaws.com",       port:587, ssl:false, ses:true, region:"us-east-1"},
-  {name:"AWS SES — us-west-2",   host:"email-smtp.us-west-2.amazonaws.com",       port:587, ssl:false, ses:true, region:"us-west-2"},
-  {name:"AWS SES — eu-west-1",   host:"email-smtp.eu-west-1.amazonaws.com",       port:587, ssl:false, ses:true, region:"eu-west-1"},
-  {name:"AWS SES — eu-central-1",host:"email-smtp.eu-central-1.amazonaws.com",    port:587, ssl:false, ses:true, region:"eu-central-1"},
-  {name:"AWS SES — ap-southeast-2",host:"email-smtp.ap-southeast-2.amazonaws.com",port:587, ssl:false, ses:true, region:"ap-southeast-2"},
-  {name:"AWS SES — ca-central-1",host:"email-smtp.ca-central-1.amazonaws.com",    port:587, ssl:false, ses:true, region:"ca-central-1"},
+  ..._SES_PRESETS,
 ];
 
 /* ════════════════════════════════════════
@@ -3365,11 +3412,38 @@ function SesCredGen({onApply, initialRegion}) {
             style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--tx)",fontSize:12,boxSizing:"border-box"}}/>
         </div>
         <div>
-          <label className="lbl" style={{color:"#93c5fd"}}>Region</label>
+          <label className="lbl" style={{color:"#93c5fd",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>Region</span>
+            <button type="button"
+              style={{background:"transparent",border:"1px solid #1e4a6e",color:"#93c5fd",
+                      borderRadius:4,fontSize:10,padding:"2px 8px",cursor:"pointer"}}
+              disabled={!ak||!sk}
+              title={(!ak||!sk) ? "Enter Access Key + Secret first" : "Probe every SES region in parallel and pick the one that authorizes"}
+              onClick={async()=>{
+                showToast("inf","Detecting…","Probing SES in every region — this takes ~5s.");
+                try {
+                  const r = await apiCall("/api/tools/aws-detect-region",{
+                    method:"POST",
+                    body: JSON.stringify({accessKey:ak, secretKey:sk, service:"ses"}),
+                  });
+                  const d = await r.json();
+                  if(d && d.primary) {
+                    setRegion(d.primary);
+                    showToast("ok","Detected", `Region: ${d.primary}` + (d.matched>1 ? ` (+${d.matched-1} more available)` : ""));
+                  } else if(d && d.error) {
+                    showToast("err","Detect failed", d.error);
+                  } else {
+                    showToast("err","No region matched","SES isn't enabled for this IAM key in any region.");
+                  }
+                } catch(e) {
+                  showToast("err","Detect error", e.message);
+                }
+              }}>🔍 Detect</button>
+          </label>
           <select value={region} onChange={e=>setRegion(e.target.value)}
             style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--tx)",fontSize:12,boxSizing:"border-box"}}>
-            {["us-east-1","us-east-2","us-west-1","us-west-2","eu-west-1","eu-west-2","eu-west-3","eu-central-1","eu-north-1","ap-southeast-1","ap-southeast-2","ap-northeast-1","ap-south-1","ca-central-1","sa-east-1"].map(r=>(
-              <option key={r} value={r}>{r}</option>
+            {AWS_SES_REGIONS.map(r=>(
+              <option key={r} value={r}>{r} — {AWS_REGION_LABEL[r]}</option>
             ))}
           </select>
         </div>
@@ -3666,9 +3740,35 @@ function TabMethod({
             )}
             {apiDraft.provider==="ses-api" && (
               <div style={{gridColumn:"1/-1"}}>
-                <label className="lbl">Region</label>
+                <label className="lbl" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span>Region</span>
+                  <button type="button"
+                    className="btn btn-g btn-xs"
+                    disabled={!apiDraft.key||!apiDraft.secret}
+                    title={(!apiDraft.key||!apiDraft.secret) ? "Enter IAM Access Key + Secret first" : "Probe every SES region in parallel and pick the one that authorizes"}
+                    onClick={async()=>{
+                      showToast("inf","Detecting…","Probing SES in every region — this takes ~5s.");
+                      try {
+                        const r = await apiCall("/api/tools/aws-detect-region",{
+                          method:"POST",
+                          body: JSON.stringify({accessKey:apiDraft.key, secretKey:apiDraft.secret, service:"ses"}),
+                        });
+                        const d = await r.json();
+                        if(d && d.primary) {
+                          setApiDraft({...apiDraft, region:d.primary});
+                          showToast("ok","Detected", `Region: ${d.primary}` + (d.matched>1 ? ` (+${d.matched-1} more available)` : ""));
+                        } else if(d && d.error) {
+                          showToast("err","Detect failed", d.error);
+                        } else {
+                          showToast("err","No region matched","SES isn't enabled for this IAM key in any region.");
+                        }
+                      } catch(e) {
+                        showToast("err","Detect error", e.message);
+                      }
+                    }}>🔍 Detect</button>
+                </label>
                 <select value={apiDraft.region||"us-east-1"} onChange={e=>setApiDraft({...apiDraft,region:e.target.value})} style={{fontSize:14,padding:"10px 12px"}}>
-                  {["us-east-1","us-west-2","eu-west-1","eu-central-1","ap-southeast-2","ca-central-1"].map(r=><option key={r}>{r}</option>)}
+                  {AWS_SES_REGIONS.map(r=><option key={r} value={r}>{r} — {AWS_REGION_LABEL[r]}</option>)}
                 </select>
               </div>
             )}
@@ -6412,8 +6512,8 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
                 </div>
                 <div><label className="lbl">Region</label>
                   <select value={s3Region} onChange={e=>setS3Region(e.target.value)} style={{fontSize:14,padding:"10px 12px",width:"100%",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)"}}>
-                    {["us-east-1","us-east-2","us-west-1","us-west-2","ca-central-1","eu-west-1","eu-west-2","eu-central-1","eu-north-1","ap-southeast-1","ap-southeast-2","ap-northeast-1","ap-northeast-2","ap-south-1","sa-east-1"].map(r=>(
-                      <option key={r} value={r}>{r}</option>
+                    {AWS_REGIONS_ALL.map(r=>(
+                      <option key={r} value={r}>{r} — {AWS_REGION_LABEL[r]}</option>
                     ))}
                   </select>
                 </div>
@@ -6903,8 +7003,8 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
                   <label className="lbl">AWS Region <span className="dim2 xs">(SES only)</span></label>
                   <select value={espRegion} onChange={e=>setEspRegion(e.target.value)}
                     style={{fontSize:14,padding:"10px 12px",width:"100%",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)"}}>
-                    {["us-east-1","us-east-2","us-west-1","us-west-2","eu-west-1","eu-west-2","eu-central-1","ap-southeast-1","ap-northeast-1","ap-south-1","ca-central-1","sa-east-1"].map(r=>(
-                      <option key={r} value={r}>{r}</option>
+                    {AWS_SES_REGIONS.map(r=>(
+                      <option key={r} value={r}>{r} — {AWS_REGION_LABEL[r]}</option>
                     ))}
                   </select>
                 </div>
