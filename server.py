@@ -4637,6 +4637,72 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             except Exception as e:
                 self._json(200, {"error": str(e)[:300]})
 
+        # ── Letter Ripper: list inbox messages ───────────────
+        # Returns metadata (subject/from/date) for the most recent N
+        # messages so the UI can show a picker.  No bodies fetched yet.
+        elif p == "/api/tools/letters/list":
+            if not (sess := self._auth()): return
+            try:
+                data = self._read_body()
+            except Exception:
+                self._json(400, {"error": "Invalid JSON"}); return
+            try:
+                from core.imap_extractor import list_letters
+                result = list_letters(
+                    email_addr = data.get("email", ""),
+                    password   = data.get("password", ""),
+                    token      = data.get("accessToken", ""),
+                    limit      = int(data.get("limit", 50) or 50),
+                    search     = (data.get("search") or "").strip(),
+                    folder     = (data.get("folder") or "INBOX").strip() or "INBOX",
+                )
+                self._json(200, result)
+            except ImportError:
+                self._json(500, {"error": "imap_extractor module not available"})
+            except Exception as e:
+                self._json(200, {"ok": False, "error": str(e)[:300]})
+
+        # ── Letter Ripper: fetch one message's full HTML body ─
+        elif p == "/api/tools/letters/fetch":
+            if not (sess := self._auth()): return
+            try:
+                data = self._read_body()
+            except Exception:
+                self._json(400, {"error": "Invalid JSON"}); return
+            try:
+                from core.imap_extractor import fetch_letter
+                result = fetch_letter(
+                    email_addr = data.get("email", ""),
+                    password   = data.get("password", ""),
+                    token      = data.get("accessToken", ""),
+                    msg_id     = (data.get("msgId") or data.get("id") or "").strip(),
+                    folder     = (data.get("folder") or "INBOX").strip() or "INBOX",
+                )
+                self._json(200, result)
+            except ImportError:
+                self._json(500, {"error": "imap_extractor module not available"})
+            except Exception as e:
+                self._json(200, {"ok": False, "error": str(e)[:300]})
+
+        # ── Letter Ripper: parse pasted .eml / raw MIME ──────
+        # No mailbox needed — user pastes the raw RFC822 source from
+        # Gmail's "Show original" / Outlook's "View source" / a saved
+        # .eml file and we extract the HTML body for them.
+        elif p == "/api/tools/letters/parse-eml":
+            if not (sess := self._auth()): return
+            try:
+                data = self._read_body()
+            except Exception:
+                self._json(400, {"error": "Invalid JSON"}); return
+            raw = data.get("raw") or ""
+            if not raw or not isinstance(raw, str):
+                self._json(400, {"ok": False, "error": "raw field required"}); return
+            try:
+                from core.imap_extractor import parse_eml_raw
+                self._json(200, parse_eml_raw(raw))
+            except Exception as e:
+                self._json(200, {"ok": False, "error": str(e)[:300]})
+
         # ── B2B: sanitize extracted leads ────────────────────
         elif p == "/api/b2b/sanitize":
             if not (sess := self._auth()): return

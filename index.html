@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.26.20260507-events-json">
+  <meta name="version" content="v5.27.20260507-letter-ripper">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -5620,7 +5620,9 @@ function TabFiles({filesList, uploadFile, deleteFile, renameFile, fileUploadLoad
 /* ════════════════════════════════════════
    TAB: TOOLS
 ════════════════════════════════════════ */
-function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab}) {
+function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
+                   setSubject, setHtmlBody, setPlainBody,
+                   showPopup, addLog}) {
   const [tTool, setTTool] = useState("extractor");
   // Extractor state
   const [exEmail, setExEmail] = useState("");
@@ -5667,6 +5669,96 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab}) {
   const [s3CfDomain, setS3CfDomain]     = useState(localStorage.getItem("st_cf_domain")||"");
   const [s3Loading, setS3Loading]       = useState(false);
   const [s3Results, setS3Results]       = useState([]);
+
+  // ── Letter Ripper ──
+  // Pulls the HTML body out of an existing email — either by logging
+  // into the user's mailbox via IMAP / OAuth and listing recent
+  // messages, or by parsing a pasted .eml / raw RFC822 dump.
+  // The 'Use as Template' button on each result drops the HTML +
+  // subject straight into the Compose tab.
+  const [lripEmail,    setLripEmail]    = useState(localStorage.getItem("st_lrip_email")||"");
+  const [lripPass,     setLripPass]     = useState("");
+  const [lripSearch,   setLripSearch]   = useState("");
+  const [lripLimit,    setLripLimit]    = useState(50);
+  const [lripLoading,  setLripLoading]  = useState(false);
+  const [lripLetters,  setLripLetters]  = useState([]);
+  const [lripError,    setLripError]    = useState("");
+  const [lripFetching, setLripFetching] = useState(null);   // letter id we're fetching
+  const [lripPreview,  setLripPreview]  = useState(null);   // {html, plain, subject, from, ...}
+  const [lripPasteRaw, setLripPasteRaw] = useState("");
+  const [lripMode,     setLripMode]     = useState("inbox"); // 'inbox' | 'paste'
+  React.useEffect(()=>{ localStorage.setItem("st_lrip_email", lripEmail||""); }, [lripEmail]);
+
+  async function loadLetters() {
+    if(!lripEmail || !lripPass) {
+      setLripError("Email + password (or App Password) required");
+      return;
+    }
+    setLripLoading(true); setLripError(""); setLripLetters([]); setLripPreview(null);
+    try {
+      const r = await apiCall("/api/tools/letters/list",{method:"POST",body:JSON.stringify({
+        email: lripEmail.trim(), password: lripPass,
+        limit: parseInt(lripLimit)||50,
+        search: (lripSearch||"").trim(),
+      })});
+      const d = await r.json();
+      if(!d.ok) {
+        setLripError(d.error || "Failed to list messages");
+        return;
+      }
+      setLripLetters(d.letters||[]);
+    } catch(e) {
+      setLripError(e.message);
+    } finally {
+      setLripLoading(false);
+    }
+  }
+
+  async function fetchLetter(letter) {
+    setLripFetching(letter.id); setLripError(""); setLripPreview(null);
+    try {
+      const r = await apiCall("/api/tools/letters/fetch",{method:"POST",body:JSON.stringify({
+        email: lripEmail.trim(), password: lripPass, msgId: letter.id,
+      })});
+      const d = await r.json();
+      if(!d.ok) {
+        setLripError(d.error || "Failed to fetch message");
+        return;
+      }
+      setLripPreview({...d, _meta: letter});
+    } catch(e) {
+      setLripError(e.message);
+    } finally {
+      setLripFetching(null);
+    }
+  }
+
+  async function parsePastedEml() {
+    if(!lripPasteRaw.trim()) {
+      setLripError("Paste raw RFC822 / .eml content first");
+      return;
+    }
+    setLripLoading(true); setLripError(""); setLripPreview(null);
+    try {
+      const r = await apiCall("/api/tools/letters/parse-eml",{method:"POST",body:JSON.stringify({
+        raw: lripPasteRaw,
+      })});
+      const d = await r.json();
+      if(!d.ok) {
+        setLripError(d.error || "Failed to parse");
+        return;
+      }
+      if(!d.html && !d.plain) {
+        setLripError("No HTML or plain-text body found in this message");
+        return;
+      }
+      setLripPreview({...d, _meta:{from:d.from, fromName:d.fromName, subject:d.subject, date:d.date}});
+    } catch(e) {
+      setLripError(e.message);
+    } finally {
+      setLripLoading(false);
+    }
+  }
 
   // ── Lambda Redirect Generator ──
   // Configurable AWS Lambda Function URL redirector code generator.
@@ -6191,6 +6283,7 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
         <button className={`tb ${tTool==="ipcheck"?"on":""}`} onClick={()=>setTTool("ipcheck")}>🛡️ IP Blacklist</button>
         <button className={`tb ${tTool==="s3redir"?"on":""}`} onClick={()=>setTTool("s3redir")}>☁️ S3 Redirects</button>
         <button className={`tb ${tTool==="lambdaredir"?"on":""}`} onClick={()=>setTTool("lambdaredir")}>λ Lambda Redirect</button>
+        <button className={`tb ${tTool==="letterripper"?"on":""}`} onClick={()=>setTTool("letterripper")}>📬 Letter Ripper</button>
         <button className={`tb ${tTool==="suppression"?"on":""}`} onClick={()=>setTTool("suppression")}>🚫 Suppression</button>
         <button className={`tb ${tTool==="seedaccounts"?"on":""}`} onClick={()=>setTTool("seedaccounts")}>📧 Seed Accounts</button>
         <button className={`tb ${tTool==="aiconfig"?"on":""}`} onClick={()=>setTTool("aiconfig")}>✨ AI Config</button>
@@ -6607,6 +6700,227 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
       )}
 
       {/* ─── LAMBDA REDIRECT GENERATOR ─── */}
+      {tTool==="letterripper" && (
+        <div>
+          <Info type="i">Pull the HTML body out of an existing email and reuse it as your campaign template. Two ways: <strong>connect to your inbox</strong> (IMAP / Gmail App Password / Outlook OAuth) and pick a message, or <strong>paste raw email source</strong> (from "Show original" in Gmail, "View source" in Outlook, or a saved <code>.eml</code> file).</Info>
+
+          <div className="tab-bar mt12 mb16">
+            <button className={`tb ${lripMode==="inbox"?"on":""}`} onClick={()=>setLripMode("inbox")}>📥 From Inbox</button>
+            <button className={`tb ${lripMode==="paste"?"on":""}`} onClick={()=>setLripMode("paste")}>📋 Paste Raw .eml</button>
+          </div>
+
+          {/* ── INBOX MODE ── */}
+          {lripMode==="inbox" && (
+            <div className="g2" style={{alignItems:"start"}}>
+              <div className="card">
+                <div className="card-title">📥 Connect to Mailbox</div>
+                <div className="dim sm mb12">
+                  Gmail / Yahoo / iCloud need an <strong>App Password</strong>, not your regular password.
+                  Outlook can use OAuth (button below).
+                </div>
+                <div className="col g12">
+                  <div>
+                    <label className="lbl">Email address</label>
+                    <input value={lripEmail} onChange={e=>setLripEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      style={{fontSize:14,padding:"10px 12px",fontFamily:"var(--font-mono)"}}/>
+                  </div>
+                  <div>
+                    <label className="lbl">App Password / IMAP password</label>
+                    <input type="password" value={lripPass} onChange={e=>setLripPass(e.target.value)}
+                      placeholder="app password"
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                  <div className="g2">
+                    <div>
+                      <label className="lbl">Search (optional)</label>
+                      <input value={lripSearch} onChange={e=>setLripSearch(e.target.value)}
+                        placeholder="newsletter / shipping / verification"
+                        style={{fontSize:14,padding:"10px 12px"}}/>
+                    </div>
+                    <div>
+                      <label className="lbl">How many to load</label>
+                      <input type="number" min={1} max={200} value={lripLimit}
+                        onChange={e=>setLripLimit(parseInt(e.target.value)||50)}
+                        style={{fontSize:14,padding:"10px 12px"}}/>
+                    </div>
+                  </div>
+                  <button className="btn btn-p" onClick={loadLetters} disabled={lripLoading||!lripEmail||!lripPass}>
+                    {lripLoading ? "Loading…" : "📥 Load Messages"}
+                  </button>
+                  {lripError && <div className="ib ib-e mt8"><span className="ib-ic">✗</span><span>{lripError}</span></div>}
+                </div>
+
+                {lripLetters.length>0 && (
+                  <div className="mt16">
+                    <div className="sm mb8" style={{fontWeight:600}}>{lripLetters.length} message{lripLetters.length===1?"":"s"} — click to load HTML</div>
+                    <div className="col g6" style={{maxHeight:"calc(100vh - 360px)",overflow:"auto"}}>
+                      {lripLetters.map(l => (
+                        <div key={l.id} className="card card-sm"
+                             style={{cursor:"pointer",
+                                     borderColor: lripPreview && lripPreview._meta && lripPreview._meta.id===l.id ? "var(--accent)" : undefined}}
+                             onClick={()=>fetchLetter(l)}>
+                          <div className="row jb ac-center">
+                            <div style={{flex:1,minWidth:0}}>
+                              <div className="sm" style={{fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{l.subject||"(no subject)"}</div>
+                              <div className="dim2 xs">{l.fromName ? `${l.fromName} <${l.from}>` : l.from} · {l.date}</div>
+                            </div>
+                            {lripFetching===l.id && <span className="dim2 xs">⏳</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT: preview + use-as-template */}
+              <div className="card">
+                <div className="card-title">👁 Letter Preview</div>
+                {!lripPreview && <div className="dim sm">Load messages on the left, then click one to preview its HTML.</div>}
+                {lripPreview && (
+                  <div>
+                    <div className="ib ib-i mb8 sm">
+                      <span className="ib-ic">📧</span>
+                      <div style={{minWidth:0,flex:1}}>
+                        <div style={{fontWeight:600}}>{lripPreview.subject||"(no subject)"}</div>
+                        <div className="dim2 xs">From: {lripPreview.fromName ? `${lripPreview.fromName} <${lripPreview.from}>` : lripPreview.from}</div>
+                        <div className="dim2 xs">{lripPreview.date} · {lripPreview.html ? `${(lripPreview.html.length/1024).toFixed(1)} KB HTML` : "plain only"}</div>
+                      </div>
+                    </div>
+
+                    {lripPreview.html ? (
+                      <div style={{background:"#fff",borderRadius:6,overflow:"auto",
+                                   border:"1px solid var(--border)",
+                                   height:"calc(100vh - 480px)",minHeight:300}}>
+                        <iframe srcDoc={lripPreview.html}
+                          style={{width:"100%",height:"100%",border:"none"}}
+                          sandbox="allow-same-origin"/>
+                      </div>
+                    ) : (
+                      <pre className="code" style={{maxHeight:300,overflow:"auto",fontSize:11,whiteSpace:"pre-wrap"}}>
+                        {lripPreview.plain||"(empty)"}
+                      </pre>
+                    )}
+
+                    <div className="row g8 mt12 ac-center" style={{flexWrap:"wrap"}}>
+                      <button className="btn btn-p btn-sm"
+                        onClick={()=>{
+                          if(lripPreview.html) setHtmlBody(lripPreview.html);
+                          if(lripPreview.plain) setPlainBody(lripPreview.plain);
+                          if(lripPreview.subject) setSubject(lripPreview.subject);
+                          addLog(`📋 Letter loaded into Compose: "${lripPreview.subject}"`,"inf");
+                          setTab("compose");
+                        }}>
+                        ✏️ Use as Template → Compose
+                      </button>
+                      <button className="btn btn-g btn-sm"
+                        onClick={()=>{ if(lripPreview.html) copyToClipboard(lripPreview.html); }}>
+                        📋 Copy HTML
+                      </button>
+                      <button className="btn btn-g btn-sm"
+                        onClick={()=>{
+                          const blob = lripPreview.html || lripPreview.plain || "";
+                          const a = document.createElement("a");
+                          a.href = "data:text/html;charset=utf-8,"+encodeURIComponent(blob);
+                          a.download = (lripPreview.subject||"letter").replace(/[^\w\.-]/g,"_").slice(0,60)+".html";
+                          a.click();
+                        }}>💾 Download</button>
+                      <span className="dim2 xs" style={{marginLeft:"auto"}}>
+                        Ripped HTML keeps the original styles, links, images.  Replace generic phrases with #FIRSTNAME etc. before sending.
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── PASTE MODE ── */}
+          {lripMode==="paste" && (
+            <div className="g2" style={{alignItems:"start"}}>
+              <div className="card">
+                <div className="card-title">📋 Paste Raw Email Source</div>
+                <div className="dim sm mb12">
+                  In Gmail open the email → ⋮ menu → <strong>Show original</strong> → copy everything from the "Original Message" section.<br/>
+                  In Outlook web → ⋮ menu → <strong>View → View message source</strong> → copy all.<br/>
+                  Or open a saved <code>.eml</code> file in any text editor and paste here.
+                </div>
+                <textarea value={lripPasteRaw} onChange={e=>setLripPasteRaw(e.target.value)}
+                  placeholder={"From: noreply@acme.com\nTo: you@example.com\nSubject: Welcome…\nMIME-Version: 1.0\nContent-Type: multipart/alternative; boundary=…\n\n…raw RFC822 content…"}
+                  style={{minHeight:280,fontFamily:"var(--font-mono)",fontSize:11,resize:"vertical"}}/>
+                <div className="row g8 mt12 ac-center">
+                  <button className="btn btn-p" onClick={parsePastedEml} disabled={lripLoading||!lripPasteRaw.trim()}>
+                    {lripLoading ? "Parsing…" : "🔍 Extract HTML"}
+                  </button>
+                  <button className="btn btn-g btn-sm" onClick={()=>{ setLripPasteRaw(""); setLripPreview(null); }}>Clear</button>
+                  <span className="dim2 xs" style={{marginLeft:"auto"}}>
+                    {lripPasteRaw ? `${lripPasteRaw.length.toLocaleString()} chars` : ""}
+                  </span>
+                </div>
+                {lripError && <div className="ib ib-e mt8"><span className="ib-ic">✗</span><span>{lripError}</span></div>}
+              </div>
+
+              <div className="card">
+                <div className="card-title">👁 Extracted Letter</div>
+                {!lripPreview && <div className="dim sm">Paste raw email source on the left and click "Extract HTML".</div>}
+                {lripPreview && (
+                  <div>
+                    <div className="ib ib-i mb8 sm">
+                      <span className="ib-ic">📧</span>
+                      <div style={{minWidth:0,flex:1}}>
+                        <div style={{fontWeight:600}}>{lripPreview.subject||"(no subject)"}</div>
+                        <div className="dim2 xs">From: {lripPreview.fromName ? `${lripPreview.fromName} <${lripPreview.from}>` : lripPreview.from}</div>
+                        <div className="dim2 xs">{lripPreview.date} · {lripPreview.html ? `${(lripPreview.html.length/1024).toFixed(1)} KB HTML` : "plain only"}</div>
+                      </div>
+                    </div>
+
+                    {lripPreview.html ? (
+                      <div style={{background:"#fff",borderRadius:6,overflow:"auto",
+                                   border:"1px solid var(--border)",
+                                   height:"calc(100vh - 480px)",minHeight:300}}>
+                        <iframe srcDoc={lripPreview.html}
+                          style={{width:"100%",height:"100%",border:"none"}}
+                          sandbox="allow-same-origin"/>
+                      </div>
+                    ) : (
+                      <pre className="code" style={{maxHeight:300,overflow:"auto",fontSize:11,whiteSpace:"pre-wrap"}}>
+                        {lripPreview.plain||"(empty)"}
+                      </pre>
+                    )}
+
+                    <div className="row g8 mt12 ac-center" style={{flexWrap:"wrap"}}>
+                      <button className="btn btn-p btn-sm"
+                        onClick={()=>{
+                          if(lripPreview.html) setHtmlBody(lripPreview.html);
+                          if(lripPreview.plain) setPlainBody(lripPreview.plain);
+                          if(lripPreview.subject) setSubject(lripPreview.subject);
+                          addLog(`📋 Letter loaded into Compose: "${lripPreview.subject}"`,"inf");
+                          setTab("compose");
+                        }}>
+                        ✏️ Use as Template → Compose
+                      </button>
+                      <button className="btn btn-g btn-sm"
+                        onClick={()=>{ if(lripPreview.html) copyToClipboard(lripPreview.html); }}>
+                        📋 Copy HTML
+                      </button>
+                      <button className="btn btn-g btn-sm"
+                        onClick={()=>{
+                          const blob = lripPreview.html || lripPreview.plain || "";
+                          const a = document.createElement("a");
+                          a.href = "data:text/html;charset=utf-8,"+encodeURIComponent(blob);
+                          a.download = (lripPreview.subject||"letter").replace(/[^\w\.-]/g,"_").slice(0,60)+".html";
+                          a.click();
+                        }}>💾 Download</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {tTool==="lambdaredir" && (
         <div>
           <Info type="i">Generates a self-contained <strong>AWS Lambda Function URL</strong> redirector with the routing strategy you choose. Paste the output into a Python 3.x Lambda — no extra packages required (boto3 is built-in for the S3-key and click-tracking modes).</Info>
@@ -9177,7 +9491,9 @@ function App() {
       case "attachments": return <>{isMobile&&<MobTopBar/>}<TabAttachments filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} selectedType={selectedType} setSelectedType={setSelectedType} attachConfig={attachConfig} setAttachConfig={setAttachConfig}/>{isMobile&&<MobSpacer/>}</>;
       case "tags":        return <>{isMobile&&<MobTopBar/>}<TabTagsTemplates setHtmlBody={setHtmlBody} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
       case "files":       return <>{isMobile&&<MobTopBar/>}<TabFiles filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} fileUploadLoading={fileUploadLoading}/>{isMobile&&<MobSpacer/>}</>;
-      case "tools":       return <>{isMobile&&<MobTopBar/>}<TabTools filesList={filesList} uploadFile={uploadFile} setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
+      case "tools":       return <>{isMobile&&<MobTopBar/>}<TabTools filesList={filesList} uploadFile={uploadFile} setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}
+                                          setSubject={setSubject} setHtmlBody={setHtmlBody} setPlainBody={setPlainBody}
+                                          showPopup={showPopup} addLog={addLog}/>{isMobile&&<MobSpacer/>}</>;
       case "account":     return <>{isMobile&&<MobTopBar/>}<TabAccount username={username} role={role} doLogout={doLogout}
                                           updateInfo={updateInfo} updateApplying={updateApplying}
                                           updateAutoCheck={updateAutoCheck} setUpdateAutoCheck={setUpdateAutoCheck}

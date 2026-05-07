@@ -401,3 +401,292 @@ def _extract_imap(conn, prov, limit, filter_generic):
 # core/server.py imports this name; the canonical implementation is
 # extract_inbox_simple above.
 extract_from_inbox = extract_inbox_simple
+
+
+# ═══════════════════════════════════════════════════════════════════
+# LETTER RIPPER  —  pull full HTML bodies out of a mailbox
+# ═══════════════════════════════════════════════════════════════════
+# Two endpoints' worth of helpers:
+#   list_letters()  → metadata (subject/from/date/size) for the most
+#                     recent N messages (or matching a search query).
+#   fetch_letter()  → full HTML body (and plain fallback) for one msg.
+#   parse_eml_raw() → take a pasted .eml / RFC822 string and pull HTML
+#                     out without ever touching IMAP.
+# All three return {ok, ..., error?, hint?} in the same shape as the
+# existing extract_inbox_simple() helper.
+
+def _decode_header_value(raw) -> str:
+    if not raw:
+        return ""
+    try:
+        parts = _decode_hdr(raw)
+    except Exception:
+        return str(raw)
+    out = ""
+    for p, c in parts:
+        if isinstance(p, bytes):
+            try: out += p.decode(c or "utf-8", errors="replace")
+            except Exception: out += p.decode("utf-8", errors="replace")
+        else:
+            out += p
+    return out
+
+
+def _walk_for_html(msg):
+    """Return (html_str, plain_str) — best-effort extraction.
+    Prefers the highest-quality text/html part, falls back to text/plain.
+    """
+    html_part  = None
+    plain_part = None
+    try:
+        if msg.is_multipart():
+            for part in msg.walk():
+                ctype = (part.get_content_type() or "").lower()
+                disp  = (part.get("Content-Disposition") or "").lower()
+                if "attachment" in disp:
+                    continue
+                if ctype == "text/html" and html_part is None:
+                    html_part = part
+                elif ctype == "text/plain" and plain_part is None:
+                    plain_part = part
+        else:
+            ctype = (msg.get_content_type() or "").lower()
+            if ctype == "text/html":
+                html_part = msg
+            elif ctype == "text/plain":
+                plain_part = msg
+    except Exception:
+        pass
+
+    def _decode(part):
+        if part is None:
+            return ""
+        try:
+            payload = part.get_payload(decode=True)
+            if payload is None:
+                return ""
+            charset = part.get_content_charset() or "utf-8"
+            try: return payload.decode(charset, errors="replace")
+            except (LookupError, UnicodeDecodeError):
+                return payload.decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+    return _decode(html_part), _decode(plain_part)
+
+
+def list_letters(email_addr, password, token=None, limit=50,
+                 search="", folder="INBOX"):
+    """List recent messages with metadata for selection in the UI.
+
+    Returns:
+        {ok: True, letters: [{id, from, fromName, subject, date, size}], total}
+        OR
+        {ok: False, error, hint?, needs_app_pw?, needs_device_code?}
+    """
+    prov  = detect_provider(email_addr)
+    ptype = prov["type"]
+    limit = max(1, min(int(limit or 50), 200))
+
+    # Microsoft Graph path (OAuth) — used when we have a token already
+    # or when the provider is MS-flavoured.
+    if (ptype in ("ms", "unknown") and token) or (ptype == "ms" and token):
+        try:
+            import urllib.parse as _up
+            h = {"Authorization": f"Bearer {token}"}
+            qs = {"$select": "id,from,subject,receivedDateTime,bodyPreview",
+                  "$orderby": "receivedDateTime desc",
+                  "$top":     limit}
+            if search:
+                qs["$search"] = f'"{search}"'
+            url = f"{GRAPH}/me/mailFolders/Inbox/messages?" + _up.urlencode(qs)
+            r = _req.get(url, headers=h, timeout=30)
+            if not r.ok:
+                return {"ok": False, "error": f"Graph {r.status_code}: {r.text[:200]}"}
+            data = r.json()
+            msgs = data.get("value", [])
+            letters = []
+            for m in msgs:
+                frm = (m.get("from") or {}).get("emailAddress") or {}
+                letters.append({
+                    "id":       m.get("id"),
+                    "from":     (frm.get("address") or "").lower(),
+                    "fromName": frm.get("name") or "",
+                    "subject":  m.get("subject") or "",
+                    "date":     (m.get("receivedDateTime") or "")[:19].replace("T", " "),
+                    "snippet":  (m.get("bodyPreview") or "")[:140],
+                    "source":   "graph",
+                })
+            return {"ok": True, "letters": letters, "total": len(letters), "source": "graph"}
+        except Exception as e:
+            return {"ok": False, "error": f"Graph error: {e}"}
+
+    # IMAP path
+    conn, err = imap_login(prov, email_addr, password)
+    if not conn and ptype == "unknown":
+        for probe_host in [f"imap.{prov['domain']}", f"mail.{prov['domain']}"]:
+            probe_prov = dict(prov, host=probe_host)
+            conn, _ = imap_login(probe_prov, email_addr, password)
+            if conn:
+                prov = probe_prov; break
+    if not conn:
+        if "needs_app_pw" in (err or ""):
+            return {"ok": False, "error": "App Password required",
+                    "hint": prov.get("app_pw_hint") or "Use an App Password.",
+                    "needs_app_pw": True,
+                    "app_pw_url":  prov.get("app_pw_url", ""),
+                    "app_pw_hint": prov.get("app_pw_hint", "")}
+        return {"ok": False, "error": err or "Could not connect",
+                "hint": "Check IMAP is enabled.  For Gmail/Yahoo/iCloud use an App Password."}
+
+    try:
+        st, _ = conn.select(folder, readonly=True)
+        if st != "OK":
+            return {"ok": False, "error": f"Could not open {folder}"}
+        if search:
+            # IMAP SEARCH on multiple fields — combine with OR.
+            crit = f'(OR OR SUBJECT "{search}" FROM "{search}" BODY "{search}")'
+            st, msgs = conn.search(None, crit)
+        else:
+            st, msgs = conn.search(None, "ALL")
+        if st != "OK":
+            return {"ok": False, "error": "IMAP search failed"}
+        ids = msgs[0].split()
+        if limit and limit < len(ids):
+            ids = ids[-limit:]   # most recent N
+        ids = list(reversed(ids))   # newest first
+        letters = []
+        if not ids:
+            try: conn.close(); conn.logout()
+            except Exception: pass
+            return {"ok": True, "letters": [], "total": 0}
+        id_str = b",".join(ids).decode()
+        try:
+            st2, data = conn.fetch(id_str,
+                "(BODY.PEEK[HEADER.FIELDS (FROM DATE SUBJECT)] RFC822.SIZE)")
+        except Exception as e:
+            try: conn.close(); conn.logout()
+            except Exception: pass
+            return {"ok": False, "error": f"IMAP fetch failed: {e}"}
+        # Pair UID + headers — IMAP returns interleaved tuples.
+        i_iter = iter(ids)
+        for part in (data or []):
+            if not isinstance(part, tuple):
+                continue
+            try:
+                seq_id = next(i_iter).decode()
+            except StopIteration:
+                seq_id = ""
+            raw = part[1] if isinstance(part[1], bytes) else b""
+            try:
+                msg = _email.message_from_bytes(raw)
+            except Exception:
+                continue
+            addr, name = _parse_from(msg.get("From", ""))
+            letters.append({
+                "id":       seq_id,
+                "from":     addr or "",
+                "fromName": name or "",
+                "subject":  _decode_header_value(msg.get("Subject", ""))[:200],
+                "date":     (msg.get("Date") or "")[:30],
+                "snippet":  "",
+                "source":   "imap",
+            })
+        try: conn.close(); conn.logout()
+        except Exception: pass
+        return {"ok": True, "letters": letters, "total": len(letters), "source": "imap"}
+    except Exception as e:
+        try: conn.close(); conn.logout()
+        except Exception: pass
+        return {"ok": False, "error": str(e)[:200]}
+
+
+def fetch_letter(email_addr, password, token=None, msg_id="", folder="INBOX"):
+    """Fetch one message and return its HTML body + headers.
+
+    Returns:
+        {ok: True, html, plain, subject, from, fromName, date, size}
+        OR
+        {ok: False, error, hint?}
+    """
+    if not msg_id:
+        return {"ok": False, "error": "msg_id required"}
+    prov  = detect_provider(email_addr)
+    ptype = prov["type"]
+
+    if (ptype in ("ms", "unknown") and token) or (ptype == "ms" and token):
+        try:
+            h = {"Authorization": f"Bearer {token}"}
+            url = f"{GRAPH}/me/messages/{msg_id}?$select=subject,from,receivedDateTime,body,bodyPreview"
+            r = _req.get(url, headers=h, timeout=30)
+            if not r.ok:
+                return {"ok": False, "error": f"Graph {r.status_code}: {r.text[:200]}"}
+            m = r.json()
+            body  = m.get("body") or {}
+            ctype = (body.get("contentType") or "").lower()
+            content = body.get("content") or ""
+            html  = content if ctype == "html" else ""
+            plain = content if ctype != "html" else (m.get("bodyPreview") or "")
+            frm   = (m.get("from") or {}).get("emailAddress") or {}
+            return {
+                "ok":       True,
+                "html":     html,
+                "plain":    plain,
+                "subject":  m.get("subject") or "",
+                "from":     (frm.get("address") or "").lower(),
+                "fromName": frm.get("name") or "",
+                "date":     (m.get("receivedDateTime") or "")[:19].replace("T", " "),
+                "size":     len(content),
+            }
+        except Exception as e:
+            return {"ok": False, "error": f"Graph error: {e}"}
+
+    conn, err = imap_login(prov, email_addr, password)
+    if not conn:
+        return {"ok": False, "error": err or "IMAP login failed"}
+    try:
+        st, _ = conn.select(folder, readonly=True)
+        if st != "OK":
+            return {"ok": False, "error": f"Could not open {folder}"}
+        st2, data = conn.fetch(msg_id.encode() if isinstance(msg_id, str) else msg_id,
+                                "(RFC822)")
+        if st2 != "OK" or not data:
+            return {"ok": False, "error": "Message not found"}
+        raw = b""
+        for part in data:
+            if isinstance(part, tuple) and isinstance(part[1], bytes):
+                raw = part[1]; break
+        try: conn.close(); conn.logout()
+        except Exception: pass
+        if not raw:
+            return {"ok": False, "error": "Empty message body"}
+        return parse_eml_raw(raw)
+    except Exception as e:
+        try: conn.close(); conn.logout()
+        except Exception: pass
+        return {"ok": False, "error": str(e)[:200]}
+
+
+def parse_eml_raw(raw):
+    """Parse a raw RFC822 / .eml byte-string or text and extract HTML."""
+    if isinstance(raw, str):
+        raw_bytes = raw.encode("utf-8", errors="replace")
+    else:
+        raw_bytes = raw
+    try:
+        msg = _email.message_from_bytes(raw_bytes)
+    except Exception as e:
+        return {"ok": False, "error": f"Could not parse RFC822: {e}"}
+    html, plain = _walk_for_html(msg)
+    addr, name  = _parse_from(msg.get("From", ""))
+    subject     = _decode_header_value(msg.get("Subject", ""))
+    return {
+        "ok":       True,
+        "html":     html or "",
+        "plain":    plain or "",
+        "subject":  subject or "",
+        "from":     addr or "",
+        "fromName": name or "",
+        "date":     (msg.get("Date") or "")[:30],
+        "size":     len(raw_bytes),
+    }
