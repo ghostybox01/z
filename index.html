@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.29.20260507-paste-detect">
+  <meta name="version" content="v5.30.20260507-stuck-detect">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -8316,7 +8316,14 @@ function TabAccount({username, role, doLogout,
       {aTab==="updates" && (
         <div className="g2" style={{alignItems:"start"}}>
           <div className="card">
-            <div className="card-title">🔄 GitHub Updates</div>
+            <div className="row jb ac-center mb8">
+              <div className="card-title" style={{margin:0}}>🔄 GitHub Updates</div>
+              {updateInfo && updateInfo.current_sha && (
+                <span className="bdg bdg-n" style={{fontFamily:"var(--font-mono)",fontSize:11}}>
+                  Installed: {updateInfo.current_sha.slice(0,7)}
+                </span>
+              )}
+            </div>
             <div className="dim sm mb12">
               SynthTel periodically checks <code>{(updateInfo&&updateInfo.owner)||"GitHub"}/
               {(updateInfo&&updateInfo.repo)||"repo"}@{(updateInfo&&updateInfo.branch)||"main"}</code> for newer versions.
@@ -8719,6 +8726,10 @@ function App() {
   const remoteRunningRef = useRef(false);
   const campEventCursor = useRef(0);   // index of next event to fetch
   const campSeenDone    = useRef(false);
+  // Stuck-detector: server-side stats moving while panel events stuck at 0
+  // is the classic 'old cached frontend' / 'JSON serialization broke' pair.
+  // We surface a warning so the user knows to hard-refresh / update.
+  const campStuckWarned = useRef(false);
   useEffect(() => { remoteRunningRef.current = remoteRunning; }, [remoteRunning]);
   useEffect(()=>{
     if(!token) return;
@@ -8734,10 +8745,37 @@ function App() {
           remoteRunningRef.current = true;
           setCampRunning(true);
           setCampPaused((d.live.status||"") === "paused");
+          // Mirror live counters from the server so the panel matches
+          // what Telegram is showing.  Without this, if event-replay is
+          // ever broken the panel would show 0/0 forever even though
+          // server-side stats are climbing.
           setCampStats(s => ({
             ...s,
-            total: d.live.total||s.total||0,
+            total:  d.live.total  || s.total  || 0,
+            sent:   Math.max(s.sent   || 0, d.live.sent   || 0),
+            failed: Math.max(s.failed || 0, d.live.failed || 0),
+            pending: Math.max(0,
+              (d.live.total||s.total||0) -
+              Math.max(s.sent||0, d.live.sent||0) -
+              Math.max(s.failed||0, d.live.failed||0)),
           }));
+          // Stuck check: server says X sent, panel events never delivered
+          // any successes (cursor at 0 after a few polls means the events
+          // endpoint isn't serialising — old code).  Warn once.
+          if (!campStuckWarned.current
+              && (d.live.sent > 0 || d.live.failed > 0)
+              && campEventCursor.current === 0
+              && (!Array.isArray(d.events) || d.events.length === 0)) {
+            campStuckWarned.current = true;
+            addLog(
+              "⚠ Panel out of sync with server.  Live counters now mirroring "
+              + "Telegram, but per-recipient log lines aren't streaming — "
+              + "your browser may be caching an old UI.  Hard-refresh "
+              + "(Ctrl+Shift+R / Cmd+Shift+R) or run "
+              + "Account → 🔄 Updates → Update now.",
+              "wrn"
+            );
+          }
         }
         // Drain new events into the existing handler.  We replay from
         // the cursor so the live log stays in sync after a refresh.
@@ -9102,6 +9140,7 @@ function App() {
     // Reset the polling cursor so we replay all events of this run from idx 0.
     campEventCursor.current = 0;
     campSeenDone.current = false;
+    campStuckWarned.current = false;
     window._lastCampDoneSeen = false;
     try {
       const r = await apiCall("/api/send",{method:"POST",body:JSON.stringify(payload)});
