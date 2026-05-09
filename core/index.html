@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.31.20260507-bulk-smtp">
+  <meta name="version" content="v5.32.20260509-bulk-order">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -3602,17 +3602,27 @@ function TabMethod({
     return {host, port, username, password, ssl};
   }
 
+  // 'replace' mode wipes smtpList and adopts the imported (in-order) list
+  // as the only source.  Default is append (safer); user opts in via the
+  // checkbox in the bulk card.
+  const [bulkReplaceList, setBulkReplaceList] = useState(false);
+
   function parseBulkSmtps() {
     const lines = (bulkRaw||"").split(/\r?\n/);
     const seen = new Set();
     const out = [];
+    let idx = 0;
     for (const line of lines) {
       const p = parseBulkLine(line);
       if (!p || !p.host) continue;
       const key = `${p.host}:${p.port}:${p.username}`.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({...p, _keep:true, _status:null, _msg:"", _latency:null});
+      // _idx is the canonical position from the input.  Every later step
+      // (validation, import) sorts by _idx so the imported list is
+      // guaranteed to match the order the user pasted, regardless of
+      // the order the parallel SMTP probes finished in.
+      out.push({...p, _idx: idx++, _keep:true, _status:null, _msg:"", _latency:null});
     }
     setBulkParsed(out);
     setBulkProgress({done:0, total:out.length, ok:0, fail:0});
@@ -3626,10 +3636,18 @@ function TabMethod({
     setBulkProgress({done:0, total:candidates.length, ok:0, fail:0});
     // Reset all statuses
     setBulkParsed(p => p.map(x => x._keep ? {...x,_status:"pending",_msg:"",_latency:null} : x));
+
+    // Build the request in candidate order, but keep a sidecar map
+    // request_idx → bulkParsed _idx so streamed results map back
+    // unambiguously even if two rows share host/port/user (which
+    // dedup prevents but defensively guarded).
+    const reqList = candidates.map(({_idx,_keep,_status,_msg,_latency,...rest})=>rest);
+    const reqIdxToBulkIdx = candidates.map(c => c._idx);
+
     try {
       const r = await apiCall("/api/test-smtp/bulk",{
         method:"POST",
-        body: JSON.stringify({servers: candidates.map(({_keep,_status,_msg,_latency,...rest})=>rest)}),
+        body: JSON.stringify({servers: reqList}),
       });
       if (!r.ok) { showToast("err","Failed","HTTP "+r.status); setBulkValidating(false); return; }
       const reader = r.body.getReader(), dec = new TextDecoder();
@@ -3643,8 +3661,10 @@ function TabMethod({
           if (!ln.trim()) continue;
           let ev; try { ev = JSON.parse(ln); } catch(e){ continue; }
           if (ev.type === "result") {
+            // Map server's request_idx → our bulkParsed _idx via the sidecar.
+            const targetBulkIdx = reqIdxToBulkIdx[ev.idx];
             setBulkParsed(prev => prev.map(p =>
-              (p.host===ev.host && p.port==ev.port && (p.username||"")===(ev.username||""))
+              p._idx === targetBulkIdx
                 ? {...p, _status: ev.ok ? "ok":"fail", _msg: ev.message, _latency: ev.latency_ms}
                 : p));
             setBulkProgress({done:ev.done, total:ev.total,
@@ -3663,24 +3683,48 @@ function TabMethod({
   }
 
   function addWorkingToList(onlyOk) {
-    const winners = bulkParsed.filter(p => p._keep && (onlyOk ? p._status==="ok" : true));
+    // CRITICAL: sort by _idx so winners always go in the input order
+    // the user pasted, NOT the order parallel validations finished in.
+    const winners = bulkParsed
+      .filter(p => p._keep && (onlyOk ? p._status==="ok" : true))
+      .slice()
+      .sort((a, b) => (a._idx ?? 0) - (b._idx ?? 0));
     if (!winners.length) { showToast("err","Empty","Nothing to add"); return; }
+
+    if (bulkReplaceList) {
+      // Replace: wipe existing list and adopt the imported list 1:1
+      // in input order.  Useful when the bulk paste IS the canonical
+      // SMTP list and the user wants sequential rotation in that order.
+      const out = winners.map((w,i) => ({
+        host:w.host, port:w.port, username:w.username,
+        password:w.password, ssl:!!w.ssl, id:Date.now()+i,
+      }));
+      setSmtpList(out);
+      setBulkAddedMsg(`✓ Replaced list with ${out.length} SMTP${out.length===1?"":"s"} in input order`);
+      showToast("ok","Replaced", `Configured Servers list now has ${out.length} entries in your paste order`);
+      return;
+    }
+
+    // Append: add new rows after existing ones, deduped by host:port:user.
     const existing = new Set(smtpList.map(s => `${s.host}:${s.port}:${s.username}`.toLowerCase()));
-    let added = 0;
+    let added = 0, skipped = 0;
     setSmtpList(prev => {
       const out = [...prev];
       for (const w of winners) {
         const key = `${w.host}:${w.port}:${w.username}`.toLowerCase();
-        if (existing.has(key)) continue;
+        if (existing.has(key)) { skipped++; continue; }
         existing.add(key);
         out.push({host:w.host, port:w.port, username:w.username,
-                  password:w.password, ssl:w.ssl, id:Date.now()+added});
+                  password:w.password, ssl:!!w.ssl, id:Date.now()+added});
         added++;
       }
       return out;
     });
-    setBulkAddedMsg(`✓ Added ${added} new SMTP${added===1?"":"s"} (${winners.length-added} duplicates skipped)`);
-    showToast("ok","Added", `${added} SMTP${added===1?"":"s"} added to your list`);
+    setBulkAddedMsg(
+      `✓ Appended ${added} SMTP${added===1?"":"s"} in input order`
+      + (skipped ? ` (${skipped} duplicate${skipped===1?"":"s"} skipped)` : "")
+    );
+    showToast("ok","Added", `${added} SMTP${added===1?"":"s"} added to your list (in paste order)`);
   }
 
   async function testSmtp(smtp, key) {
@@ -3760,6 +3804,11 @@ function TabMethod({
               <code style={{margin:"0 4px"}}>host|port|user|pass</code> ·
               <code style={{margin:"0 4px"}}>{`{"host":...,"port":...}`}</code>
               · or a <code>.txt</code> file (drop / pick).
+              <br/>
+              <span style={{color:"var(--ok)"}}>✓</span> Working SMTPs are imported in the
+              <strong> exact order you pasted them</strong> (each row keeps its
+              <code style={{margin:"0 4px"}}>#N</code> position) — pair with rotation mode
+              <strong>Sequential</strong> below to send through them in that order.
             </div>
             <textarea value={bulkRaw} onChange={e=>setBulkRaw(e.target.value)}
               placeholder={"smtp.gmail.com:587:user@gmail.com:apppassword\nemail-smtp.us-east-1.amazonaws.com:587:AKIA...:smtp_pass\nsmtp.mailgun.org:587:postmaster@mg.x.com:mg-pass"}
@@ -3785,9 +3834,17 @@ function TabMethod({
                       : `🔬 Validate ${bulkParsed.filter(p=>p._keep).length}`}
                   </button>
                   <button className="btn btn-ok btn-sm" disabled={bulkValidating || !bulkParsed.some(p=>p._status==="ok")}
-                    onClick={()=>addWorkingToList(true)}>
-                    ➕ Add {bulkParsed.filter(p=>p._status==="ok"&&p._keep).length} working
+                    onClick={()=>addWorkingToList(true)}
+                    title="Working SMTPs are added in your input order (sorted by line number)">
+                    ➕ {bulkReplaceList ? "Replace" : "Append"} {bulkParsed.filter(p=>p._status==="ok"&&p._keep).length} working {bulkReplaceList ? "list" : ""}
                   </button>
+                  <label className="row ac-center g6" style={{cursor:"pointer",fontSize:11,marginLeft:4}}
+                    title="When ON: working SMTPs become the entire Configured Servers list, in your paste order. When OFF: append after existing servers, deduped.">
+                    <input type="checkbox" checked={bulkReplaceList}
+                      onChange={e=>setBulkReplaceList(e.target.checked)}
+                      style={{width:14,height:14,margin:0,cursor:"pointer"}}/>
+                    <span className="dim2">Replace existing list</span>
+                  </label>
                   <button className="btn btn-d btn-sm" onClick={()=>{setBulkParsed([]); setBulkProgress({done:0,total:0,ok:0,fail:0}); setBulkAddedMsg("");}}>
                     Clear
                   </button>
@@ -3817,7 +3874,11 @@ function TabMethod({
                 {bulkParsed.map((p,i)=>{
                   const color = p._status==="ok" ? "#22c55e" : p._status==="fail" ? "#ef4444" : p._status==="pending" ? "#f59e0b" : "var(--t2)";
                   return (
-                    <div key={i} className="row ac-center g8" style={{padding:"4px 8px",background: i%2?"var(--bg2)":"transparent",borderRadius:4}}>
+                    <div key={p._idx ?? i} className="row ac-center g8" style={{padding:"4px 8px",background: i%2?"var(--bg2)":"transparent",borderRadius:4}}>
+                      <span className="dim2 xs" style={{minWidth:24,textAlign:"right",fontFamily:"var(--font-mono)"}}
+                        title="Position in your input list — preserved on import">
+                        #{(p._idx ?? i) + 1}
+                      </span>
                       <input type="checkbox" checked={p._keep} onChange={e=>setBulkParsed(prev=>prev.map((x,j)=>j===i?{...x,_keep:e.target.checked}:x))}
                         style={{width:14,height:14,margin:0,cursor:"pointer"}}/>
                       <span style={{fontFamily:"var(--font-mono)",fontSize:11,minWidth:200,color: p._keep?"var(--tx)":"var(--t3)"}}>
