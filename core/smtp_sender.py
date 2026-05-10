@@ -859,20 +859,29 @@ def send_via_pool(
                      ehlo_domain=ehlo_domain, proxy_cfg=proxy_cfg)
 
 
-# Global pool — used by the backwards-compat send_smtp() wrapper below
-_global_pool: Optional[SmtpPool] = None
+# ─── Per-user SMTP pools ────────────────────────────────────────
+# Multi-tenant safety: each user's campaign gets its own SmtpPool
+# instance so reset_pool(uid_A) never tears down uid_B's connections.
+# The legacy single-pool API (get_global_pool / reset_global_pool) is
+# kept as a thin shim that addresses bucket "" (used by helpers like
+# send_one_email() that pre-date uid plumbing).
+_pools: dict = {}                         # uid (str|None) → SmtpPool
 _global_lock  = threading.Lock()
 
 
-def get_global_pool() -> SmtpPool:
-    global _global_pool
+def get_pool(uid=None) -> SmtpPool:
+    """Return the per-user pool, creating it on first access."""
+    key = str(uid) if uid is not None else ""
     with _global_lock:
-        if _global_pool is None:
-            _global_pool = SmtpPool()
-        return _global_pool
+        p = _pools.get(key)
+        if p is None:
+            p = SmtpPool()
+            _pools[key] = p
+        return p
 
 
-def reset_global_pool(
+def reset_pool(
+    uid=None,
     max_sends_per_conn: int   = DEFAULT_MAX_SENDS_PER_CONN,
     idle_timeout:       int   = DEFAULT_IDLE_TIMEOUT,
     max_per_hour:       int   = DEFAULT_MAX_PER_HOUR,
@@ -880,16 +889,17 @@ def reset_global_pool(
     data_timeout:       int   = 60,
     send_delay:         float = DEFAULT_SEND_DELAY,
 ):
+    """Replace JUST this user's pool — never touches other users' pools.
+    Called at the start of each campaign so its stats start fresh and
+    any connections this user left over from a previous run get closed.
     """
-    Reset and reconfigure the global pool.
-    Call once at the start of each campaign so stats are per-campaign
-    and old connections from previous campaigns are closed cleanly.
-    """
-    global _global_pool
+    key = str(uid) if uid is not None else ""
     with _global_lock:
-        if _global_pool is not None:
-            _global_pool.close_all()
-        _global_pool = SmtpPool(
+        existing = _pools.get(key)
+        if existing is not None:
+            try: existing.close_all()
+            except Exception: pass
+        _pools[key] = SmtpPool(
             max_sends_per_conn = max_sends_per_conn,
             idle_timeout       = idle_timeout,
             max_per_hour       = max_per_hour,
@@ -897,6 +907,17 @@ def reset_global_pool(
             data_timeout       = data_timeout,
             send_delay         = send_delay,
         )
+
+
+# Backwards-compat aliases — anything passing `uid=None` (or not at
+# all) ends up sharing the "" bucket exactly as before.  Campaign
+# code now passes a uid so each user is isolated.
+def get_global_pool() -> SmtpPool:
+    return get_pool(None)
+
+
+def reset_global_pool(*args, **kwargs):
+    return reset_pool(None, *args, **kwargs)
 
 
 # ═══════════════════════════════════════════════════════════════

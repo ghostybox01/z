@@ -205,21 +205,34 @@ def _api_request(
     provider: str,
     method:   str = "POST",
     retries:  int = _MAX_RETRIES,
+    uid              = None,        # campaign owner — pass through from send_api()
 ) -> int:
     """
     Make a JSON API request with retry logic.
     Returns HTTP status code on success.
     Raises descriptive Exception on failure.
+
+    If uid is provided, only THAT user's campaign-abort flag aborts
+    the request — User A's Stop never breaks User B's send.
     """
     raw    = json.dumps(payload).encode("utf-8")
     delay  = _RETRY_DELAY
 
     # Best-effort campaign-abort hook so retry loops bail out quickly when
     # the user presses Stop instead of waiting through 4×30s of timeouts.
+    # CRITICAL: when a uid is supplied we check ONLY that user's
+    # CAMPAIGN_CONTROLS entry.  Pre-fix this scanned every user's
+    # abort flag, so user A pressing Stop killed user B's API sends.
     def _aborted() -> bool:
         try:
             from core.server import (active_campaigns_lock, CAMPAIGN_CONTROLS)
             with active_campaigns_lock:
+                if uid is not None:
+                    ctrl = CAMPAIGN_CONTROLS.get(uid) or {}
+                    return bool(ctrl.get("abort"))
+                # No uid = caller is a one-off (test send, etc.); fall
+                # back to the legacy any-user check so explicit aborts
+                # of the global pool still surface.
                 for ctrl in CAMPAIGN_CONTROLS.values():
                     if ctrl and ctrl.get("abort"):
                         return True
@@ -341,6 +354,7 @@ def _send_brevo(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
         _API_URLS["brevo"], payload,
         {"api-key": key, "Content-Type": "application/json"},
         "brevo",
+        uid=api_cfg.get("_uid"),
     )
 
 
@@ -376,6 +390,7 @@ def _send_sendgrid(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
         _API_URLS["sendgrid"], payload,
         {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         "sendgrid",
+        uid=api_cfg.get("_uid"),
     )
 
 
@@ -405,6 +420,7 @@ def _send_resend(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
         _API_URLS["resend"], payload,
         {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         "resend",
+        uid=api_cfg.get("_uid"),
     )
 
 
@@ -510,6 +526,7 @@ def _send_postmark(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
             "X-Postmark-Server-Token": key,
         },
         "postmark",
+        uid=api_cfg.get("_uid"),
     )
 
 
@@ -549,6 +566,7 @@ def _send_sparkpost(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
         url, payload,
         {"Authorization": key, "Content-Type": "application/json"},
         "sparkpost",
+        uid=api_cfg.get("_uid"),
     )
 
 
@@ -674,6 +692,7 @@ def send_api(
     resolved_plain:   str            = "",
     dlv:              Optional[dict] = None,
     custom_headers:   Optional[list] = None,
+    uid                              = None,
 ) -> int:
     """
     Send one email via an external API provider.
@@ -706,6 +725,12 @@ def send_api(
 
     if not api_cfg.get("apiKey"):
         raise Exception(f"API {provider}: no apiKey configured")
+
+    # Stash uid into api_cfg so per-provider helpers (and the
+    # _api_request retry loop) only honor THIS user's abort flag.
+    # Without this, user A pressing Stop aborted user B's API sends.
+    if uid is not None:
+        api_cfg = {**api_cfg, "_uid": uid}
 
     # Normalise content — guarantee html, plain, subject are never empty strings
     resolved_html, resolved_plain, resolved_subject = _norm(

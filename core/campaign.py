@@ -85,10 +85,12 @@ except ImportError:
 from core.spam_filter import apply_spam_filter, apply_full_bypass
 from core.smtp_sender import (
     send_smtp, get_global_pool, reset_global_pool,
+    get_pool as _smtp_get_pool, reset_pool as _smtp_reset_pool,
     SmtpPool,
 )
 from core.mx_sender import (
     send_direct_mx, get_global_ctx, reset_global_ctx,
+    get_ctx as _mx_get_ctx, reset_ctx as _mx_reset_ctx,
     MxSenderContext, preflight_check_senders,
 )
 from core.api_sender import send_api, build_api_headers
@@ -1173,6 +1175,9 @@ def _send_one(
                 resolved_subject = subject,
                 extra_headers    = extra_h,
                 resolved_plain   = plain,
+                # Pass the campaign owner so api_sender's abort-check
+                # honors only THIS user's stop flag (multi-tenant safe).
+                uid              = getattr(opts, "uid", None),
             )
             return True, "", server.get("label", server.get("provider", "API"))
         except Exception as exc:
@@ -1437,18 +1442,22 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     if method == "tunnel":
         yield from _preflight_tunnels(opts)
 
-    # ── Reset per-campaign state in pooled modules ───────────
-    # ISP method (Shaw/ISP SMTP): limit to 50 sends per connection.
-    # Shaw and most ISP SMTPs throttle or 421 after ~50–100 msgs on one session.
-    # Forcing a reconnect every 50 msgs avoids that entirely.
+    # ── Reset per-CAMPAIGN-USER state in pooled modules ──────
+    # CRITICAL: pools and MX contexts are now keyed by `campaign_uid`
+    # so resetting them at the start of one user's campaign never
+    # tears down another concurrent user's in-flight connections.
+    # Pre-fix this used a single process-wide _global_pool that
+    # close_all()'d under user B every time user A pressed Send.
+    # ISP method (Shaw/ISP SMTP): limit to 50 sends per connection
+    # (most ISPs 421 after ~50–100 messages on one session).
     _isp_tunnels_active = [t for t in opts.tunnels if t.get("tunnelType") == "isp"]
     if _isp_tunnels_active:
-        reset_global_pool(max_sends_per_conn=50, idle_timeout=120)
+        _smtp_reset_pool(campaign_uid, max_sends_per_conn=50, idle_timeout=120)
     else:
-        reset_global_pool()
-    pool   = get_global_pool()
-    reset_global_ctx()
-    mx_ctx = get_global_ctx()
+        _smtp_reset_pool(campaign_uid)
+    pool   = _smtp_get_pool(campaign_uid)
+    _mx_reset_ctx(campaign_uid)
+    mx_ctx = _mx_get_ctx(campaign_uid)
 
     # ── Pre-resolve #RANDOMSTR in sender fromEmails ──────────────
     # Must happen before preflight DNS so domains are real before MX lookup.

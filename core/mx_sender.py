@@ -622,24 +622,38 @@ def preflight_check_senders(
 # BACKWARDS-COMPAT WRAPPER
 # ═══════════════════════════════════════════════════════════════
 
-_global_ctx:  Optional[MxSenderContext] = None
+_ctxs: dict = {}                             # uid (str|None) → MxSenderContext
 _global_lock  = threading.Lock()
 
 
-def get_global_ctx() -> MxSenderContext:
-    global _global_ctx
+def get_ctx(uid=None) -> MxSenderContext:
+    """Return the per-user MX context, creating it on first access."""
+    key = str(uid) if uid is not None else ""
     with _global_lock:
-        if _global_ctx is None:
-            _global_ctx = MxSenderContext()
-        return _global_ctx
+        c = _ctxs.get(key)
+        if c is None:
+            c = MxSenderContext()
+            _ctxs[key] = c
+        return c
 
 
-def reset_global_ctx(**kwargs):
-    global _global_ctx
+def reset_ctx(uid=None, **kwargs):
+    """Reset only THIS user's MX context — never touches others'."""
+    key = str(uid) if uid is not None else ""
     with _global_lock:
-        if _global_ctx is not None:
-            _global_ctx.close()
-        _global_ctx = MxSenderContext(**kwargs)
+        existing = _ctxs.get(key)
+        if existing is not None:
+            try: existing.close()
+            except Exception: pass
+        _ctxs[key] = MxSenderContext(**kwargs)
+
+
+def get_global_ctx() -> MxSenderContext:   # back-compat shim
+    return get_ctx(None)
+
+
+def reset_global_ctx(**kwargs):            # back-compat shim
+    return reset_ctx(None, **kwargs)
 
 
 def send_direct_mx_compat(
