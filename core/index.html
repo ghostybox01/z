@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.33.20260510-redirects">
+  <meta name="version" content="v5.34.20260510-b2b-send">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -5627,6 +5627,27 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
   const [msg, setMsg] = useState({text:"",type:"i"});
   const [extractLog, setExtractLog] = useState([]);
 
+  // ── Send step state ──
+  const [sendMode,    setSendMode]    = useState("reply");     // 'reply' | 'new'
+  const [sendSubject, setSendSubject] = useState("");
+  const [sendHtml,    setSendHtml]    = useState("<p>Hi #FIRSTNAME,</p>\n<p>…your message…</p>");
+  const [sendPlain,   setSendPlain]   = useState("");
+  const [sendFromName,setSendFromName]= useState("");
+  const [sendDelay,   setSendDelay]   = useState(5);           // seconds between sends
+  const [sendJitter,  setSendJitter]  = useState(3);
+  const [sendBatchSz, setSendBatchSz] = useState(0);
+  const [sendBatchDelay, setSendBatchDelay] = useState(60);
+  const [sendMaxSends,setSendMaxSends]= useState(0);
+  const [sending,     setSending]     = useState(false);
+  const [sendStats,   setSendStats]   = useState({total:0,sent:0,failed:0});
+  const [sendLog,     setSendLog]     = useState([]);
+  const [sendAbort,   setSendAbort]   = useState(false);
+  const sendAbortRef = React.useRef(false);
+
+  // ── Device-code flow state ──
+  const [devCode, setDevCode]   = useState(null);   // {user_code, verification_uri, ...}
+  const [devPolling, setDevPolling] = useState(false);
+
   const PROVIDERS = {
     microsoft365:  {ico:"🪟", label:"Microsoft 365",  authHints:["Regular password or App Password if MFA enabled","OAuth token from Azure portal","Device code flow for conditional access"]},
     google:        {ico:"🔵", label:"Google Workspace",authHints:["App Password required (myaccount.google.com/apppasswords)","OAuth token via Google Cloud Console","Must have IMAP enabled in Gmail settings"]},
@@ -5636,6 +5657,107 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
   };
 
   const steps=["Detect","Authenticate","Extract","Send"];
+
+  async function startDeviceCode() {
+    setMsg({text:"Starting device code flow…", type:"i"});
+    setLoading(true); setDevCode(null);
+    try {
+      const r = await apiCall("/api/b2b/device-start",{method:"POST",
+        body: JSON.stringify({email})});
+      const d = await r.json();
+      if (d.error === "msal_not_installed") {
+        setMsg({text: d.message || "MSAL not installed — see B2B docs.", type:"e"});
+      } else if (d.user_code && d.verification_uri) {
+        setDevCode(d);
+        setMsg({text: `Open the URL and enter the code, then click Poll.`, type:"w"});
+        try { window.open(d.verification_uri, "_blank"); } catch(e){}
+      } else {
+        setMsg({text: "Device code start failed: " + (d.error || JSON.stringify(d)), type:"e"});
+      }
+    } catch(e) { setMsg({text:"Device code error: "+e.message, type:"e"}); }
+    setLoading(false);
+  }
+
+  async function pollDeviceCode() {
+    setDevPolling(true);
+    try {
+      const r = await apiCall("/api/b2b/device-poll", {method:"POST", body:"{}"});
+      const d = await r.json();
+      if (d.ok && d.session) {
+        setSession({token:d.session});
+        setDevCode(null);
+        setMsg({text:"✓ Device-code authentication successful — ready to extract", type:"ok"});
+        setStep(2);
+      } else if (d.error === "authorization_pending") {
+        setMsg({text:"⏳ Still waiting for you to enter the code…", type:"i"});
+      } else if (d.error) {
+        setMsg({text:"Device poll failed: "+d.error, type:"e"});
+      } else {
+        setMsg({text:"Device poll: "+(d.message || JSON.stringify(d)), type:"i"});
+      }
+    } catch(e) { setMsg({text:"Poll error: "+e.message, type:"e"}); }
+    setDevPolling(false);
+  }
+
+  async function runSend() {
+    if (!extracted.length) { setMsg({text:"No leads to send to.", type:"e"}); return; }
+    if (!sendSubject.trim() && sendMode === "new") { setMsg({text:"Subject required for 'New' mode.", type:"e"}); return; }
+    if (!sendHtml.trim()) { setMsg({text:"HTML body required.", type:"e"}); return; }
+    setSending(true); sendAbortRef.current = false; setSendAbort(false);
+    setSendStats({total: extracted.length, sent:0, failed:0});
+    setSendLog([]);
+    try {
+      const leadsPayload = extracted.map(em => (typeof em === "string" ? {email:em} : em));
+      const r = await apiCall("/api/b2b/send",{method:"POST", body: JSON.stringify({
+        leads:       leadsPayload,
+        html:        sendHtml,
+        subject:     sendSubject,
+        plain:       sendPlain,
+        mode:        sendMode,
+        fromName:    sendFromName,
+        delay:       parseFloat(sendDelay)   || 0,
+        jitter:      parseFloat(sendJitter)  || 0,
+        batchSize:   parseInt(sendBatchSz)   || 0,
+        batchDelay:  parseFloat(sendBatchDelay) || 0,
+        maxSends:    parseInt(sendMaxSends)  || 0,
+      })});
+      if (!r.ok) { setMsg({text:`HTTP ${r.status}`, type:"e"}); setSending(false); return; }
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        if (sendAbortRef.current) { try { reader.cancel(); } catch(e){} break; }
+        buf += dec.decode(value, {stream:true});
+        const lines = buf.split("\n"); buf = lines.pop();
+        for (const ln of lines) {
+          if (!ln.trim()) continue;
+          let ev; try { ev = JSON.parse(ln); } catch(e){ continue; }
+          if (ev.type === "success") {
+            setSendStats(s => ({...s, sent: s.sent + 1}));
+            setSendLog(p => [...p.slice(-200), {kind:"ok", txt:`✓ ${ev.email||""} ← ${ev.via||""}`}]);
+          } else if (ev.type === "error") {
+            setSendStats(s => ({...s, failed: s.failed + 1}));
+            setSendLog(p => [...p.slice(-200), {kind:"err", txt:`✗ ${ev.email||""} — ${ev.error||""}`}]);
+          } else if (ev.type === "batch") {
+            setSendLog(p => [...p.slice(-200), {kind:"info", txt:ev.msg||""}]);
+          } else if (ev.type === "done") {
+            setSendLog(p => [...p.slice(-200), {kind:"info", txt:`Done — ${ev.success||0} sent / ${ev.fail||0} failed`}]);
+          }
+        }
+      }
+    } catch(e) {
+      setMsg({text:"Send error: "+e.message, type:"e"});
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function abortSend() {
+    sendAbortRef.current = true;
+    setSendAbort(true);
+    setSendLog(p => [...p, {kind:"info", txt:"⛔ Stop requested — finishing in-flight request"}]);
+  }
 
   function setInfo(text,type="i"){setMsg({text,type});}
 
@@ -5811,18 +5933,29 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
             {(provider==="microsoft365"||provider==="exchange") && (
               <div className="mt14">
                 <Info type="i">If standard auth fails, try the <strong>OAuth Device Code</strong> flow — works with MFA, SSO, and Conditional Access policies without needing app passwords.</Info>
-                <button className="btn btn-g btn-sm mt8" onClick={async()=>{
-                  setInfo("Starting device code flow…","i");setLoading(true);
-                  try{
-                    const r=await apiCall("/api/oauth/device-code",{method:"POST",body:JSON.stringify({email})});
-                    const d=await r.json();
-                    if(d.user_code&&d.verification_uri){
-                      setInfo(`Open ${d.verification_uri} and enter code: ${d.user_code}. Then click Poll below.`,"w");
-                      window.open(d.verification_uri,"_blank");
-                    }
-                  }catch(e){setInfo("Device code error: "+e.message,"e");}
-                  setLoading(false);
-                }}>🔗 Start Device Code Flow</button>
+                <div className="row g8 mt8">
+                  <button className="btn btn-g btn-sm" onClick={startDeviceCode} disabled={loading||devPolling}>
+                    🔗 Start Device Code Flow
+                  </button>
+                  {devCode && (
+                    <button className="btn btn-p btn-sm" onClick={pollDeviceCode} disabled={devPolling}>
+                      {devPolling?"Polling…":"⟳ Poll"}
+                    </button>
+                  )}
+                </div>
+                {devCode && (
+                  <div className="mt12 card card-sm" style={{padding:12,background:"var(--bg3)"}}>
+                    <div className="sm mb6">1. Open <a href={devCode.verification_uri} target="_blank" rel="noreferrer" style={{color:"var(--accent)"}}>{devCode.verification_uri}</a></div>
+                    <div className="sm mb6">2. Enter the code:</div>
+                    <div className="row g8 ac-center">
+                      <code style={{fontSize:24,fontFamily:"var(--font-mono)",background:"var(--bg2)",padding:"6px 14px",borderRadius:6,letterSpacing:4,fontWeight:600}}>
+                        {devCode.user_code}
+                      </code>
+                      <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(devCode.user_code)}>📋 Copy</button>
+                    </div>
+                    <div className="dim2 xs mt6">3. Click ⟳ Poll once you finish the prompt in your browser.</div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -5874,31 +6007,140 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
         </div>
       )}
 
-      {/* ── Step 3: Use leads ── */}
+      {/* ── Step 3: Send via the authenticated B2B inbox ── */}
       {step===3 && (
-        <div style={{display:"flex",gap:16,alignItems:"start",flexDirection:isMobile?"column":"row"}}>
-          <div className="card" style={{flex:isMobile?"1 1 100%":"0 0 420px"}}>
-            <div className="card-title">Step 4 — Use Leads</div>
-            <Info type="ok">{extracted.length} unique leads extracted from {email}</Info>
-            <div className="col g8 mt14">
-              <button className="btn btn-p" onClick={()=>{setLeadsRaw(extracted.join("\n"));setLeads(parseLeads(extracted.join("\n")));setTab("leads");}}>
-                📋 Load into Leads Tab
-              </button>
-              <button className="btn btn-g btn-sm" onClick={()=>{
-                const a=document.createElement("a");
-                a.href="data:text/plain;charset=utf-8,"+encodeURIComponent(extracted.join("\n"));
-                a.download=`leads_${email.split("@")[0]}_${Date.now()}.txt`;a.click();
-              }}>⬇ Download as TXT</button>
-              <button className="btn btn-g btn-sm" onClick={()=>setStep(2)}>← Extract More</button>
-            </div>
+        <div>
+          <div className="row jb ac-center mb12">
+            <Info type="ok">{extracted.length} leads ready · sending from <strong>{email}</strong> ({pi.label})</Info>
           </div>
-          <div className="card" style={{flex:1}}>
-            <div className="row jb ac-center mb10">
-              <div className="card-title" style={{marginBottom:0}}>All Extracted ({extracted.length})</div>
-              <Bdg t="ok">{extracted.length} leads</Bdg>
+
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:16,alignItems:"start"}}>
+            <div className="card">
+              <div className="card-title">📝 Compose</div>
+              <div className="col g10">
+                <div>
+                  <label className="lbl">Send mode</label>
+                  <select value={sendMode} onChange={e=>setSendMode(e.target.value)}
+                    style={{fontSize:14,padding:"10px 12px"}}>
+                    <option value="reply">↩ Reply to existing thread (highest deliverability)</option>
+                    <option value="new">✉ Send as new message</option>
+                  </select>
+                  <div className="dim2 xs mt4">
+                    {sendMode==="reply"
+                      ? "Replies inherit the original subject (Re:) and inject In-Reply-To headers — appears as a reply in the recipient's existing thread."
+                      : "Fresh message with the subject below.  Higher visibility but lower deliverability than reply."}
+                  </div>
+                </div>
+                <div>
+                  <label className="lbl">From name (display only)</label>
+                  <input value={sendFromName} onChange={e=>setSendFromName(e.target.value)}
+                    placeholder={email.split("@")[0]}
+                    style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                {sendMode==="new" && (
+                  <div>
+                    <label className="lbl">Subject</label>
+                    <input value={sendSubject} onChange={e=>setSendSubject(e.target.value)}
+                      placeholder="Quick question about #COMPANY"
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                )}
+                <div>
+                  <label className="lbl">HTML body (supports #FIRSTNAME, #COMPANY, #EMAIL tags)</label>
+                  <textarea value={sendHtml} onChange={e=>setSendHtml(e.target.value)}
+                    style={{minHeight:200,fontFamily:"var(--font-mono)",fontSize:12,resize:"vertical"}}/>
+                </div>
+                <div>
+                  <label className="lbl">Plain text fallback (auto-derived if blank)</label>
+                  <textarea value={sendPlain} onChange={e=>setSendPlain(e.target.value)}
+                    placeholder="Auto-generated from HTML if left empty"
+                    style={{minHeight:60,fontFamily:"var(--font-mono)",fontSize:12,resize:"vertical"}}/>
+                </div>
+              </div>
+
+              <div className="card-title mt20">⏱ Pacing</div>
+              <div className="g3">
+                <div>
+                  <label className="lbl">Delay (s)</label>
+                  <input type="number" value={sendDelay} onChange={e=>setSendDelay(e.target.value)}
+                    min="0" step="0.5" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div>
+                  <label className="lbl">Jitter (s)</label>
+                  <input type="number" value={sendJitter} onChange={e=>setSendJitter(e.target.value)}
+                    min="0" step="0.5" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div>
+                  <label className="lbl">Max sends (0=all)</label>
+                  <input type="number" value={sendMaxSends} onChange={e=>setSendMaxSends(e.target.value)}
+                    min="0" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div>
+                  <label className="lbl">Batch size (0=off)</label>
+                  <input type="number" value={sendBatchSz} onChange={e=>setSendBatchSz(e.target.value)}
+                    min="0" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div>
+                  <label className="lbl">Batch pause (s)</label>
+                  <input type="number" value={sendBatchDelay} onChange={e=>setSendBatchDelay(e.target.value)}
+                    min="0" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+              </div>
+
+              <div className="row g8 mt16">
+                {!sending && (
+                  <button className="btn btn-p" onClick={runSend} disabled={!sendHtml.trim()}>
+                    🚀 Send to {extracted.length} {extracted.length===1?"lead":"leads"}
+                  </button>
+                )}
+                {sending && (
+                  <button className="btn btn-d" onClick={abortSend}>⏹ Stop</button>
+                )}
+                <button className="btn btn-g" onClick={()=>setStep(2)} disabled={sending}>← Re-extract</button>
+              </div>
+
+              <div className="mt16" style={{borderTop:"1px solid var(--border)",paddingTop:14}}>
+                <div className="dim2 xs mb8">Or use these leads elsewhere:</div>
+                <div className="row g8">
+                  <button className="btn btn-g btn-sm" onClick={()=>{setLeadsRaw(extracted.join("\n"));setLeads(parseLeads(extracted.join("\n")));setTab("leads");}}>
+                    📋 Load into Leads Tab
+                  </button>
+                  <button className="btn btn-g btn-sm" onClick={()=>{
+                    const a=document.createElement("a");
+                    a.href="data:text/plain;charset=utf-8,"+encodeURIComponent(extracted.join("\n"));
+                    a.download=`leads_${email.split("@")[0]}_${Date.now()}.txt`;a.click();
+                  }}>⬇ Download .txt</button>
+                </div>
+              </div>
             </div>
-            <div className="code" style={{maxHeight:340,overflowY:"auto",fontSize:12,lineHeight:1.8}}>
-              {extracted.join("\n")}
+
+            <div className="card">
+              <div className="row jb ac-center mb8">
+                <div className="card-title" style={{margin:0}}>📊 Send Progress</div>
+                {sending && <span className="bdg bdg-a">Sending…</span>}
+                {!sending && sendStats.sent+sendStats.failed > 0 && (
+                  <span className="bdg bdg-ok">{sendStats.sent} sent · {sendStats.failed} failed</span>
+                )}
+              </div>
+              <div className="row g12 mb12">
+                <div><div className="dim2 xs">Total</div><div style={{fontSize:24,fontWeight:600}}>{sendStats.total}</div></div>
+                <div><div className="dim2 xs">Sent</div><div style={{fontSize:24,fontWeight:600,color:"var(--ok)"}}>{sendStats.sent}</div></div>
+                <div><div className="dim2 xs">Failed</div><div style={{fontSize:24,fontWeight:600,color:"var(--err)"}}>{sendStats.failed}</div></div>
+                <div><div className="dim2 xs">Pending</div><div style={{fontSize:24,fontWeight:600,color:"var(--accent)"}}>{Math.max(0, sendStats.total - sendStats.sent - sendStats.failed)}</div></div>
+              </div>
+              {sendStats.total > 0 && (
+                <div style={{height:8,background:"var(--bg2)",borderRadius:4,overflow:"hidden",marginBottom:12}}>
+                  <div style={{height:"100%",
+                    width: `${((sendStats.sent + sendStats.failed) / sendStats.total) * 100}%`,
+                    background:"linear-gradient(90deg,#22c55e,#3b82f6)", transition:"width .15s"}}/>
+                </div>
+              )}
+              <div className="flog" style={{maxHeight:340,overflowY:"auto",fontSize:11,lineHeight:1.6}}>
+                {sendLog.length===0 && <div className="dim2">Send log will appear here once you click 🚀 Send.</div>}
+                {sendLog.map((l,i)=>(
+                  <div key={i} style={{color: l.kind==="ok"?"var(--ok)":l.kind==="err"?"var(--err)":"var(--t2)"}}>{l.txt}</div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
