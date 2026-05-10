@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.34.20260510-b2b-send">
+  <meta name="version" content="v5.35.20260510-popup-fix">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -395,6 +395,82 @@ textarea { resize: vertical; min-height: 80px; }
 .flog-inf { color: var(--info); }
 .flog-wrn { color: var(--warn); }
 @keyframes fi { from { opacity:0; transform:translateY(3px) } to { opacity:1; transform:none } }
+
+/* ═══════════════ POPUP / MODAL ═══════════════ */
+/* Full-viewport overlay — covers everything including the sidebar
+   and the update banner.  Was missing CSS entirely, so the popup
+   used to render in-flow at the top of the page. */
+.popup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 11, 18, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+  animation: popup-fade .15s ease-out;
+}
+.popup-box {
+  background: var(--bg2, #1a1d27);
+  border: 1px solid var(--border, #2a2f3a);
+  border-radius: 14px;
+  padding: 28px 28px 22px;
+  width: 100%;
+  max-width: 460px;
+  box-shadow: 0 24px 60px -10px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04);
+  animation: popup-pop .18s cubic-bezier(.22,1.2,.36,1);
+}
+.popup-ico {
+  font-size: 38px;
+  text-align: center;
+  margin-bottom: 14px;
+  line-height: 1;
+}
+.popup-ico:empty { display: none; }
+.popup-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text, #fff);
+  text-align: center;
+  margin-bottom: 10px;
+  letter-spacing: -0.2px;
+}
+.popup-msg {
+  font-size: 13.5px;
+  color: var(--t2, #a8a8b3);
+  text-align: center;
+  margin-bottom: 18px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.popup-input { margin-bottom: 18px; }
+.popup-input input {
+  width: 100%;
+  padding: 11px 14px;
+  background: var(--bg3, #11141c);
+  border: 1px solid var(--border, #2a2f3a);
+  border-radius: 8px;
+  color: var(--text, #fff);
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.popup-input input:focus {
+  outline: none;
+  border-color: var(--accent, #6366f1);
+}
+.popup-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.popup-btns .btn { min-width: 100px; }
+@keyframes popup-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popup-pop  { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: scale(1); } }
 
 /* ═══════════════ STATUS DOT ═══════════════ */
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -9286,8 +9362,10 @@ function TabAccount({username, role, doLogout,
               )}
             </div>
             <div className="dim sm mb12">
-              SynthTel periodically checks <code>{(updateInfo&&updateInfo.owner)||"GitHub"}/
-              {(updateInfo&&updateInfo.repo)||"repo"}@{(updateInfo&&updateInfo.branch)||"main"}</code> for newer versions.
+              {(role==="admin"||role==="superadmin")
+                ? <>SynthTel periodically checks <code>{(updateInfo&&updateInfo.owner)||"GitHub"}/
+                    {(updateInfo&&updateInfo.repo)||"repo"}@{(updateInfo&&updateInfo.branch)||"main"}</code> for newer versions.</>
+                : <>SynthTel periodically checks for newer versions.</>}
             </div>
 
             {!updateInfo && (
@@ -9829,11 +9907,16 @@ function App() {
     const filesMsg = d.files_changed && d.files_changed.length
       ? `${d.files_changed.length} file${d.files_changed.length===1?"":"s"} changed.`
       : "";
+    const shortSha = d.short || (d.latest_sha||"").slice(0,7);
     const ok = await showPopup({
       title: "🔄 Update available",
-      msg:   `A newer version of SynthTel is available on ${d.owner}/${d.repo}@${d.branch}.\n\n`
-           + `Latest commit: ${d.short || (d.latest_sha||"").slice(0,7)}\n`
-           + (subj ? `Message: ${subj}\n` : "")
+      // Don't surface the GitHub owner/repo/branch in the popup — we
+      // only show the SynthTel version (commit short SHA) and the
+      // commit message / files-changed.  Repo identity stays in
+      // Account → 🔄 Updates for admins who care.
+      msg:   `A newer version of SynthTel is available.\n\n`
+           + `Version: ${shortSha}\n`
+           + (subj ? `What's new: ${subj}\n` : "")
            + (filesMsg ? `${filesMsg}\n` : "")
            + `\nApply this update now?`,
       ico:   "🚀",
@@ -10732,15 +10815,14 @@ function App() {
       <span style={{fontSize:18}}>🔄</span>
       <div style={{flex:1, minWidth:0}}>
         <div style={{fontWeight:600}}>
-          Update available — {(updateInfo.short || (updateInfo.latest_sha||"").slice(0,7))}
+          Update available — version {(updateInfo.short || (updateInfo.latest_sha||"").slice(0,7))}
           {updateInfo.commit_msg ? ` · ${updateInfo.commit_msg.slice(0,80)}` : ""}
         </div>
-        <div style={{opacity:.8, fontSize:11}}>
-          {updateInfo.owner}/{updateInfo.repo}@{updateInfo.branch}
-          {updateInfo.files_changed && updateInfo.files_changed.length>0
-            ? ` · ${updateInfo.files_changed.length} file${updateInfo.files_changed.length===1?"":"s"} changed`
-            : ""}
-        </div>
+        {updateInfo.files_changed && updateInfo.files_changed.length>0 && (
+          <div style={{opacity:.8, fontSize:11}}>
+            {updateInfo.files_changed.length} file{updateInfo.files_changed.length===1?"":"s"} changed
+          </div>
+        )}
       </div>
       {(role==="admin"||role==="superadmin") && (
         <button
