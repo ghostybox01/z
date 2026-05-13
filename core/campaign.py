@@ -1636,38 +1636,76 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         if from_email in _demoted_senders and _get_score(from_email) > 40:
             _demoted_senders.remove(from_email)  # recover from demotion on sustained success
 
-    # ── Real-time failed lead writer ─────────────────────────────────────────
-    # Failed leads are appended to a single file immediately on failure,
-    # so if the campaign is stopped mid-run the file is always up to date.
+    # ── Real-time sent + failed lead files per campaign ──────────────────────
+    # Both written incrementally so a stopped/crashed campaign still leaves
+    # a usable file behind.  Filenames embed the campaign name + timestamp
+    # so the user can find them in Files → Leads:
+    #   sent_leads_<campaign>_<ts>.txt    — emails that succeeded
+    #   failed_leads_<campaign>_<ts>.txt  — emails that failed (re-load to retry)
     import datetime as _dt2, uuid as _uuid2, re as _re2, sqlite3 as _sql3
-    _fail_ts       = _dt2.datetime.now().strftime("%Y%m%d_%H%M%S")
-    _fail_name     = f"failed_leads_{_fail_ts}.txt"
+    _camp_ts       = _dt2.datetime.now().strftime("%Y%m%d_%H%M%S")
+    _camp_label    = (sending.get("campaignName")
+                      or data.get("campaignName") if False
+                      else "")  # data not in scope; use sending fallback
+    # We don't have data here — use a generic label; campaign name is
+    # primarily for human tracking and is duplicated in user_files.orig_name.
+    _camp_label    = _re2.sub(r'[^\w\-]', '_',
+                              (sending.get("campaignName") or "campaign"))[:40]
+    _fail_name     = f"failed_leads_{_camp_label}_{_camp_ts}.txt"
+    _sent_name     = f"sent_leads_{_camp_label}_{_camp_ts}.txt"
     _fail_uid      = getattr(opts, "uid", None) or ""
     _fail_file_id  = None
     _failed_count  = 0
     _fail_fpath    = None
+    _sent_file_id  = None
+    _sent_count    = 0
+    _sent_fpath    = None
 
-    def _init_fail_file():
-        nonlocal _fail_file_id, _fail_fpath
-        if _fail_file_id or not _fail_uid:
-            return
+    def _init_lead_file(name, header):
+        """Helper: lazily creates a file in the user's Files → Leads folder
+        and returns (file_id, fpath)."""
+        if not _fail_uid:
+            return None, None
         try:
             from core.server import DB_PATH, FILES_DIR
-            _safe     = _re2.sub(r'[^\w\.\-]', '_', _fail_name)
+            _safe     = _re2.sub(r'[^\w\.\-]', '_', name)
             _filename = f"{_uuid2.uuid4().hex[:8]}_{_safe}"
             _user_dir = os.path.join(FILES_DIR, str(_fail_uid), "leads")
             os.makedirs(_user_dir, exist_ok=True)
             _fpath_l  = os.path.join(_user_dir, _filename)
             with open(_fpath_l, "w") as _ff:
-                _ff.write("email\n")
+                _ff.write(header + "\n")
             _conn = _sql3.connect(DB_PATH)
             cur   = _conn.execute(
                 "INSERT INTO user_files (user_id,category,filename,orig_name,mime_type,size_bytes) VALUES (?,?,?,?,?,?)",
-                (_fail_uid, "leads", _filename, _fail_name, "text/plain", 6)
+                (_fail_uid, "leads", _filename, name, "text/plain", len(header)+1)
             )
-            _fail_file_id = cur.lastrowid
+            new_id = cur.lastrowid
             _conn.commit(); _conn.close()
-            _fail_fpath = _fpath_l
+            return new_id, _fpath_l
+        except Exception:
+            return None, None
+
+    def _init_fail_file():
+        nonlocal _fail_file_id, _fail_fpath
+        if _fail_file_id is not None or not _fail_uid: return
+        _fail_file_id, _fail_fpath = _init_lead_file(_fail_name, "email")
+
+    def _init_sent_file():
+        nonlocal _sent_file_id, _sent_fpath
+        if _sent_file_id is not None or not _fail_uid: return
+        _sent_file_id, _sent_fpath = _init_lead_file(_sent_name, "email")
+
+    def _append_lead_file(fpath, fid, line):
+        if not fpath: return
+        try:
+            with open(fpath, "a") as _ff:
+                _ff.write(line + "\n")
+            from core.server import DB_PATH
+            _sz = os.path.getsize(fpath)
+            _c2 = _sql3.connect(DB_PATH)
+            _c2.execute("UPDATE user_files SET size_bytes=? WHERE id=?", (_sz, fid))
+            _c2.commit(); _c2.close()
         except Exception:
             pass
 
@@ -1675,18 +1713,13 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         nonlocal _failed_count
         _failed_count += 1
         _init_fail_file()
-        if _fail_fpath:
-            try:
-                with open(_fail_fpath, "a") as _ff:
-                    _ff.write(email_addr + "\n")
-                # Update file size in DB
-                from core.server import DB_PATH
-                _sz = os.path.getsize(_fail_fpath)
-                _c2 = _sql3.connect(DB_PATH)
-                _c2.execute("UPDATE user_files SET size_bytes=? WHERE id=?", (_sz, _fail_file_id))
-                _c2.commit(); _c2.close()
-            except Exception:
-                pass
+        _append_lead_file(_fail_fpath, _fail_file_id, email_addr)
+
+    def _append_sent(email_addr: str):
+        nonlocal _sent_count
+        _sent_count += 1
+        _init_sent_file()
+        _append_lead_file(_sent_fpath, _sent_file_id, email_addr)
 
     # ── Email sorter: group leads by provider for targeted header tuning ───────
     # When sorter available, pre-classify leads so we can apply per-provider
@@ -2225,6 +2258,9 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                            "imap_host":  _imap_host_emit,
                            "imap_port":  _imap_port_emit,
                            "imap_ssl":   True}
+                    # Persist to the per-campaign sent-leads file so the user
+                    # can re-load and resend / cross-check after the run.
+                    _append_sent(email_addr)
 
                     # ── Test-email-every-N ──────────────────────────────
                     # Send a clone of this message to the test inbox so the
@@ -2380,9 +2416,11 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 f" of {len(opts.leads)})"
             )
 
-        # ── Failed leads file summary ─────────────────────────
+        # ── Sent + Failed leads file summary ─────────────────
+        if _sent_count > 0 and _sent_fpath:
+            yield {"type": "info", "msg": f"📁 Sent leads → Files: {_sent_name} ({_sent_count} addresses)"}
         if _failed_count > 0 and _fail_fpath:
-            yield {"type": "info", "msg": f"📁 Failed leads → Files tab: {_fail_name} ({_failed_count} addresses — reload to resend)"}
+            yield {"type": "info", "msg": f"📁 Failed leads → Files: {_fail_name} ({_failed_count} addresses — reload to resend)"}
 
         yield {
             "type":    "done",

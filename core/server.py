@@ -980,6 +980,75 @@ def _bootstrap_installed_sha():
 # DATABASE & AUTH
 # ═══════════════════════════════════════════════════════════════
 
+def _campaign_lead_file_retention(uid: int, keep: int = 5) -> None:
+    """Trim per-user campaign lead files (sent_leads_*.txt + failed_leads_*.txt)
+    so only the last `keep` campaigns' files survive.  Called from /api/send
+    when a new campaign starts.
+
+    Strategy: group files by campaign timestamp suffix
+    (sent_leads_<name>_<YYYYMMDD_HHMMSS>.txt → key = <name>_<ts>),
+    sort newest first, drop everything past the keep cap, delete both DB
+    rows and on-disk files for those.
+    """
+    if not uid:
+        return
+    try:
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            rows = conn.execute(
+                "SELECT id, filename, orig_name FROM user_files "
+                "WHERE user_id=? AND category='leads' AND "
+                "(orig_name LIKE 'sent_leads_%' OR orig_name LIKE 'failed_leads_%') "
+                "ORDER BY id DESC",
+                (uid,)
+            ).fetchall()
+        if not rows:
+            return
+        # Group by everything-after-the-prefix (so the sent_ / failed_
+        # pair from the same campaign is kept or dropped together).
+        groups = {}    # key → [(id, filename), ...]
+        order  = []    # keys in newest-first order (insertion order of rows)
+        for fid, fname, oname in rows:
+            if oname.startswith("sent_leads_"):     key = oname[len("sent_leads_"):]
+            elif oname.startswith("failed_leads_"): key = oname[len("failed_leads_"):]
+            else: continue
+            # Strip extension to make the key stable across the pair.
+            key = re.sub(r'\.[^.]+$', '', key)
+            if key not in groups:
+                groups[key] = []
+                order.append(key)
+            groups[key].append((fid, fname))
+        # Drop any group beyond the cap (oldest first).  Note `order`
+        # is newest first because rows came back ORDER BY id DESC.
+        to_drop = order[keep:]
+        if not to_drop:
+            return
+        delete_ids = []
+        delete_paths = []
+        for key in to_drop:
+            for fid, fname in groups[key]:
+                delete_ids.append(fid)
+                delete_paths.append(os.path.join(FILES_DIR, str(uid), "leads", fname))
+        # Remove DB rows
+        with db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            conn.executemany("DELETE FROM user_files WHERE id=?",
+                             [(fid,) for fid in delete_ids])
+            conn.commit(); conn.close()
+        # Remove on-disk files
+        removed = 0
+        for p in delete_paths:
+            try:
+                if os.path.exists(p):
+                    os.remove(p); removed += 1
+            except Exception:
+                pass
+        log.info("[retention] uid=%s pruned %d lead-file row(s) / %d on-disk file(s) past keep=%d",
+                 uid, len(delete_ids), removed, keep)
+    except Exception as e:
+        log.warning("[retention] sweep failed for uid=%s: %s", uid, e)
+
+
 def get_db() -> sqlite3.Connection:
     """Open a fresh SQLite connection to the SynthTel DB.
 
@@ -2641,6 +2710,16 @@ if(code && window.opener){{
                 # Fresh index-based buffer for /api/campaign/events polling.
                 CAMPAIGN_EVENT_BUFFER[uid] = []
                 CAMPAIGN_BUFFER_LOCK[uid]  = threading.Lock()
+
+            # ── 5-campaign retention for sent/failed lead files ──
+            # Each campaign emits sent_leads_<name>_<ts>.txt and
+            # failed_leads_<name>_<ts>.txt into Files → Leads.  When a
+            # user starts their 6th campaign, the oldest pair is deleted
+            # so the Files panel doesn't accumulate forever.
+            try:
+                _campaign_lead_file_retention(uid, keep=5)
+            except Exception as _re:
+                log.debug("[retention] sweep failed: %s", _re)
 
             run_id = None
             try:
