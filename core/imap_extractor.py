@@ -680,13 +680,115 @@ def parse_eml_raw(raw):
     html, plain = _walk_for_html(msg)
     addr, name  = _parse_from(msg.get("From", ""))
     subject     = _decode_header_value(msg.get("Subject", ""))
+    html_clean, links_replaced = auto_replace_action_links(html or "")
     return {
-        "ok":       True,
-        "html":     html or "",
-        "plain":    plain or "",
-        "subject":  subject or "",
-        "from":     addr or "",
-        "fromName": name or "",
-        "date":     (msg.get("Date") or "")[:30],
-        "size":     len(raw_bytes),
+        "ok":             True,
+        "html":           html or "",
+        "html_with_link": html_clean,            # same HTML but action <a> hrefs → #LINK
+        "links_replaced": links_replaced,        # list of original URLs we swapped
+        "plain":          plain or "",
+        "subject":        subject or "",
+        "from":           addr or "",
+        "fromName":       name or "",
+        "date":           (msg.get("Date") or "")[:30],
+        "size":           len(raw_bytes),
     }
+
+
+# ─── Action-link auto-detection ────────────────────────────────
+# Heuristics for identifying the main click target(s) in a marketing
+# / phishing-style email so we can replace the original href with the
+# campaign's #LINK token.  Looks for:
+#   • CTA-style anchor text  (Confirm, Verify, Click here, Sign in,
+#     Reset, Activate, Open, Download, Pay, View invoice, etc.)
+#   • Tracking domains       (mandrillapp, sendgrid sg-mail, sparkpost,
+#     mailgun, hubspot, pardot, marketo, salesforce mkto, cmail,
+#     constant contact, mailchimp, sendinblue, intercom track, etc.)
+#   • Buttons rendered as <table><a> or large bg-color anchors
+# Returns (html, [original_urls_replaced]).
+
+_CTA_TEXT_RE = re.compile(
+    r"(?:confirm|verify|sign[\s_-]?in|sign[\s_-]?up|log[\s_-]?in|"
+    r"reset|activate|open|view|click|continue|get[\s_-]?started|"
+    r"download|pay(?:[\s_-]?now)?|approve|deny|"
+    r"unlock|review|update|reschedule|track[\s_-]?(?:order|package|shipment)|"
+    r"complete|verify[\s_-]?account|verify[\s_-]?email|"
+    r"reset[\s_-]?password|secure[\s_-]?your[\s_-]?account|"
+    r"check[\s_-]?(?:status|order|invoice)|"
+    r"see[\s_-]?(?:details|invoice|statement)|"
+    r"deposit|accept|view[\s_-]?(?:invoice|statement|message))",
+    re.I,
+)
+
+_TRACKING_DOMAINS_RE = re.compile(
+    r"(?:mandrillapp\.com|click\.sendgrid\.net|email\.sg\.mailgun|"
+    r"links\.sparkpostmail|click\.mailgun|cmail\d*\.com|"
+    r"hs-sites\.com|pardot\.com|mkt\d*\.com|click\.exct\.net|"
+    r"track\.constantcontact\.com|email\.mailchimp\.com|"
+    r"links\.mailchimp\.com|click\.mailchimp\.com|"
+    r"r20\.rs6\.net|trk\.klclick|cmail19\.com|"
+    r"links\.intercom-mail|track\.helpscout|click\.alertinfo)",
+    re.I,
+)
+
+
+def auto_replace_action_links(html: str):
+    """Find anchors that look like the main CTA and replace their href
+    with `#LINK`.  Conservative: only replaces if the anchor text or
+    surrounding context strongly suggests an action button, OR the
+    href points at a known marketing-tracking domain.
+
+    Unsubscribe, mailto:, tel:, and trivially-internal ('#') anchors
+    are never touched.
+
+    Returns (new_html, [list_of_original_urls_replaced_in_order]).
+    """
+    if not html:
+        return html, []
+    replaced = []
+    # Match <a ...href="..."...>...</a>  (case-insensitive, multi-line)
+    A_RE = re.compile(
+        r'(<a\b[^>]*?\bhref\s*=\s*["\']([^"\']+)["\'][^>]*>)([\s\S]*?)(</a>)',
+        re.I,
+    )
+
+    def _is_action(href: str, body: str, attrs: str) -> bool:
+        h = (href or "").strip().lower()
+        if not h or h.startswith("#") or h.startswith("mailto:") or h.startswith("tel:"):
+            return False
+        # Skip unsubscribe / preferences / opt-out / reporting links
+        if re.search(r"unsubscribe|opt[\s_-]?out|preferences|view[\s_-]?(?:online|in[\s_-]?browser)|notification[\s_-]?settings|update[\s_-]?profile|email[\s_-]?settings|complaint|abuse|web[\s_-]?version|browser[\s_-]?version", h):
+            return False
+        body_text = re.sub(r"<[^>]+>", " ", body or "").strip()
+        # Lenient match — catches 'view this email in your browser', 'view as
+        # webpage', 'view in web browser' etc.
+        if re.search(r"unsubscribe|opt[\s_-]?out|preferences|view\b.{0,30}\bbrowser\b|view\b.{0,15}\bonline\b|view\b.{0,15}\bweb\b|web\s+version|browser\s+version", body_text, re.I):
+            return False
+        # Strong signal: known marketing / tracking domain
+        if _TRACKING_DOMAINS_RE.search(h):
+            return True
+        # Strong signal: CTA-ish anchor text (short body, action verb)
+        if body_text and len(body_text) < 80 and _CTA_TEXT_RE.search(body_text):
+            return True
+        # Weak signal: anchor styled as a button (background-color / bgcolor /
+        # display:inline-block + padding) — usually the main CTA in tables.
+        if re.search(r'background[-_]?color\s*[:=]', attrs or "", re.I) and \
+           re.search(r'(?:padding|height|font-size)', attrs or "", re.I):
+            return True
+        return False
+
+    def _swap(m):
+        opening, href, body, closing = m.group(1), m.group(2), m.group(3), m.group(4)
+        if not _is_action(href, body, opening):
+            return m.group(0)
+        replaced.append(href)
+        # Replace the href value only — keep all other attributes
+        new_open = re.sub(
+            r'(\bhref\s*=\s*)["\']([^"\']*)["\']',
+            lambda mm: mm.group(1) + '"#LINK"',
+            opening, count=1, flags=re.I,
+        )
+        return new_open + body + closing
+
+    new_html = A_RE.sub(_swap, html)
+    return new_html, replaced

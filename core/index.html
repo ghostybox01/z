@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.39.20260513-providers">
+  <meta name="version" content="v5.40.20260513-autolink">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -2931,11 +2931,17 @@ function TabCompose({
                                ico:"⚠️", type:"alert"});
                     return;
                   }
-                  if (d.html)    setHtmlBody(d.html);
+                  // Prefer html_with_link (action buttons → #LINK) so the
+                  // pasted letter is ready for the campaign's link rotation.
+                  const html = d.html_with_link || d.html;
+                  if (html)      setHtmlBody(html);
                   if (d.plain)   setPlainBody(d.plain);
                   if (d.subject) setSubject(d.subject);
+                  const swapped = (d.links_replaced || []).length;
                   showToast("ok","Extracted",
-                    `${(d.html||"").length.toLocaleString()} bytes of HTML pulled from the pasted email.`);
+                    `${(html||"").length.toLocaleString()} bytes of HTML pulled`
+                    + (swapped ? ` · ${swapped} action link${swapped===1?"":"s"} → #LINK` : "")
+                  );
                 } catch(err) {
                   showPopup({title:"Extract failed", msg: err.message, ico:"✗", type:"alert"});
                 }
@@ -6907,6 +6913,10 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
   // the user can tweak the ripped HTML without leaving the tab.  Edits
   // mutate lripPreview.html so the iframe stays in sync.
   const [lripEditing,  setLripEditing]  = useState(false);
+  // Auto-replace the main CTA / action button hrefs with #LINK so the
+  // ripped letter is ready for the campaign's link rotation out of the
+  // box.  Default ON — user can flip off to keep original tracking links.
+  const [lripAutoLink, setLripAutoLink] = useState(true);
   React.useEffect(()=>{ localStorage.setItem("st_lrip_email", lripEmail||""); }, [lripEmail]);
 
   async function loadLetters() {
@@ -8046,22 +8056,45 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
                       </pre>
                     )}
 
+                    {/* Action-link auto-replace toggle */}
+                    <div className="row ac-center g8 mt8 sm" style={{padding:"6px 10px",background:"var(--bg2)",borderRadius:6}}>
+                      <input type="checkbox" id="lrip-autolink-1"
+                        checked={lripAutoLink} onChange={e=>setLripAutoLink(e.target.checked)}
+                        style={{margin:0,width:14,height:14,cursor:"pointer"}}/>
+                      <label htmlFor="lrip-autolink-1" style={{cursor:"pointer",fontSize:12,color:"var(--t2)"}}>
+                        Auto-replace main action links with <code style={{background:"var(--bg3)",padding:"1px 5px",borderRadius:3}}>#LINK</code>
+                      </label>
+                      {lripPreview.links_replaced && lripPreview.links_replaced.length>0 && (
+                        <span className="bdg bdg-ok ml-auto" style={{fontSize:10}} title={lripPreview.links_replaced.slice(0,5).join("\n")}>
+                          {lripPreview.links_replaced.length} candidate{lripPreview.links_replaced.length===1?"":"s"}
+                        </span>
+                      )}
+                    </div>
                     <div className="row g8 mt12 ac-center" style={{flexWrap:"wrap"}}>
                       <button className="btn btn-p btn-sm"
                         onClick={()=>{
-                          if(lripPreview.html) setHtmlBody(lripPreview.html);
+                          const useHtml = lripAutoLink && lripPreview.html_with_link
+                            ? lripPreview.html_with_link
+                            : lripPreview.html;
+                          if(useHtml) setHtmlBody(useHtml);
                           if(lripPreview.plain) setPlainBody(lripPreview.plain);
                           if(lripPreview.subject) setSubject(lripPreview.subject);
                           // Force split view on so the user lands on the
                           // side-by-side editor and can edit live.
                           try { localStorage.setItem("st_compose_split","1"); } catch(e){}
-                          addLog(`📋 Letter loaded into Compose: "${lripPreview.subject}" — split view enabled`,"inf");
+                          const swapped = lripAutoLink && lripPreview.links_replaced && lripPreview.links_replaced.length;
+                          addLog(`📋 Letter loaded into Compose: "${lripPreview.subject}"`
+                                 + (swapped ? ` — ${swapped} action link${swapped===1?"":"s"} → #LINK` : "")
+                                 + ` — split view enabled`, "inf");
                           setTab("compose");
                         }}>
                         ✏️ Use as Template → Compose
                       </button>
                       <button className="btn btn-g btn-sm"
-                        onClick={()=>{ if(lripPreview.html) copyToClipboard(lripPreview.html); }}>
+                        onClick={()=>{
+                          const useHtml = lripAutoLink && lripPreview.html_with_link ? lripPreview.html_with_link : lripPreview.html;
+                          if(useHtml) copyToClipboard(useHtml);
+                        }}>
                         📋 Copy HTML
                       </button>
                       <button className="btn btn-g btn-sm"
@@ -8158,20 +8191,43 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
                       </pre>
                     )}
 
+                    {/* Action-link auto-replace toggle */}
+                    <div className="row ac-center g8 mt8 sm" style={{padding:"6px 10px",background:"var(--bg2)",borderRadius:6}}>
+                      <input type="checkbox" id="lrip-autolink-2"
+                        checked={lripAutoLink} onChange={e=>setLripAutoLink(e.target.checked)}
+                        style={{margin:0,width:14,height:14,cursor:"pointer"}}/>
+                      <label htmlFor="lrip-autolink-2" style={{cursor:"pointer",fontSize:12,color:"var(--t2)"}}>
+                        Auto-replace main action links with <code style={{background:"var(--bg3)",padding:"1px 5px",borderRadius:3}}>#LINK</code>
+                      </label>
+                      {lripPreview.links_replaced && lripPreview.links_replaced.length>0 && (
+                        <span className="bdg bdg-ok ml-auto" style={{fontSize:10}} title={lripPreview.links_replaced.slice(0,5).join("\n")}>
+                          {lripPreview.links_replaced.length} candidate{lripPreview.links_replaced.length===1?"":"s"}
+                        </span>
+                      )}
+                    </div>
                     <div className="row g8 mt12 ac-center" style={{flexWrap:"wrap"}}>
                       <button className="btn btn-p btn-sm"
                         onClick={()=>{
-                          if(lripPreview.html) setHtmlBody(lripPreview.html);
+                          const useHtml = lripAutoLink && lripPreview.html_with_link
+                            ? lripPreview.html_with_link
+                            : lripPreview.html;
+                          if(useHtml) setHtmlBody(useHtml);
                           if(lripPreview.plain) setPlainBody(lripPreview.plain);
                           if(lripPreview.subject) setSubject(lripPreview.subject);
                           try { localStorage.setItem("st_compose_split","1"); } catch(e){}
-                          addLog(`📋 Letter loaded into Compose: "${lripPreview.subject}" — split view enabled`,"inf");
+                          const swapped = lripAutoLink && lripPreview.links_replaced && lripPreview.links_replaced.length;
+                          addLog(`📋 Letter loaded into Compose: "${lripPreview.subject}"`
+                                 + (swapped ? ` — ${swapped} action link${swapped===1?"":"s"} → #LINK` : "")
+                                 + ` — split view enabled`, "inf");
                           setTab("compose");
                         }}>
                         ✏️ Use as Template → Compose
                       </button>
                       <button className="btn btn-g btn-sm"
-                        onClick={()=>{ if(lripPreview.html) copyToClipboard(lripPreview.html); }}>
+                        onClick={()=>{
+                          const useHtml = lripAutoLink && lripPreview.html_with_link ? lripPreview.html_with_link : lripPreview.html;
+                          if(useHtml) copyToClipboard(useHtml);
+                        }}>
                         📋 Copy HTML
                       </button>
                       <button className="btn btn-g btn-sm"
