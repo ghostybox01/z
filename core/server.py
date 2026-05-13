@@ -2701,16 +2701,59 @@ if(code && window.opener){{
                 live = LIVE_CAMPAIGN_STATS.get(uid)
                 if not ctrl:
                     self._json(200, {"status": "no_campaign", "message": "No active campaign"}); return
+
+                # Settings patcher reused by `resume` and standalone `update`.
+                # Mutates the live opts.sending dict the worker reads from,
+                # so changes take effect on the next iteration.
+                _LIVE_FIELDS = ("delay", "delayUnit", "batchSize",
+                                "batchPauseSecs", "cooldownEvery",
+                                "cooldownSecs", "sendsPerSec",
+                                "testEmail", "testEveryN",
+                                "smtpRotation", "smtpAutoDisable",
+                                "smtpFailThreshold", "smtpCooldownSecs")
+                def _apply_live_update(patch):
+                    opts_ref = ctrl.get("opts")
+                    applied = []
+                    if not isinstance(patch, dict) or opts_ref is None:
+                        return applied
+                    try:
+                        for k in _LIVE_FIELDS:
+                            if k in patch:
+                                opts_ref.sending[k] = patch[k]
+                                applied.append(k)
+                    except Exception as _e:
+                        log.warning("[campaign] live update failed: %s", _e)
+                    return applied
+
                 if action == "pause":
                     ctrl["paused"] = True
                     if live:
                         live["status"] = "paused"
                     self._json(200, {"status": "ok", "message": "Campaign paused"})
                 elif action == "resume":
+                    applied = _apply_live_update(data.get("update") or {})
                     ctrl["paused"] = False
                     if live:
                         live["status"] = "running"
-                    self._json(200, {"status": "ok", "message": "Campaign resumed"})
+                    msg = "Campaign resumed"
+                    if applied:
+                        msg += f" — applied {len(applied)} setting change(s)"
+                        try:
+                            buf_lock = CAMPAIGN_BUFFER_LOCK.get(uid)
+                            if buf_lock is not None:
+                                with buf_lock:
+                                    CAMPAIGN_EVENT_BUFFER.setdefault(uid, []).append({
+                                        "type": "info",
+                                        "msg":  f"⚙ Settings updated mid-campaign: {', '.join(applied)}",
+                                    })
+                        except Exception:
+                            pass
+                    self._json(200, {"status": "ok", "message": msg, "applied": applied})
+                elif action == "update":
+                    applied = _apply_live_update(data.get("update") or {})
+                    self._json(200, {"status": "ok",
+                                     "message": f"Applied {len(applied)} change(s)",
+                                     "applied": applied})
                 elif action == "stop":
                     # First stop: set abort, push terminal "done" into the
                     # buffer immediately so the polling client transitions

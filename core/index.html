@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.36.20260513-ui-fixes">
+  <meta name="version" content="v5.37.20260513-pause-resume">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -10412,10 +10412,34 @@ function App() {
   }
   async function resumeCampaign() {
     try{
-      const r = await apiCall("/api/campaign/control",{method:"POST",body:JSON.stringify({action:"resume"})});
+      // Pick up any pacing / cadence settings the user changed while
+      // paused — the worker re-reads its sending dict each iteration,
+      // so this patch takes effect on the very next email.
+      const update = {
+        delay:            parseFloat(delay) || 0,
+        delayUnit:        delayUnit,
+        batchSize:        parseInt(batchSize)||0,
+        batchPauseSecs:   parseFloat(batchPauseSecs)||0,
+        cooldownEvery:    parseInt(cooldownEvery)||0,
+        cooldownSecs:     parseFloat(cooldownSecs)||0,
+        sendsPerSec:      0,
+        testEmail:        (testEmail||"").trim(),
+        testEveryN:       parseInt(testEveryN)||0,
+        smtpRotation:     smtpRotation,
+        smtpAutoDisable:  !!smtpAutoDisable,
+        smtpFailThreshold:parseInt(smtpFailThreshold)||3,
+        smtpCooldownSecs: parseFloat(smtpCooldownSecs)||60,
+      };
+      const r = await apiCall("/api/campaign/control",{method:"POST",
+        body:JSON.stringify({action:"resume", update})});
       if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json().catch(()=>({}));
       setCampPaused(false);
-      addLog("▶ Resumed","inf");
+      if(d && d.applied && d.applied.length) {
+        addLog(`▶ Resumed — applied ${d.applied.length} change${d.applied.length===1?"":"s"}: ${d.applied.join(", ")}`,"inf");
+      } else {
+        addLog("▶ Resumed","inf");
+      }
     }catch(e){
       addLog(`⚠ Resume failed: ${e.message}`,"err");
     }

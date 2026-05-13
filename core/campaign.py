@@ -1277,14 +1277,27 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         if opts.skip_preflight_dns:
             opts.skip_preflight_dns = False
 
-    # ── Parse timing config ──────────────────────────────────
-    delay      = _safe_float(sending.get("delay", 0), 0.0)
-    delay_unit = sending.get("delayUnit", "seconds")
-    base_delay = delay * DELAY_UNITS.get(delay_unit, 1)
-    batch_size = _safe_int(sending.get("batchSize", 50), 50)
-    cooldown_every   = _safe_int(sending.get("cooldownEvery", 0), 0)
-    cooldown_secs    = _safe_float(sending.get("cooldownSecs", 60), 60.0)
-    batch_pause_secs = _safe_float(sending.get("batchPauseSecs", 0), 0.0)
+    # ── Parse timing config (LIVE-mutable) ───────────────────
+    # `sending` is a dict held by reference inside opts; the
+    # /api/campaign/control update endpoint writes new values into
+    # this same dict so mid-flight changes (delay, batch size,
+    # jitter, cooldown, etc.) take effect on the very next iteration
+    # — including after a pause + edit + resume cycle.
+    def _base_delay():
+        d = _safe_float(sending.get("delay", 0), 0.0)
+        u = sending.get("delayUnit", "seconds")
+        return d * DELAY_UNITS.get(u, 1)
+    def _batch_size():       return _safe_int(sending.get("batchSize", 50), 50)
+    def _cooldown_every():   return _safe_int(sending.get("cooldownEvery", 0), 0)
+    def _cooldown_secs():    return _safe_float(sending.get("cooldownSecs", 60), 60.0)
+    def _batch_pause_secs(): return _safe_float(sending.get("batchPauseSecs", 0), 0.0)
+    def _sends_per_sec():    return _safe_float(sending.get("sendsPerSec", 0), 0.0)
+    # Initial snapshot for pre-loop arithmetic (e.g. workers calc).
+    base_delay       = _base_delay()
+    batch_size       = _batch_size()
+    cooldown_every   = _cooldown_every()
+    cooldown_secs    = _cooldown_secs()
+    batch_pause_secs = _batch_pause_secs()
     # Send a deliverability test copy of the current message to a separate
     # inbox after every N successful real sends.  testEveryN<=0 disables it.
     # Fields live on opts.sending (CampaignOptions.from_dict copied them
@@ -1297,7 +1310,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     _since_last_test = 0
     html_rotate_mode = sending.get("htmlRotateMode", "random")
     max_connections  = _safe_int(sending.get("maxConnections", 1), 1)
-    sends_per_sec    = _safe_float(sending.get("sendsPerSec", 0), 0.0)
+    sends_per_sec    = _sends_per_sec()
     resume_from      = _safe_int(sending.get("resumeFrom", 0), 0)
     proxy_list_raw   = opts.proxy.get("list", []) if opts.proxy else []
     if proxy_list_raw and max_connections > len(proxy_list_raw):
@@ -2247,6 +2260,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                                    "from": resolved_sender.get("fromEmail",""),
                                    "test_no": _tests_sent}
 
+                    sends_per_sec = _sends_per_sec()
                     if sends_per_sec > 0 and not _sleep_interruptible(1.0/sends_per_sec, campaign_uid):
                         stopped = True
                         break
@@ -2282,13 +2296,19 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                                 break
 
                 # Cooldown
+                cooldown_every   = _cooldown_every()
+                cooldown_secs    = _cooldown_secs()
                 if cooldown_every>0 and (i+1)%cooldown_every==0 and (i+1)<total_cap:
                     yield {"type":"pause","msg":f"🧊 Cooldown after {i+1} emails — pausing {cooldown_secs:.0f}s..."}
                     if not _sleep_interruptible(cooldown_secs, campaign_uid):
                         stopped = True
                         break
 
-                # Batch pause
+                # Batch pause — re-read live so resume-after-pause-with-edits
+                # picks up the user's new values immediately.
+                batch_size       = _batch_size()
+                batch_pause_secs = _batch_pause_secs()
+                base_delay       = _base_delay()
                 if batch_size>0 and (i+1)%batch_size==0 and (i+1)<total_cap:
                     pause_total = batch_pause_secs if batch_pause_secs>0 else base_delay
                     if dlv.get("delayJitter"): pause_total = max(0.5, pause_total+random.uniform(-jitter_range,jitter_range))
@@ -2483,8 +2503,21 @@ def process_campaign(data: dict) -> Generator:
         except Exception as e:
             logging.getLogger("synthtel").warning("[DB] tunnel fetch failed: %s", e)
     opts = CampaignOptions.from_dict(data)
+    # Expose the live opts to the control endpoint so /api/campaign/control
+    # action=update can mutate sending fields mid-flight (used to apply
+    # delay / batch / pacing changes on resume after pause).
+    try:
+        from core import server as _server
+        uid = data.get("_uid")
+        if uid is not None:
+            with _server.active_campaigns_lock:
+                ctrl = _server.CAMPAIGN_CONTROLS.get(uid)
+                if ctrl is not None:
+                    ctrl["opts"] = opts
+    except Exception:
+        pass
+
     # Debug: log what we received
-    # Display method using original name from frontend (before internal remapping)
     _display_method = data.get("method", opts.method)
     logging.getLogger("synthtel").info(
         "[campaign] method=%s (internal=%s) tunnels=%d smtps=%d leads=%d",
@@ -2493,7 +2526,6 @@ def process_campaign(data: dict) -> Generator:
     if opts.tunnels:
         for t in opts.tunnels:
             logging.getLogger("synthtel").info("[tunnel] %s", t)
-    # Internal debug logging (not surfaced to UI)
     logging.getLogger("synthtel").debug("method=%s tunnels=%d smtps=%d", opts.method, len(opts.tunnels), len(opts.smtps))
     yield from run_campaign(opts)
 
