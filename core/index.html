@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.38.20260513-leadfiles">
+  <meta name="version" content="v5.39.20260513-providers">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -1422,7 +1422,81 @@ function parseLead(line) {
   const derivedCompany = smartSplitWords(domName);
   const companyTag     = company || derivedCompany;
 
-  return {email, name, company, realName, firstName, lastName, middleName, domain:dom, domainName:domName, companyTag};
+  const provider = detectLeadProvider(dom);
+
+  return {email, name, company, realName, firstName, lastName, middleName, domain:dom, domainName:domName, companyTag, provider};
+}
+
+// Best-effort provider detection from the recipient's domain.
+// Returns {key, label, color} where key is short (gmail/outlook/o365/yahoo/etc.).
+const _LEAD_PROVIDER_BY_DOMAIN = {
+  "gmail.com":"gmail", "googlemail.com":"gmail",
+  "outlook.com":"outlook", "hotmail.com":"outlook", "live.com":"outlook",
+  "msn.com":"outlook", "passport.com":"outlook",
+  "yahoo.com":"yahoo", "ymail.com":"yahoo", "rocketmail.com":"yahoo",
+  "yahoo.co.uk":"yahoo", "yahoo.fr":"yahoo", "yahoo.de":"yahoo",
+  "yahoo.co.in":"yahoo", "yahoo.ca":"yahoo", "yahoo.com.au":"yahoo",
+  "aol.com":"aol",
+  "icloud.com":"icloud", "me.com":"icloud", "mac.com":"icloud",
+  "protonmail.com":"proton", "proton.me":"proton", "pm.me":"proton",
+  "zoho.com":"zoho", "zohomail.com":"zoho",
+  "tutanota.com":"tutanota", "tuta.io":"tutanota",
+  "fastmail.com":"fastmail", "fastmail.fm":"fastmail",
+  "mail.com":"mail.com", "gmx.com":"gmx", "gmx.net":"gmx", "gmx.de":"gmx",
+  "web.de":"webde",
+  "yandex.com":"yandex", "yandex.ru":"yandex",
+  "qq.com":"qq", "163.com":"163", "126.com":"163",
+  "naver.com":"naver", "daum.net":"daum",
+};
+const _LEAD_PROVIDER_LABELS = {
+  gmail:    {label:"Gmail",     color:"#ea4335"},
+  outlook:  {label:"Outlook",   color:"#0078d4"},
+  o365:     {label:"O365",      color:"#0067b8"},
+  yahoo:    {label:"Yahoo",     color:"#6001d2"},
+  aol:      {label:"AOL",       color:"#f25022"},
+  icloud:   {label:"iCloud",    color:"#888"},
+  proton:   {label:"Proton",    color:"#6d4aff"},
+  zoho:     {label:"Zoho",      color:"#cb2026"},
+  tutanota: {label:"Tutanota",  color:"#840010"},
+  fastmail: {label:"Fastmail",  color:"#5b56fe"},
+  "mail.com":{label:"Mail.com", color:"#999"},
+  gmx:      {label:"GMX",       color:"#1c449b"},
+  webde:    {label:"Web.de",    color:"#fdc300"},
+  yandex:   {label:"Yandex",    color:"#fc3f1d"},
+  qq:       {label:"QQ Mail",   color:"#12b7f5"},
+  "163":    {label:"NetEase",   color:"#d81e06"},
+  naver:    {label:"Naver",     color:"#03cf5d"},
+  daum:     {label:"Daum",      color:"#ffcd29"},
+  business: {label:"Business",  color:"#10b981"},   // custom domain (likely company)
+  isp:      {label:"ISP",       color:"#f59e0b"},   // residential ISP
+  edu:      {label:"Education", color:"#8b5cf6"},
+  gov:      {label:"Gov",       color:"#dc2626"},
+  unknown:  {label:"—",         color:"var(--t3)"},
+};
+function detectLeadProvider(domain) {
+  const d = String(domain||"").toLowerCase();
+  if (!d || !d.includes(".")) return "unknown";
+  if (_LEAD_PROVIDER_BY_DOMAIN[d]) return _LEAD_PROVIDER_BY_DOMAIN[d];
+  // Government / educational TLDs
+  if (d.endsWith(".edu") || d.endsWith(".ac.uk") || d.endsWith(".edu.au")) return "edu";
+  if (d.endsWith(".gov") || d.endsWith(".gov.uk") || d.endsWith(".mil"))   return "gov";
+  // Common ISP suffixes — best-guess set based on the most common
+  // residential domains we see in lead lists.
+  const ispRoots = ["comcast.net","verizon.net","att.net","sbcglobal.net",
+                    "cox.net","charter.net","earthlink.net","optonline.net",
+                    "bellsouth.net","rogers.com","shaw.ca","telus.net",
+                    "bell.net","sympatico.ca","videotron.ca","eastlink.ca",
+                    "btinternet.com","sky.com","virginmedia.com",
+                    "orange.fr","wanadoo.fr","free.fr","laposte.net",
+                    "t-online.de","arcor.de","freenet.de"];
+  if (ispRoots.includes(d)) return "isp";
+  // O365 hosted domains usually have an MX of *.protection.outlook.com
+  // or *.mail.protection.outlook.com — we can't see MX from JS, so leave
+  // them as 'business' and let the campaign-time backend detect O365.
+  return "business";
+}
+function leadProviderInfo(p) {
+  return _LEAD_PROVIDER_LABELS[p] || _LEAD_PROVIDER_LABELS.unknown;
 }
 
 function parseLeads(txt, allowDupes=false) {
@@ -3288,6 +3362,29 @@ function TabLeads({leadsRaw, setLeadsRaw, leads, setLeads, filesList, allowDupes
               showToast("ok","Copied",leads.length+" emails copied");
             }}>📋 Copy all emails</button>
           </div>
+          {/* Provider summary chips */}
+          {(() => {
+            const counts = {};
+            for (const l of leads) {
+              const k = l.provider || "unknown";
+              counts[k] = (counts[k]||0)+1;
+            }
+            const ordered = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+            return (
+              <div className="row g6 mb10" style={{flexWrap:"wrap"}}>
+                {ordered.map(([k,n])=>{
+                  const info = leadProviderInfo(k);
+                  return (
+                    <span key={k} style={{
+                      fontSize:11,padding:"3px 9px",borderRadius:20,
+                      background:`${info.color}22`,color:info.color,
+                      border:`1px solid ${info.color}55`,fontWeight:600,
+                    }}>{info.label} · {n}</span>
+                  );
+                })}
+              </div>
+            );
+          })()}
           <div style={{overflowX:"auto"}}>
             <table className="lp-table">
               <thead>
@@ -3296,17 +3393,28 @@ function TabLeads({leadsRaw, setLeadsRaw, leads, setLeads, filesList, allowDupes
                   <th>EMAIL</th>
                   <th>NAME</th>
                   <th>COMPANY</th>
+                  <th>PROVIDER</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.slice(0,200).map((l,i)=>(
-                  <tr key={l.email+i}>
-                    <td className="dim2 xs">{i+1}</td>
-                    <td style={{fontFamily:"var(--font-mono)",fontSize:12,fontWeight:500}}>{l.email}</td>
-                    <td style={{fontSize:12}}>{l.realName||<span className="dim2">—</span>}</td>
-                    <td style={{fontSize:12,color:"var(--accent)"}}>{l.companyTag||<span className="dim2">—</span>}</td>
-                  </tr>
-                ))}
+                {filtered.slice(0,200).map((l,i)=>{
+                  const info = leadProviderInfo(l.provider || "unknown");
+                  return (
+                    <tr key={l.email+i}>
+                      <td className="dim2 xs">{i+1}</td>
+                      <td style={{fontFamily:"var(--font-mono)",fontSize:12,fontWeight:500}}>{l.email}</td>
+                      <td style={{fontSize:12}}>{l.realName||<span className="dim2">—</span>}</td>
+                      <td style={{fontSize:12,color:"var(--accent)"}}>{l.companyTag||<span className="dim2">—</span>}</td>
+                      <td style={{fontSize:11}}>
+                        <span style={{padding:"2px 8px",borderRadius:14,
+                          background:`${info.color}22`,color:info.color,
+                          border:`1px solid ${info.color}55`,fontWeight:600}}>
+                          {info.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {filtered.length>200 && <div className="dim2 xs" style={{padding:"10px 14px"}}>Showing first 200 of {filtered.length} leads</div>}
