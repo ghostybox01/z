@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.40.20260513-autolink">
+  <meta name="version" content="v5.41.20260513-redirect-nav">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -6588,6 +6588,23 @@ function TabRedirects({setHtmlBody, setTab, addLog, showPopup}) {
         <div className="ph-sub">Create themed short links, redirect chains, and email-open pixels.  Hosted on this server at <code>/r/&lt;short&gt;</code>.</div>
       </div>
 
+      {/* Sub-nav: Hosted (this tab) | S3 Buckets | Lambda Code Generator
+          The S3 + Lambda generators live in TabTools' state but are
+          surfaced from here so all redirect-related tooling is in one
+          place.  Clicking forwards the user to the Tools tab and pre-
+          selects the right sub-tool via window.__synthtel_pending_tool. */}
+      <div className="tab-bar mb16">
+        <button className="tb on">🔗 Hosted Links</button>
+        <button className="tb" onClick={()=>{
+          window.__synthtel_pending_tool = "s3redir";
+          setTab("tools");
+        }}>☁️ S3 Buckets</button>
+        <button className="tb" onClick={()=>{
+          window.__synthtel_pending_tool = "lambdaredir";
+          setTab("tools");
+        }}>λ Lambda Code Generator</button>
+      </div>
+
       {view === "list" && (
         <div>
           <div className="row jb ac-center mb12">
@@ -6845,7 +6862,21 @@ function TabRedirects({setHtmlBody, setTab, addLog, showPopup}) {
 function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                    setSubject, setHtmlBody, setPlainBody,
                    showPopup, addLog}) {
-  const [tTool, setTTool] = useState("extractor");
+  const [tTool, setTTool] = useState(()=>{
+    // Honor a pending sub-tool request set by another tab (e.g. the
+    // Redirects tab forwards users here for the S3 / Lambda generators
+    // since those panels live in this file but are surfaced in
+    // Redirects' sub-nav).
+    const pend = window.__synthtel_pending_tool;
+    if (pend) { try { delete window.__synthtel_pending_tool; } catch(e){} return pend; }
+    return "extractor";
+  });
+  React.useEffect(()=>{
+    // Same handoff but check on every render in case the user clicks
+    // back to Redirects then back to a different sub-tool.
+    const pend = window.__synthtel_pending_tool;
+    if (pend) { try { delete window.__synthtel_pending_tool; } catch(e){} setTTool(pend); }
+  });
   // Extractor state
   const [exEmail, setExEmail] = useState("");
   const [exPass, setExPass] = useState("");
@@ -7511,8 +7542,6 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
         <button className={`tb ${tTool==="sorter"?"on":""}`} onClick={()=>setTTool("sorter")}>🔀 Email Sorter</button>
         <button className={`tb ${tTool==="inboxtest"?"on":""}`} onClick={()=>setTTool("inboxtest")}>📬 Inbox Test</button>
         <button className={`tb ${tTool==="ipcheck"?"on":""}`} onClick={()=>setTTool("ipcheck")}>🛡️ IP Blacklist</button>
-        <button className={`tb ${tTool==="s3redir"?"on":""}`} onClick={()=>setTTool("s3redir")}>☁️ S3 Redirects</button>
-        <button className={`tb ${tTool==="lambdaredir"?"on":""}`} onClick={()=>setTTool("lambdaredir")}>λ Lambda Redirect</button>
         <button className={`tb ${tTool==="letterripper"?"on":""}`} onClick={()=>setTTool("letterripper")}>📬 Letter Ripper</button>
         <button className={`tb ${tTool==="suppression"?"on":""}`} onClick={()=>setTTool("suppression")}>🚫 Suppression</button>
         <button className={`tb ${tTool==="seedaccounts"?"on":""}`} onClick={()=>setTTool("seedaccounts")}>📧 Seed Accounts</button>
