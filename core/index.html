@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.41.20260513-redirect-nav">
+  <meta name="version" content="v5.42.20260513-b2b-cookie">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -5984,8 +5984,17 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
   async function auth() {
     setLoading(true); setInfo("","i");
     try {
-      const ep=authMode==="password"?"/api/b2b/auth/password":"/api/b2b/auth/token";
-      const body=authMode==="password"?{email,password,provider,providerInfo}:{email,token,provider};
+      let ep, body;
+      if (authMode === "password") {
+        ep = "/api/b2b/auth/password";
+        body = {email, password, provider, providerInfo};
+      } else if (authMode === "cookie") {
+        ep = "/api/b2b/auth/cookie";
+        body = {email, cookies: token, provider};
+      } else {
+        ep = "/api/b2b/auth/token";
+        body = {email, token, provider};
+      }
       const r=await apiCall(ep,{method:"POST",body:JSON.stringify(body)});
       const d=await r.json();
       if(d.session||d.status==="ok"){
@@ -6096,23 +6105,46 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
               <button className="btn btn-g btn-xs ml-auto" onClick={()=>setStep(0)}>← Change</button>
             </div>
             <div className="tab-bar mb12">
-              {[["password","🔐 Password"],["token","🪙 OAuth Token"]].map(([k,l])=>(
+              {[["password","🔐 Password"],
+                ["token","🪙 OAuth Token"],
+                ["cookie","🍪 Browser Cookies"]].map(([k,l])=>(
                 <button key={k} className={`tb ${authMode===k?"on":""}`} onClick={()=>setAuthMode(k)}>{l}</button>
               ))}
             </div>
-            {authMode==="password" ? (
+            {authMode==="password" && (
               <div>
                 <label className="lbl">Password / App Password</label>
                 <input type="password" value={password} onChange={e=>setPassword(e.target.value)}
                   onKeyDown={e=>e.key==="Enter"&&auth()}
                   placeholder="Your password or app-specific password" style={{fontSize:14,padding:"10px 12px"}}/>
+                <div className="dim2 xs mt6">
+                  Most providers (Gmail, Yahoo, iCloud) require an
+                  <strong> App Password</strong> not your real one — see Auth Tips on the right.
+                </div>
               </div>
-            ) : (
+            )}
+            {authMode==="token" && (
               <div>
                 <label className="lbl">Access / Bearer Token</label>
                 <textarea value={token} onChange={e=>setToken(e.target.value)}
-                  placeholder="Paste OAuth bearer token here…"
+                  placeholder="Paste OAuth bearer token here…  (eyJ0eXAi…)"
                   style={{minHeight:90,fontFamily:"var(--font-mono)",fontSize:11}}/>
+                <div className="dim2 xs mt6">
+                  Microsoft Graph / IMAP-OAuth bearer token (no <code>Bearer </code>
+                  prefix needed).  Use Device Code below if you don't have one.
+                </div>
+              </div>
+            )}
+            {authMode==="cookie" && (
+              <div>
+                <label className="lbl">Browser session cookies (raw)</label>
+                <textarea value={token} onChange={e=>setToken(e.target.value)}
+                  placeholder={"Paste your authenticated browser cookies here.\n\nSupported formats:\n• EditThisCookie JSON export\n• outlook.office.com / portal.azure.com cookies copied from DevTools\n• Raw 'name=value; name2=value2; …' string\n\nWe extract the auth cookie (ESTSAUTH / OWA / similar) and use it to load your inbox without a password — works through MFA + Conditional Access."}
+                  style={{minHeight:160,fontFamily:"var(--font-mono)",fontSize:11}}/>
+                <div className="dim2 xs mt6">
+                  Tip: in Chrome DevTools → Application → Cookies → outlook.office.com,
+                  right-click → Copy as JSON.  Paste here.  No password needed.
+                </div>
               </div>
             )}
             <div className="row g8 mt14">
