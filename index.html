@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.43.20260513-tags">
+  <meta name="version" content="v5.44.20260513-office">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -3750,6 +3750,105 @@ function SesCredGen({onApply, initialRegion}) {
   );
 }
 
+/* ════════════════════════════════════════
+   OFFICE CONNECTOR — port-25 detector + M365 connector helper
+   Surfaced inside the SMTP method tab so users see it right where
+   they're configuring senders.
+════════════════════════════════════════ */
+function OfficeConnectorPanel() {
+  const [open, setOpen]       = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const [result, setResult]   = React.useState(null);
+  async function probe() {
+    setLoading(true); setResult(null);
+    try {
+      const r = await apiCall("/api/tools/office-port25");
+      const d = await r.json();
+      setResult(d);
+    } catch(e) {
+      setResult({ok:false, error:e.message});
+    }
+    setLoading(false);
+  }
+  return (
+    <div className="card mb12" style={{borderLeft:"3px solid #0078d4"}}>
+      <div className="row jb ac-center">
+        <div>
+          <div className="card-title" style={{margin:0}}>📮 Office Connector / Port 25 Probe</div>
+          <div className="dim2 sm mt4">
+            Check if this VPS can deliver mail directly (port 25 open) and
+            generate a ready-to-paste Office 365 inbound-connector snippet
+            for setting up an Admin/Office relay route.
+          </div>
+        </div>
+        <button className="btn btn-g btn-sm" onClick={()=>setOpen(o=>!o)}>
+          {open ? "▲ Hide" : "▼ Show"}
+        </button>
+      </div>
+      {open && (
+        <div className="mt12">
+          <button className="btn btn-p btn-sm" onClick={probe} disabled={loading}>
+            {loading ? "Probing…" : "🔍 Probe outbound port 25"}
+          </button>
+          {result && (
+            <div className="mt12">
+              {result.public_ip && (
+                <div className="ib ib-i mb8 sm">
+                  <span className="ib-ic">🌐</span>
+                  <span>This VPS public IP: <code>{result.public_ip}</code></span>
+                </div>
+              )}
+              {typeof result.port25_open === "boolean" && (
+                <div className={`ib ${result.port25_open?"ib-ok":"ib-w"} mb8 sm`}>
+                  <span className="ib-ic">{result.port25_open?"✓":"⚠"}</span>
+                  <span style={{whiteSpace:"pre-line"}}>{result.advice}</span>
+                </div>
+              )}
+              {Array.isArray(result.probes) && (
+                <div className="card card-sm mb12">
+                  <div className="card-title" style={{fontSize:13,marginBottom:8}}>Probe Results</div>
+                  <div className="col g4">
+                    {result.probes.map((p,i)=>(
+                      <div key={i} className="row ac-center g8 sm">
+                        <span style={{color:p.ok?"var(--ok)":"var(--err)"}}>{p.ok?"✓":"✗"}</span>
+                        <span className="mono xs">{p.host}:{p.port}</span>
+                        {p.banner && <span className="dim2 xs" style={{maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.banner}</span>}
+                        {p.error && <span className="dim2 xs">— {p.error}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {result.connector && (
+                <div className="card card-sm">
+                  <div className="card-title" style={{fontSize:13}}>📮 Office 365 Inbound Connector</div>
+                  <div className="dim sm mb10">
+                    Add this VPS's IP to your tenant so Exchange Online accepts mail you relay through it.
+                    Run as a Global Admin in Exchange Online PowerShell:
+                  </div>
+                  <pre className="code" style={{fontSize:11,whiteSpace:"pre-wrap",padding:"10px 12px",maxHeight:240,overflow:"auto"}}>
+{result.connector.powershellSnippet}
+                  </pre>
+                  <div className="row g8 mt8">
+                    <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(result.connector.powershellSnippet)}>
+                      📋 Copy PowerShell
+                    </button>
+                    {result.public_ip && (
+                      <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(result.public_ip)}>
+                        📋 Copy IP
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TabMethod({
   activeMethod, setActiveMethod,
   smtpList, setSmtpList, smtpDraft, setSmtpDraft,
@@ -4205,6 +4304,8 @@ function TabMethod({
               </div>
             )}
           </div>
+
+          <OfficeConnectorPanel/>
 
           {smtpList.length>0 && (
             <div className="card mb12" style={{borderLeft:"3px solid #6366f1"}}>

@@ -2562,6 +2562,76 @@ if(code && window.opener){{
                     _ip = "unknown"
             self._json(200, {"ip": _ip})
 
+        # ── Office Connector — check this VPS's outbound port-25 ────
+        # Probes connectivity to a few real public MX hosts on TCP/25
+        # so the user knows whether their VPS can deliver mail directly
+        # (no proxy needed).  If port-25 is blocked (most providers
+        # block egress 25 by default), the response includes the
+        # public IP + ready-to-paste M365 inbound-connector params
+        # so the user can set up their own RDP/relay box and add this
+        # IP to their organisation's connector.
+        elif p == "/api/tools/office-port25":
+            if not (sess := self._auth()): return
+            import socket as _p25_sock
+            from urllib.request import urlopen as _uo
+            try:
+                public_ip = _uo("https://api.ipify.org", timeout=5).read().decode().strip()
+            except Exception:
+                public_ip = ""
+            probes = [
+                ("gmail-smtp-in.l.google.com", 25),
+                ("aspmx.l.google.com", 25),
+                ("outlook-com.olc.protection.outlook.com", 25),
+                ("mx0a-002066b1.pphosted.com", 25),
+            ]
+            results = []
+            any_open = False
+            for host, port in probes:
+                try:
+                    with _p25_sock.create_connection((host, port), timeout=5) as s:
+                        # Read the SMTP banner to confirm a real mail server,
+                        # not just an open TCP port.
+                        try:
+                            banner = s.recv(256).decode("ascii", errors="ignore").strip()
+                        except Exception:
+                            banner = ""
+                    results.append({"host": host, "port": port, "ok": True, "banner": banner[:120]})
+                    any_open = True
+                except Exception as e:
+                    results.append({"host": host, "port": port, "ok": False, "error": str(e)[:80]})
+            # Office 365 inbound-connector recommendation
+            connector = {
+                "name":               "SynthTel-Sender",
+                "type":               "OnPremises",
+                "senderIPAddresses":  [public_ip] if public_ip else [],
+                "scope":              "Limited to the IP(s) above (recommended) — or by certificate subject if using TLS",
+                "tlsAdvice":          "Strongly recommend forcing TLS 1.2+ on the connector with the domain you'll use as the sending hostname.",
+                "powershellSnippet": (
+                    "# Run in Exchange Online PowerShell as Global Admin:\n"
+                    "Connect-ExchangeOnline\n"
+                    f"New-InboundConnector -Name 'SynthTel-Sender' "
+                    f"-ConnectorType OnPremises -SenderDomains '*' "
+                    f"-SenderIPAddresses {public_ip!r} -RestrictDomainsToIPAddresses $true "
+                    "-RequireTls $true\n"
+                ) if public_ip else "Requires public IP — install on a VPS with a static IP first.",
+            }
+            self._json(200, {
+                "ok":         True,
+                "public_ip":  public_ip,
+                "port25_open": any_open,
+                "probes":     results,
+                "connector":  connector,
+                "advice": (
+                    "Port 25 outbound is OPEN on this VPS — you can deliver direct-to-MX without a relay."
+                    if any_open else
+                    "Port 25 outbound is BLOCKED on this VPS (typical for AWS/GCP/Azure/most clouds).\n"
+                    "Options:\n"
+                    "1. Use SMTP method with port 587/465 (STARTTLS/SSL) to a real provider\n"
+                    "2. Set up a port-25-capable RDP/VPS as an SMTP relay (Outlook→VPS:25→inbox)\n"
+                    "3. Add this VPS's IP to an Office 365 inbound connector and route via your tenant"
+                ),
+            })
+
         else:
             self._json(404, {"error": "Not found"})
 
