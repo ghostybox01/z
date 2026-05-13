@@ -810,6 +810,52 @@ def _write_installed_sha(sha: str):
         log.warning("[update] failed to write SHA file: %s", e)
 
 
+def _persist_github_env_to_dotenv() -> bool:
+    """Mirror GITHUB_* globals into INSTALL_DIR/.env with mode 600.
+
+    systemd loads this file via EnvironmentFile= (see install.sh).  Values
+    set only in a Cursor workspace / dev machine are *not* visible to the
+    running server until the same SYNTHTEL_GH_* keys exist on the VPS .env
+    or are saved through POST /api/update/config (admin).
+    """
+    env_path = os.path.join(INSTALL_DIR, ".env")
+    keys = {
+        "SYNTHTEL_GH_OWNER":   GITHUB_OWNER or "",
+        "SYNTHTEL_GH_REPO":    GITHUB_REPO or "",
+        "SYNTHTEL_GH_BRANCH":  GITHUB_BRANCH or "",
+        "SYNTHTEL_GH_TOKEN":   GITHUB_TOKEN or "",
+    }
+    try:
+        os.makedirs(INSTALL_DIR, exist_ok=True)
+        lines: list[str] = []
+        if os.path.isfile(env_path):
+            with open(env_path, "r", encoding="utf-8", errors="ignore") as fh:
+                lines = fh.read().splitlines()
+        seen: set[str] = set()
+        out: list[str] = []
+        for line in lines:
+            if "=" in line and not line.strip().startswith("#"):
+                k = line.split("=", 1)[0].strip()
+                if k in keys:
+                    seen.add(k)
+                    out.append(f"{k}={keys[k]}")
+                    continue
+            out.append(line)
+        for k, v in keys.items():
+            if k not in seen:
+                out.append(f"{k}={v}")
+        with open(env_path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(out) + "\n")
+        try:
+            os.chmod(env_path, 0o600)
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        log.warning("[update] could not persist GitHub env → %s: %s", env_path, e)
+        return False
+
+
 def _check_for_update() -> dict:
     """Compare local installed SHA to latest commit on the tracked branch.
 
@@ -5962,10 +6008,12 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 GITHUB_BRANCH = data["branch"].strip()[:80]
             if isinstance(data.get("token"),  str):
                 GITHUB_TOKEN  = data["token"].strip()
+            env_persisted = _persist_github_env_to_dotenv()
             self._json(200, {"ok": True,
                              "owner": GITHUB_OWNER, "repo": GITHUB_REPO,
                              "branch": GITHUB_BRANCH,
-                             "token_set": bool(GITHUB_TOKEN)})
+                             "token_set": bool(GITHUB_TOKEN),
+                             "env_persisted": env_persisted})
 
         # ── File upload ──────────────────────────────────────
         elif p == "/api/files/upload":
