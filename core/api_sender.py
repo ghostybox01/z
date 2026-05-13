@@ -330,32 +330,73 @@ def _api_request(
 # PROVIDER IMPLEMENTATIONS
 # ═══════════════════════════════════════════════════════════════
 
+_BREVO_MISSING_TO_NAME = "name is missing in to"
+
+
+def _brevo_recipient_display_name(email: str, name: str) -> str:
+    """
+    Brevo returns 400 with 'name is missing in to' when the name is absent,
+    blank, or otherwise not accepted. Prefer the lead name; else the local
+    part of the address; else the full address.
+    """
+    n = (name or "").strip()
+    if n:
+        return n
+    e = (email or "").strip()
+    if "@" in e:
+        local = e.split("@", 1)[0].strip()
+        if local:
+            return local
+    return e or "Recipient"
+
+
 def _send_brevo(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
     key        = api_cfg.get("apiKey", "")
     from_name  = sender.get("fromName", "")
     from_email = sender.get("fromEmail", "")
     reply_to   = sender.get("replyTo", "")
-    lead_email = lead.get("email", "")
-    lead_name  = lead.get("name", "")
+    lead_email = (lead.get("email") or "").strip()
+    lead_name  = lead.get("name", "") or ""
 
-    payload = {
-        "sender":      {"name": from_name, "email": from_email},
-        "to":          [{"email": lead_email, "name": lead_name}],
-        "subject":     subject,
-        "htmlContent": html,
-        "textContent": plain,
-    }
-    if reply_to:
-        payload["replyTo"] = {"email": reply_to}
-    if extra_hdrs:
-        payload["headers"] = extra_hdrs
+    def _build_payload(to_name: str) -> dict:
+        p = {
+            "sender":      {"name": from_name, "email": from_email},
+            "to":          [{"email": lead_email, "name": to_name}],
+            "subject":     subject,
+            "htmlContent": html,
+            "textContent": plain,
+        }
+        if reply_to:
+            p["replyTo"] = {"email": reply_to}
+        if extra_hdrs:
+            p["headers"] = extra_hdrs
+        return p
 
-    return _api_request(
-        _API_URLS["brevo"], payload,
-        {"api-key": key, "Content-Type": "application/json"},
-        "brevo",
-        uid=api_cfg.get("_uid"),
-    )
+    to_display = _brevo_recipient_display_name(lead_email, lead_name)
+    payload = _build_payload(to_display)
+    hdrs = {"api-key": key, "Content-Type": "application/json"}
+
+    try:
+        return _api_request(
+            _API_URLS["brevo"], payload,
+            hdrs,
+            "brevo",
+            uid=api_cfg.get("_uid"),
+        )
+    except Exception as exc:
+        if _BREVO_MISSING_TO_NAME not in str(exc).lower():
+            raise
+        # Retry once with the full address as display name (always non-empty).
+        fallback = lead_email or "Recipient"
+        if to_display == fallback:
+            raise
+        payload = _build_payload(fallback)
+        return _api_request(
+            _API_URLS["brevo"], payload,
+            hdrs,
+            "brevo",
+            uid=api_cfg.get("_uid"),
+        )
 
 
 def _send_sendgrid(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
