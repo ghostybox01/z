@@ -25,13 +25,14 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller bcrypt dnspython requests
+          pip install pyinstaller bcrypt dnspython requests pywebview
 
       - name: Build with PyInstaller
         shell: bash
         run: |
           pyinstaller \
             --noconfirm \
+            --windowed \
             --onefile \
             --name synthtel-sender \
             --add-data "core;core" \
@@ -39,8 +40,10 @@ jobs:
             --add-data "libs;libs" \
             --hidden-import bcrypt \
             --hidden-import dns.resolver \
+            --hidden-import webview.platforms.edgechromium \
             --collect-submodules core \
-            server.py
+            --collect-all webview \
+            desktop.py
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -68,7 +71,7 @@ jobs:
       - name: Install build deps
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller bcrypt dnspython requests
+          pip install pyinstaller bcrypt dnspython requests "pywebview[cocoa]"
 
       - name: Build with PyInstaller
         run: |
@@ -81,8 +84,10 @@ jobs:
             --add-data "libs:libs" \
             --hidden-import bcrypt \
             --hidden-import dns.resolver \
+            --hidden-import webview.platforms.cocoa \
             --collect-submodules core \
-            server.py
+            --collect-all webview \
+            desktop.py
 
       - name: Package .app into .dmg
         run: |
