@@ -308,7 +308,7 @@ echo -e "${GREEN}═════════════════════
 echo ""
 echo -e "${CYAN}Next steps:${NC}"
 echo "  Option A — auto-deploy from GitHub (recommended for fresh VPS):"
-echo "    curl -fsSL https://raw.githubusercontent.com/malikbalogun/zzz/main/bootstrap.sh | bash"
+echo "    curl -fsSL https://raw.githubusercontent.com/ghostybox01/z/main/bootstrap.sh | bash"
 echo "    (idempotent — pulls latest commit, deploys core+index, pins SHA"
 echo "     for the in-app auto-updater, restarts the service.)"
 echo ""

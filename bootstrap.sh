@@ -14,16 +14,16 @@
 #
 # Usage on a fresh root@VPS shell (Debian/Ubuntu):
 #
-#     curl -fsSL https://raw.githubusercontent.com/malikbalogun/zzz/main/bootstrap.sh | bash
+#     curl -fsSL https://raw.githubusercontent.com/ghostybox01/z/main/bootstrap.sh | bash
 #
 # Or with overrides:
 #
-#     GH_OWNER=youruser GH_REPO=zzz GH_BRANCH=main \
-#       bash <(curl -fsSL https://raw.githubusercontent.com/malikbalogun/zzz/main/bootstrap.sh)
+#     GH_OWNER=youruser GH_REPO=z GH_BRANCH=main \
+#       bash <(curl -fsSL https://raw.githubusercontent.com/ghostybox01/z/main/bootstrap.sh)
 #
 # Environment overrides:
-#   GH_OWNER       (default: malikbalogun)
-#   GH_REPO        (default: zzz)
+#   GH_OWNER       (default: ghostybox01)
+#   GH_REPO        (default: z)
 #   GH_BRANCH      (default: main)
 #   GH_TOKEN       (optional; for private repos / higher rate limits)
 #   INSTALL_DIR    (default: /opt/synthtel)
@@ -34,8 +34,8 @@
 
 set -e
 
-GH_OWNER="${GH_OWNER:-malikbalogun}"
-GH_REPO="${GH_REPO:-zzz}"
+GH_OWNER="${GH_OWNER:-ghostybox01}"
+GH_REPO="${GH_REPO:-z}"
 GH_BRANCH="${GH_BRANCH:-main}"
 GH_TOKEN="${GH_TOKEN:-}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/synthtel}"

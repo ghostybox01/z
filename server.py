@@ -124,8 +124,8 @@ MAX_BODY_BYTES  = 50 * 1024 * 1024   # 50 MB hard cap (files can be larger)
 # GitHub repo to check for updates.  Owner/repo + branch can be overridden
 # via env vars or by writing to the kv_settings table at runtime via the
 # /api/update/config endpoint (admin only).
-GITHUB_OWNER  = os.environ.get("SYNTHTEL_GH_OWNER",  "aidanbaker812-prog")
-GITHUB_REPO   = os.environ.get("SYNTHTEL_GH_REPO",   "zzz")
+GITHUB_OWNER  = os.environ.get("SYNTHTEL_GH_OWNER",  "ghostybox01")
+GITHUB_REPO   = os.environ.get("SYNTHTEL_GH_REPO",   "z")
 GITHUB_BRANCH = os.environ.get("SYNTHTEL_GH_BRANCH", "main")
 GITHUB_TOKEN  = os.environ.get("SYNTHTEL_GH_TOKEN",  "")  # optional, raises rate limits
 
