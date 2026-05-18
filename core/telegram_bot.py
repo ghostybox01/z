@@ -2,7 +2,7 @@
 SynthTel — Telegram Bot Integration
 Handles: 2FA OTPs, login notifications, admin controls, support tickets
 """
-import json, os, secrets, sqlite3, sys, threading, time, logging
+import json, os, secrets, sqlite3, threading, time, logging
 from datetime import datetime, timedelta
 from urllib.request import urlopen, Request
 from urllib.parse import urlencode
@@ -10,14 +10,7 @@ from urllib.error import URLError, HTTPError
 
 log = logging.getLogger("synthtel.telegram")
 
-def _default_db_path():
-    if sys.platform == "darwin":
-        return os.path.expanduser("~/Library/Application Support/SynthTel/synthtel.db")
-    if sys.platform.startswith("win"):
-        return os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "SynthTel", "synthtel.db")
-    return "/opt/synthtel/synthtel.db"
-
-DB_PATH   = os.environ.get("SYNTHTEL_DB", _default_db_path())
+DB_PATH   = os.environ.get("SYNTHTEL_DB", "/opt/synthtel/synthtel.db")
 db_lock   = threading.Lock()
 
 TG_API    = "https://api.telegram.org/bot{token}/{method}"
