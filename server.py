@@ -1604,6 +1604,32 @@ def init_db():
             except Exception:
                 pass  # column already exists — safe to ignore
 
+        # Normalize user_files.category to plural (the UI uploaded some files
+        # with singular category names that didn't match the listing filter,
+        # making them invisible). Move the disk files into the renamed
+        # category folder so /api/files/download keeps working.
+        try:
+            renames = [("attachment", "attachments"), ("letter", "letters"), ("template", "templates")]
+            rows = conn.execute(
+                "SELECT id,user_id,category,filename FROM user_files "
+                "WHERE category IN ('attachment','letter','template')"
+            ).fetchall()
+            for fid, uid, old_cat, fname in rows:
+                new_cat = dict(renames)[old_cat]
+                old_path = os.path.join(FILES_DIR, str(uid), old_cat, fname)
+                new_dir  = os.path.join(FILES_DIR, str(uid), new_cat)
+                new_path = os.path.join(new_dir, fname)
+                try:
+                    os.makedirs(new_dir, exist_ok=True)
+                    if os.path.exists(old_path) and not os.path.exists(new_path):
+                        os.rename(old_path, new_path)
+                except Exception:
+                    pass
+                conn.execute("UPDATE user_files SET category=? WHERE id=?", (new_cat, fid))
+            conn.commit()
+        except Exception:
+            pass
+
         # Seed default admin if no users exist
         if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
             salt = secrets.token_hex(16)

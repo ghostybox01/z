@@ -6022,7 +6022,7 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
               <div className="drop-s">Any file type — saved securely to your account only</div>
             </div>
             <input id="att-up" type="file" multiple style={{display:"none"}}
-              onChange={async e=>{for(const f of e.target.files) await uploadFile(f,"attachment");}}/>
+              onChange={async e=>{for(const f of e.target.files) await uploadFile(f,"attachments");}}/>
           </div>
 
           {/* Uploaded list */}
@@ -6846,7 +6846,7 @@ function TabFiles({filesList, uploadFile, deleteFile, renameFile, fileUploadLoad
   const cats=["all","attachments","leads","letters","templates","senders","misc"];
   const catIco={attachments:"📎",leads:"👥",letters:"✉️",templates:"📋",senders:"📤",misc:"📦"};
   const filtered=cat==="all"?filesList:filesList.filter(f=>f.category===cat);
-  const [selCat, setSelCat] = useState("attachment");
+  const [selCat, setSelCat] = useState("attachments");
 
   return (
     <div>
@@ -6888,10 +6888,10 @@ function TabFiles({filesList, uploadFile, deleteFile, renameFile, fileUploadLoad
               <div className="card-title" style={{marginBottom:0}}>{cat.charAt(0).toUpperCase()+cat.slice(1)} ({filtered.length})</div>
               <div className="row g8">
                 <select value={selCat} onChange={e=>setSelCat(e.target.value)} style={{width:"auto",padding:"6px 10px"}}>
-                  <option value="attachment">Attachment</option>
+                  <option value="attachments">Attachment</option>
                   <option value="leads">Leads</option>
-                  <option value="letter">Letter</option>
-                  <option value="template">Template</option>
+                  <option value="letters">Letter</option>
+                  <option value="templates">Template</option>
                   <option value="senders">Senders</option>
                   <option value="misc">Misc</option>
                 </select>
@@ -10757,7 +10757,7 @@ function App() {
   } catch(e){} },[updateAutoCheck, updateAutoApply]);
 
   async function loadFiles() {
-    try{ const r=await apiCall("/api/files"); if(r.ok){const d=await r.json();setFilesList(d.files||[]);} }catch(e){}
+    try{ const r=await apiCall("/api/files?category=all"); if(r.ok){const d=await r.json();setFilesList(d.files||[]);} }catch(e){}
   }
   async function loadHistory() {
     try{ const r=await apiCall("/api/campaigns"); if(r.ok){const d=await r.json();setCampHistory(d.campaigns||[]);} }catch(e){}
