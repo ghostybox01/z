@@ -64,7 +64,19 @@ except ImportError:
 # ─── logging ──────────────────────────────────────────────────────────────
 from logging.handlers import RotatingFileHandler
 
-LOG_PATH = os.environ.get("SYNTHTEL_LOG", "/opt/synthtel/synthtel.log")
+def _default_data_dir():
+    # Linux keeps the historical /opt/synthtel layout for the systemd deploy.
+    # macOS/Windows fall back to a user-writable directory so the bundled
+    # .app / .exe runs without sudo.
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/SynthTel")
+    if sys.platform.startswith("win"):
+        return os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "SynthTel")
+    return "/opt/synthtel"
+
+_DATA_DIR = _default_data_dir()
+
+LOG_PATH = os.environ.get("SYNTHTEL_LOG", os.path.join(_DATA_DIR, "synthtel.log"))
 os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 _fh = RotatingFileHandler(LOG_PATH, maxBytes=2 * 1024 * 1024, backupCount=3)
 _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"))
@@ -111,9 +123,9 @@ except Exception:
 # CONSTANTS
 # ═══════════════════════════════════════════════════════════════
 
-DB_PATH         = os.environ.get("SYNTHTEL_DB", "/opt/synthtel/synthtel.db")
-FILES_DIR       = os.environ.get("SYNTHTEL_FILES", "/opt/synthtel/files")
-INSTALL_DIR     = os.environ.get("SYNTHTEL_INSTALL_DIR", "/opt/synthtel")
+DB_PATH         = os.environ.get("SYNTHTEL_DB", os.path.join(_DATA_DIR, "synthtel.db"))
+FILES_DIR       = os.environ.get("SYNTHTEL_FILES", os.path.join(_DATA_DIR, "files"))
+INSTALL_DIR     = os.environ.get("SYNTHTEL_INSTALL_DIR", _DATA_DIR)
 WEB_DIR         = os.environ.get("SYNTHTEL_WEB_DIR", "/var/www/html")
 SESSION_HOURS   = 24
 MAX_ATTEMPTS    = 10
@@ -168,7 +180,7 @@ _AZURE_CLIENT_ID     = os.environ.get("SYNTHTEL_AZURE_CLIENT_ID", "")
 _AZURE_CLIENT_SECRET = os.environ.get("SYNTHTEL_AZURE_CLIENT_SECRET", "")
 # Load from /opt/synthtel/.env if not in env
 try:
-    _env_path = "/opt/synthtel/.env"
+    _env_path = os.path.join(INSTALL_DIR, ".env")
     if os.path.exists(_env_path) and (not _AZURE_CLIENT_ID or not _AZURE_CLIENT_SECRET):
         for _line in open(_env_path).read().splitlines():
             if "=" in _line and not _line.startswith("#"):
@@ -7928,6 +7940,12 @@ def main():
 ║   Cores: 10/10 modules loaded                 ║
 ╚═══════════════════════════════════════════════╝
 """)
+    if os.environ.get("SYNTHTEL_OPEN_BROWSER", "1") == "1":
+        try:
+            import webbrowser
+            threading.Timer(1.0, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
+        except Exception:
+            pass
     try:
         server.serve_forever()
     except KeyboardInterrupt:
