@@ -1,0 +1,32 @@
+name: Mirror to ghostybox01/z
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-ghostybox
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push main to ghostybox01/z
+        env:
+          TOKEN: ${{ secrets.GHOSTYBOX_MIRROR_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "GHOSTYBOX_MIRROR_TOKEN secret is not set. Add it under Settings → Secrets → Actions." >&2
+            exit 1
+          fi
+          git remote add ghosty "https://x-access-token:${TOKEN}@github.com/ghostybox01/z.git"
+          git push ghosty HEAD:main
