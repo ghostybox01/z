@@ -34,11 +34,52 @@ import json
 import time
 import logging
 import uuid
+import base64
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
-from typing import Optional
+from typing import Optional, List, Tuple
 
 log = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════════
+# ATTACHMENT HELPERS  (shared by all providers)
+# ═══════════════════════════════════════════════════════════════
+
+def _b64(data: bytes) -> str:
+    """Base64-encode bytes to a string suitable for JSON payloads."""
+    return base64.b64encode(data).decode("ascii")
+
+
+def _build_multipart_form(fields: list, files: List[Tuple[str, str, str, bytes]]):
+    """
+    Hand-rolled multipart/form-data body builder for providers that need it
+    (Mailgun when attachments are present — urllib has no built-in helper).
+
+    fields: [(name, value), ...]   — string fields
+    files:  [(field_name, filename, content_type, data_bytes), ...]
+    Returns (body_bytes, content_type_header_value).
+    """
+    boundary = "----SynthTel" + uuid.uuid4().hex
+    parts = []
+    for name, value in fields:
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+        parts.append(str(value).encode("utf-8"))
+        parts.append(b"\r\n")
+    for field_name, filename, ctype, data in files:
+        safe_fname = (filename or "attachment.bin").replace('"', '')
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(
+            f'Content-Disposition: form-data; name="{field_name}"; '
+            f'filename="{safe_fname}"\r\n'.encode()
+        )
+        parts.append(f"Content-Type: {ctype or 'application/octet-stream'}\r\n\r\n".encode())
+        parts.append(bytes(data))
+        parts.append(b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    body = b"".join(parts)
+    return body, f"multipart/form-data; boundary={boundary}"
 
 
 def _norm(html: str, plain: str, subject: str):
@@ -350,7 +391,7 @@ def _brevo_recipient_display_name(email: str, name: str) -> str:
     return e or "Recipient"
 
 
-def _send_brevo(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
+def _send_brevo(api_cfg, sender, lead, html, plain, subject, extra_hdrs, attach_payloads=None):
     key        = api_cfg.get("apiKey", "")
     from_name  = sender.get("fromName", "")
     from_email = sender.get("fromEmail", "")
@@ -370,6 +411,12 @@ def _send_brevo(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
             p["replyTo"] = {"email": reply_to}
         if extra_hdrs:
             p["headers"] = extra_hdrs
+        if attach_payloads:
+            # Brevo: [{"name": "doc.pdf", "content": "<base64>"}]
+            p["attachment"] = [
+                {"name": fname, "content": _b64(data)}
+                for (fname, _ctype, data) in attach_payloads
+            ]
         return p
 
     to_display = _brevo_recipient_display_name(lead_email, lead_name)
@@ -399,7 +446,7 @@ def _send_brevo(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
         )
 
 
-def _send_sendgrid(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
+def _send_sendgrid(api_cfg, sender, lead, html, plain, subject, extra_hdrs, attach_payloads=None):
     key        = api_cfg.get("apiKey", "")
     from_name  = sender.get("fromName", "")
     from_email = sender.get("fromEmail", "")
@@ -426,6 +473,17 @@ def _send_sendgrid(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
         payload["reply_to"] = {"email": reply_to}
     if extra_hdrs:
         payload["headers"] = extra_hdrs
+    if attach_payloads:
+        # SendGrid: [{"content": b64, "filename": "...", "type": "...", "disposition": "attachment"}]
+        payload["attachments"] = [
+            {
+                "content":     _b64(data),
+                "filename":    fname,
+                "type":        ctype or "application/octet-stream",
+                "disposition": "attachment",
+            }
+            for (fname, ctype, data) in attach_payloads
+        ]
 
     return _api_request(
         _API_URLS["sendgrid"], payload,
@@ -435,7 +493,7 @@ def _send_sendgrid(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
     )
 
 
-def _send_resend(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
+def _send_resend(api_cfg, sender, lead, html, plain, subject, extra_hdrs, attach_payloads=None):
     key        = api_cfg.get("apiKey", "")
     from_name  = sender.get("fromName", "")
     from_email = sender.get("fromEmail", "")
@@ -456,6 +514,16 @@ def _send_resend(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
         payload["reply_to"] = reply_to
     if extra_hdrs:
         payload["headers"] = extra_hdrs
+    if attach_payloads:
+        # Resend: [{"filename": "...", "content": "<base64>", "content_type": "..."}]
+        payload["attachments"] = [
+            {
+                "filename":     fname,
+                "content":      _b64(data),
+                "content_type": ctype or "application/octet-stream",
+            }
+            for (fname, ctype, data) in attach_payloads
+        ]
 
     return _api_request(
         _API_URLS["resend"], payload,
@@ -465,12 +533,11 @@ def _send_resend(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
     )
 
 
-def _send_mailgun(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
+def _send_mailgun(api_cfg, sender, lead, html, plain, subject, extra_hdrs, attach_payloads=None):
     """
-    Mailgun v3 API — uses multipart form data, not JSON.
-    Requires api_cfg.mailgunDomain to be set (e.g. "mg.yourco.com").
+    Mailgun v3 API — form-encoded POST (no attachments) or multipart/form-data
+    (with attachments). Requires api_cfg.mailgunDomain (e.g. "mg.yourco.com").
     """
-    import base64
     from urllib.parse import urlencode
 
     key           = api_cfg.get("apiKey", "")
@@ -494,7 +561,6 @@ def _send_mailgun(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
     from_str = f"{from_name} <{from_email}>" if from_name else from_email
     to_str   = f"{lead_name} <{lead_email}>" if lead_name else lead_email
 
-    # Mailgun uses form-encoded POST
     fields = [
         ("from",    from_str),
         ("to",      to_str),
@@ -509,12 +575,21 @@ def _send_mailgun(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
     for hname, hval in (extra_hdrs or {}).items():
         fields.append((f"h:{hname}", hval))
 
-    body     = urlencode(fields).encode("utf-8")
-    cred     = base64.b64encode(f"api:{key}".encode()).decode()
-    req_hdrs = {
-        "Authorization":  f"Basic {cred}",
-        "Content-Type":   "application/x-www-form-urlencoded",
-    }
+    cred = base64.b64encode(f"api:{key}".encode()).decode()
+    if attach_payloads:
+        # Mailgun: each attachment is a separate "attachment" multipart field.
+        files = [("attachment", fname, ctype, data) for (fname, ctype, data) in attach_payloads]
+        body, content_type = _build_multipart_form(fields, files)
+        req_hdrs = {
+            "Authorization": f"Basic {cred}",
+            "Content-Type":  content_type,
+        }
+    else:
+        body = urlencode(fields).encode("utf-8")
+        req_hdrs = {
+            "Authorization": f"Basic {cred}",
+            "Content-Type":  "application/x-www-form-urlencoded",
+        }
 
     req  = Request(url, data=body, headers=req_hdrs, method="POST")
     try:
@@ -534,7 +609,7 @@ def _send_mailgun(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
         raise Exception(f"Mailgun HTTP {exc.code} — {detail}")
 
 
-def _send_postmark(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
+def _send_postmark(api_cfg, sender, lead, html, plain, subject, extra_hdrs, attach_payloads=None):
     key        = api_cfg.get("apiKey", "")
     from_name  = sender.get("fromName", "")
     from_email = sender.get("fromEmail", "")
@@ -558,6 +633,16 @@ def _send_postmark(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
         payload["ReplyTo"] = reply_to
     if extra_hdrs:
         payload["Headers"] = [{"Name": k, "Value": v} for k, v in extra_hdrs.items()]
+    if attach_payloads:
+        # Postmark: [{"Name": "...", "Content": "<base64>", "ContentType": "..."}]
+        payload["Attachments"] = [
+            {
+                "Name":        fname,
+                "Content":     _b64(data),
+                "ContentType": ctype or "application/octet-stream",
+            }
+            for (fname, ctype, data) in attach_payloads
+        ]
 
     return _api_request(
         _API_URLS["postmark"], payload,
@@ -571,7 +656,7 @@ def _send_postmark(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
     )
 
 
-def _send_sparkpost(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
+def _send_sparkpost(api_cfg, sender, lead, html, plain, subject, extra_hdrs, attach_payloads=None):
     key        = api_cfg.get("apiKey", "")
     from_name  = sender.get("fromName", "")
     from_email = sender.get("fromEmail", "")
@@ -593,6 +678,16 @@ def _send_sparkpost(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
         content["reply_to"] = reply_to
     if extra_hdrs:
         content["headers"] = extra_hdrs
+    if attach_payloads:
+        # SparkPost: content.attachments = [{"name", "type", "data": "<base64>"}]
+        content["attachments"] = [
+            {
+                "name": fname,
+                "type": ctype or "application/octet-stream",
+                "data": _b64(data),
+            }
+            for (fname, ctype, data) in attach_payloads
+        ]
 
     payload = {
         "recipients": [to_obj],
@@ -611,12 +706,16 @@ def _send_sparkpost(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
     )
 
 
-def _send_ses(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
+def _send_ses(api_cfg, sender, lead, html, plain, subject, extra_hdrs,
+              attachments_cfg=None, dlv=None, custom_headers=None):
     """
     Amazon SES v2 REST API (no boto3 required — uses raw HTTP with AWS Signature V4).
     Requires: apiKey = "ACCESS_KEY_ID:SECRET_ACCESS_KEY", region field.
+
+    When attachments_cfg is non-empty, builds a full MIME via mime_builder and
+    submits via Content.Raw.Data — SES Simple content has no attachment field.
     """
-    import hmac, hashlib, base64, datetime
+    import hmac, hashlib, datetime
     from urllib.parse import quote
 
     creds  = (api_cfg.get("apiKey", "") or "").strip()
@@ -640,19 +739,44 @@ def _send_ses(api_cfg, sender, lead, html, plain, subject, extra_hdrs):
     lead_name  = lead.get("name", "")
     from_str   = f"{from_name} <{from_email}>" if from_name else from_email
 
-    payload = {
-        "FromEmailAddress": from_str,
-        "Destination": {"ToAddresses": [f"{lead_name} <{lead_email}>" if lead_name else lead_email]},
-        "Content": {
-            "Simple": {
-                "Subject": {"Data": subject, "Charset": "UTF-8"},
-                "Body": {
-                    "Html": {"Data": html,  "Charset": "UTF-8"},
-                    "Text": {"Data": plain or "", "Charset": "UTF-8"},
-                },
-            }
-        },
-    }
+    # Decide Simple vs Raw based on whether attachments are configured.
+    use_raw = bool(attachments_cfg) and any(
+        attachments_cfg.get(k) for k in ("files", "ics", "pdf", "ghost_pdf", "html_image")
+    )
+
+    if use_raw:
+        from core.mime_builder import build_message
+        msg, _meta = build_message(
+            lead        = lead,
+            sender      = sender,
+            subject     = subject,
+            html        = html,
+            plain       = plain,
+            dlv         = dlv or {},
+            custom_hdrs = custom_headers or [],
+            attachments = attachments_cfg or {},
+            preheader   = (dlv or {}).get("preheader", "") if dlv else "",
+        )
+        raw_b64 = _b64(msg.as_bytes())
+        payload = {
+            "FromEmailAddress": from_str,
+            "Destination": {"ToAddresses": [f"{lead_name} <{lead_email}>" if lead_name else lead_email]},
+            "Content": {"Raw": {"Data": raw_b64}},
+        }
+    else:
+        payload = {
+            "FromEmailAddress": from_str,
+            "Destination": {"ToAddresses": [f"{lead_name} <{lead_email}>" if lead_name else lead_email]},
+            "Content": {
+                "Simple": {
+                    "Subject": {"Data": subject, "Charset": "UTF-8"},
+                    "Body": {
+                        "Html": {"Data": html,  "Charset": "UTF-8"},
+                        "Text": {"Data": plain or "", "Charset": "UTF-8"},
+                    },
+                }
+            },
+        }
     if reply_to:
         payload["ReplyToAddresses"] = [reply_to]
 
@@ -734,6 +858,7 @@ def send_api(
     dlv:              Optional[dict] = None,
     custom_headers:   Optional[list] = None,
     uid                              = None,
+    attachments:      Optional[dict] = None,
 ) -> int:
     """
     Send one email via an external API provider.
@@ -787,6 +912,33 @@ def send_api(
             sender         = sender,
         )
 
+    # Materialize attachments once for non-SES providers. SES needs the raw
+    # config (not flat payloads) because it builds full MIME via build_message
+    # when attachments are present.
+    attach_payloads = []
+    if attachments:
+        try:
+            from core.mime_builder import materialize_attachments
+            attach_payloads = materialize_attachments(
+                attachments_cfg = attachments,
+                lead            = lead,
+                sender          = sender,
+                html            = resolved_html,
+                subject         = resolved_subject,
+            )
+        except Exception as e:
+            log.warning("send_api(%s): materialize_attachments failed: %s", provider, e)
+
+    if provider == "ses":
+        return _send_ses(
+            api_cfg, sender, lead,
+            resolved_html, resolved_plain, resolved_subject,
+            extra_headers,
+            attachments_cfg = attachments or {},
+            dlv             = dlv,
+            custom_headers  = custom_headers,
+        )
+
     dispatch = {
         "brevo":     _send_brevo,
         "sendgrid":  _send_sendgrid,
@@ -794,11 +946,15 @@ def send_api(
         "mailgun":   _send_mailgun,
         "postmark":  _send_postmark,
         "sparkpost": _send_sparkpost,
-        "ses":       _send_ses,
     }
 
     fn = dispatch.get(provider)
     if fn is None:
         raise Exception(f"Provider '{provider}' has no send implementation.")
 
-    return fn(api_cfg, sender, lead, resolved_html, resolved_plain, resolved_subject, extra_headers)
+    return fn(
+        api_cfg, sender, lead,
+        resolved_html, resolved_plain, resolved_subject,
+        extra_headers,
+        attach_payloads = attach_payloads,
+    )

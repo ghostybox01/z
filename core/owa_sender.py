@@ -155,37 +155,41 @@ def _build_soap(
     reply_to:       str,
     cc:             str,
     save_to_sent:   bool,
+    mime_b64:       Optional[str] = None,
 ) -> str:
     """
     Build a CreateItem SOAP envelope for EWS.
     Uses MIME content submission (MimeContent) which is the most reliable
     path for full HTML + plain text + headers — avoids EWS HTML quirks.
 
-    Falls back to BodyType=HTML if MIME submission is unavailable.
+    If mime_b64 is provided, it is used directly (caller already built the
+    inner MIME — e.g. via mime_builder.build_message for attachments).
+    Otherwise an inner multipart/alternative MIME is built locally.
     """
-    # Build inner MIME message for MimeContent submission
-    import email.utils
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    import base64 as _b64
+    if mime_b64 is None:
+        # Build inner MIME message for MimeContent submission
+        import email.utils
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        import base64 as _b64
 
-    inner = MIMEMultipart("alternative")
-    inner["From"]       = f'"{from_name}" <{from_email}>' if from_name else from_email
-    inner["To"]         = f'"{to_name}" <{to_email}>' if to_name else to_email
-    inner["Subject"]    = subject
-    inner["Date"]       = email.utils.formatdate(localtime=False)
-    inner["Message-ID"] = email.utils.make_msgid(
-        domain=from_email.split("@")[-1] if "@" in from_email else "example.com"
-    )
-    if reply_to:
-        inner["Reply-To"] = reply_to
-    if cc:
-        inner["Cc"] = cc
+        inner = MIMEMultipart("alternative")
+        inner["From"]       = f'"{from_name}" <{from_email}>' if from_name else from_email
+        inner["To"]         = f'"{to_name}" <{to_email}>' if to_name else to_email
+        inner["Subject"]    = subject
+        inner["Date"]       = email.utils.formatdate(localtime=False)
+        inner["Message-ID"] = email.utils.make_msgid(
+            domain=from_email.split("@")[-1] if "@" in from_email else "example.com"
+        )
+        if reply_to:
+            inner["Reply-To"] = reply_to
+        if cc:
+            inner["Cc"] = cc
 
-    inner.attach(MIMEText(plain_body or "", "plain", "utf-8"))
-    inner.attach(MIMEText(html_body,  "html",  "utf-8"))
+        inner.attach(MIMEText(plain_body or "", "plain", "utf-8"))
+        inner.attach(MIMEText(html_body,  "html",  "utf-8"))
 
-    mime_b64 = _b64.b64encode(inner.as_bytes()).decode("ascii")
+        mime_b64 = _b64.b64encode(inner.as_bytes()).decode("ascii")
 
     importance_map = {"low": "Low", "high": "High", "normal": "Normal"}
     imp = importance_map.get((importance or "normal").lower(), "Normal")
@@ -230,6 +234,7 @@ def send_owa(
     resolved_subject: str,
     dlv:              Optional[dict] = None,
     custom_headers:   Optional[list] = None,
+    attachments:      Optional[dict] = None,
 ) -> int:
     """
     Send an email via Exchange Web Services (EWS) SOAP API.
@@ -271,6 +276,33 @@ def send_owa(
     if not password and not oauth_token:
         raise Exception("OWA: No password or oauthToken configured.")
 
+    # When attachments are configured, build the inner MIME via mime_builder
+    # so static files and dynamic generators (ICS/PDF/etc.) reach the recipient.
+    # No-attachment sends keep the original local-MIME path for minimum risk.
+    mime_b64 = None
+    has_attachments = bool(attachments) and any(
+        (attachments or {}).get(k)
+        for k in ("files", "ics", "pdf", "ghost_pdf", "html_image")
+    )
+    if has_attachments:
+        try:
+            from core.mime_builder import build_message
+            inner_msg, _meta = build_message(
+                lead        = lead,
+                sender      = sender,
+                subject     = resolved_subject,
+                html        = resolved_html,
+                plain       = resolved_plain,
+                dlv         = dlv or {},
+                custom_hdrs = custom_headers or [],
+                attachments = attachments or {},
+                preheader   = (dlv or {}).get("preheader", "") if dlv else "",
+            )
+            mime_b64 = base64.b64encode(inner_msg.as_bytes()).decode("ascii")
+        except Exception as e:
+            log.warning("[OwaSender] attachment MIME build failed, falling back to plain SOAP: %s", e)
+            mime_b64 = None
+
     soap = _build_soap(
         ews_version  = ews_ver,
         from_name    = from_name,
@@ -284,6 +316,7 @@ def send_owa(
         reply_to     = reply_to,
         cc           = cc,
         save_to_sent = save_sent,
+        mime_b64     = mime_b64,
     )
 
     if oauth_token:

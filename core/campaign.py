@@ -1187,6 +1187,9 @@ def _send_one(
                 # Pass the campaign owner so api_sender's abort-check
                 # honors only THIS user's stop flag (multi-tenant safe).
                 uid              = getattr(opts, "uid", None),
+                dlv              = dlv,
+                custom_headers   = hdrs,
+                attachments      = opts.attachments or {},
             )
             return True, "", server.get("label", server.get("provider", "API"))
         except Exception as exc:
@@ -1204,6 +1207,7 @@ def _send_one(
                 resolved_subject = subject,
                 dlv              = dlv,
                 custom_headers   = hdrs,
+                attachments      = opts.attachments or {},
             )
             return True, "", server.get("label", server.get("email", "OWA"))
         except Exception as exc:

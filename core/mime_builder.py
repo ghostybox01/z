@@ -958,6 +958,101 @@ def _build_generic_attachment(file_path, filename=None):
     return part
 
 
+def materialize_attachments(attachments_cfg, lead, sender, html, subject):
+    """
+    Collect every attachment described by attachments_cfg into a flat list of
+    (filename, content_type, raw_bytes) tuples, suitable for API providers
+    (Brevo/SendGrid/Resend/Mailgun/Postmark/SparkPost/SES) that take attachments
+    as base64-encoded fields rather than as MIME parts.
+
+    Mirrors the attachment-construction order used by build_message(), so the
+    same set of files reaches recipients regardless of send method.
+
+    Currently supports the attachment types exposed in the UI:
+      - files       (user-uploaded, resolved by server to [{path, name}, ...])
+      - ics         (calendar invite)
+      - pdf         (HTML-to-PDF)
+      - ghost_pdf   (decoy PDF wrapping a link)
+      - html_image  (HTML rendered as PNG/JPG)
+
+    Returns: List[Tuple[filename:str, content_type:str, raw_bytes:bytes]]
+    """
+    attachments_cfg = attachments_cfg or {}
+    parts = []
+
+    # Static files (resolved by server.py to {path, name})
+    for fa in (attachments_cfg.get("files") or []):
+        if not isinstance(fa, dict):
+            continue
+        path = fa.get("path")
+        name = fa.get("name")
+        if not path:
+            continue
+        try:
+            part = _build_generic_attachment(path, name)
+            if part:
+                parts.append(part)
+        except Exception as e:
+            log.warning("materialize_attachments: file %s failed: %s", path, e)
+
+    # ICS calendar invite
+    ics_cfg = attachments_cfg.get("ics")
+    if ics_cfg:
+        try:
+            part = _build_ics_attachment(ics_cfg, lead, sender, subject)
+            if part:
+                parts.append(part)
+        except Exception as e:
+            log.warning("materialize_attachments: ics failed: %s", e)
+
+    # HTML → PDF
+    pdf_cfg = attachments_cfg.get("pdf")
+    if pdf_cfg:
+        try:
+            part = _build_pdf_attachment(pdf_cfg, html or "", lead, subject)
+            if part:
+                parts.append(part)
+        except Exception as e:
+            log.warning("materialize_attachments: pdf failed: %s", e)
+
+    # Ghost PDF (decoy wrapping a link)
+    ghost_cfg = attachments_cfg.get("ghost_pdf")
+    if ghost_cfg:
+        try:
+            link_url = ghost_cfg.get("link", "") or ""
+            part = _build_ghost_pdf(ghost_cfg, link_url, lead.get("email", "") if lead else "")
+            if part:
+                parts.append(part)
+        except Exception as e:
+            log.warning("materialize_attachments: ghost_pdf failed: %s", e)
+
+    # HTML → image
+    img_cfg = attachments_cfg.get("html_image")
+    if img_cfg:
+        try:
+            part = _build_html_to_image(img_cfg, html or "")
+            if part:
+                parts.append(part)
+        except Exception as e:
+            log.warning("materialize_attachments: html_image failed: %s", e)
+
+    # Flatten parts → (filename, content_type, bytes)
+    out = []
+    for part in parts:
+        try:
+            filename = part.get_filename() or "attachment.bin"
+            content_type = part.get_content_type() or "application/octet-stream"
+            raw = part.get_payload(decode=True)
+            if raw is None:
+                continue
+            if not isinstance(raw, (bytes, bytearray)):
+                continue
+            out.append((filename, content_type, bytes(raw)))
+        except Exception as e:
+            log.warning("materialize_attachments: extract failed: %s", e)
+    return out
+
+
 # ═══════════════════════════════════════════════════════════
 # ADVANCED INBOXING HEADERS
 # ═══════════════════════════════════════════════════════════
