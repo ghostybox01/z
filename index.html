@@ -133,7 +133,30 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
   width: var(--sidebar-w); min-width: var(--sidebar-w);
   background: var(--bg2); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; overflow: hidden; z-index: 10;
+  transition: width var(--tr), min-width var(--tr);
 }
+.sidebar.collapsed { width: 64px; min-width: 64px; }
+.sidebar.collapsed .sb-logo-text,
+.sidebar.collapsed .sb-item-label,
+.sidebar.collapsed .sb-badge,
+.sidebar.collapsed .sb-section,
+.sidebar.collapsed .user-name,
+.sidebar.collapsed .user-role,
+.sidebar.collapsed .theme-row,
+.sidebar.collapsed .sb-footer > .btn { display: none; }
+.sidebar.collapsed .sb-item { justify-content: center; padding: 10px; }
+.sidebar.collapsed .sb-logo { padding: 12px 8px; justify-content: center; gap: 6px; }
+.sidebar.collapsed .user-row { justify-content: center; padding: 6px; gap: 0; }
+.sidebar.collapsed .sb-footer { padding: 8px 6px; align-items: center; }
+.sb-toggle {
+  margin-left: auto; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 6px; width: 26px; height: 26px; cursor: pointer; color: var(--t2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1; font-weight: 700; flex-shrink: 0; padding: 0;
+  transition: background var(--tr), color var(--tr);
+}
+.sb-toggle:hover { background: var(--accent); color: #fff; }
+.sidebar.collapsed .sb-toggle { margin: 0; }
 .sb-logo {
   padding: 16px 18px 14px; border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 10px;
@@ -631,9 +654,10 @@ tr:hover td { background:var(--bg3); }
 }
 @media(max-width:900px){
   .sidebar{width:60px;min-width:60px;}
-  .sb-logo-name,.sb-logo-ver,.sb-item span:not(.sb-icon),.sb-badge,.user-name,.user-role{display:none;}
+  .sb-logo-name,.sb-logo-ver,.sb-logo-text,.sb-item span:not(.sb-icon),.sb-badge,.user-name,.user-role{display:none;}
   .sb-item{justify-content:center;padding:10px;}
   .sb-section{display:none;}
+  .sb-toggle{display:none;}
   .main{padding:16px;}
   .g3{grid-template-columns:1fr 1fr;}
   .sb-footer{padding:8px 6px;gap:6px;align-items:center;}
@@ -10224,6 +10248,8 @@ function App() {
   const [tab, setTab]   = useState("campaign");
   const [mobMoreOpen, setMobMoreOpen] = useState(false);
   const [theme, setTheme] = useState(localStorage.getItem("st_theme")||"dark");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(localStorage.getItem("st_sb")==="1");
+  useEffect(()=>{ localStorage.setItem("st_sb", sidebarCollapsed?"1":"0"); }, [sidebarCollapsed]);
 
   // ── GitHub auto-update check ──
   // Polls /api/update/check periodically; shows a banner + popup when a
@@ -11656,14 +11682,18 @@ function App() {
       {updateBanner}
       <ToastContainer/>
       {/* Sidebar */}
-      <div className="sidebar">
+      <div className={`sidebar${sidebarCollapsed?" collapsed":""}`}>
         {/* Logo */}
         <div className="sb-logo">
           <div className="sb-logo-icon">✉</div>
-          <div>
+          <div className="sb-logo-text">
             <div className="sb-logo-name">SynthTel</div>
             <div className="sb-logo-ver">v5</div>
           </div>
+          <button className="sb-toggle" onClick={()=>setSidebarCollapsed(c=>!c)}
+                  title={sidebarCollapsed?"Expand sidebar":"Collapse sidebar"}>
+            {sidebarCollapsed?"›":"‹"}
+          </button>
         </div>
 
         {/* Nav */}
@@ -11673,9 +11703,9 @@ function App() {
             const isSection = typeof item === "string";
             if(isSection) return <div key={i} className="sb-section">{item}</div>;
             return (
-              <div key={item.id} className={`sb-item ${tab===item.id?"active":""}`} onClick={()=>setTab(item.id)}>
+              <div key={item.id} className={`sb-item ${tab===item.id?"active":""}`} onClick={()=>setTab(item.id)} title={sidebarCollapsed?item.lbl:undefined}>
                 <span className="sb-icon">{item.ico}</span>
-                <span>{item.lbl}</span>
+                <span className="sb-item-label">{item.lbl}</span>
                 {item.badge && <span className="sb-badge">{item.badge}</span>}
               </div>
             );
