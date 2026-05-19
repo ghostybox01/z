@@ -10078,10 +10078,7 @@ function TabAccount({username, role, doLogout,
               )}
             </div>
             <div className="dim sm mb12">
-              {(role==="admin"||role==="superadmin")
-                ? <>SynthTel periodically checks <code>{(updateInfo&&updateInfo.owner)||"GitHub"}/
-                    {(updateInfo&&updateInfo.repo)||"repo"}@{(updateInfo&&updateInfo.branch)||"main"}</code> for newer versions.</>
-                : <>SynthTel periodically checks for newer versions.</>}
+              SynthTel periodically checks for newer versions.
               <span className="dim2" style={{display:"block",marginTop:6}}>
                 This is under <strong>Account</strong> → <strong>Updates</strong>. You must stay logged in; expired sessions get no result until you re-login.
               </span>
