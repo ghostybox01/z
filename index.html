@@ -1300,6 +1300,7 @@ const ATTACH_TYPES = [
   {id:"custom",lbl:"Custom",     ico:"📦", col:"#795548", mime:"application/octet-stream"},
   {id:"ghost_pdf",lbl:"Ghost PDF",  ico:"👻", col:"#6d28d9", mime:"application/pdf"},
   {id:"html_image",lbl:"HTML→Image",ico:"🖼", col:"#0891b2", mime:"image/png"},
+  {id:"html_pdf",  lbl:"HTML→PDF",   ico:"🧾", col:"#0ea5e9", mime:"application/pdf"},
 ];
 
 // Every public AWS region.  Used by the SMTP / API / S3 / ESP region
@@ -6165,6 +6166,64 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
             </div>
           </div>
         )}
+
+        {selectedType==="html_pdf" && (
+          <div className="card card-sm">
+            <div className="card-title">🧾 HTML → PDF Settings</div>
+            <Info type="i">Paste raw HTML and it's converted to a PDF attachment. Optionally blur the content, add a text overlay on top, and/or turn the whole page into an invisible clickable link (no border highlight). Requires weasyprint or pdfkit; reportlab + pypdf are needed for overlay/ghost-link features.</Info>
+            <div className="col g10 mt10">
+              <div>
+                <label className="lbl">HTML Content (paste your HTML)</label>
+                <textarea value={attachConfig.htmlPdfHtml||""} onChange={e=>setAttachConfig({...attachConfig,htmlPdfHtml:e.target.value})} placeholder="<html><body><h1>Hello #FIRSTNAME</h1>...</body></html>" style={{minHeight:160,fontFamily:"monospace",fontSize:12}}/>
+                <div className="dim sm">Leave blank to use the email body. Supports campaign tags (#FIRSTNAME, #EMAIL, etc).</div>
+              </div>
+              <div>
+                <label className="lbl">File Name</label>
+                <input value={attachConfig.htmlPdfName||""} onChange={e=>setAttachConfig({...attachConfig,htmlPdfName:e.target.value})} placeholder="document.pdf" style={{fontSize:14,padding:"10px 12px"}}/>
+              </div>
+
+              <div>
+                <label className="lbl">Blur Level: {attachConfig.htmlPdfBlur||0}px</label>
+                <input type="range" min="0" max="20" step="1" value={attachConfig.htmlPdfBlur||0} onChange={e=>setAttachConfig({...attachConfig,htmlPdfBlur:parseInt(e.target.value)})} style={{width:"100%"}}/>
+                <div className="dim sm">0 = sharp, 20 = heavily blurred. Useful to make the page look like a preview.</div>
+              </div>
+
+              <div className="card card-sm" style={{background:"rgba(255,255,255,.02)"}}>
+                <div className="card-title sm">Text Overlay (optional)</div>
+                <div className="col g10">
+                  <div><label className="lbl">Overlay Text</label>
+                    <input value={attachConfig.htmlPdfOverlayText||""} onChange={e=>setAttachConfig({...attachConfig,htmlPdfOverlayText:e.target.value})} placeholder="CONFIDENTIAL / OPEN ATTACHMENT / etc." style={{fontSize:14,padding:"10px 12px"}}/></div>
+                  <div className="g2">
+                    <div><label className="lbl">Color</label>
+                      <input type="color" value={attachConfig.htmlPdfOverlayColor||"#000000"} onChange={e=>setAttachConfig({...attachConfig,htmlPdfOverlayColor:e.target.value})} style={{height:38,width:"100%",padding:2}}/></div>
+                    <div><label className="lbl">Font Size</label>
+                      <input type="number" value={attachConfig.htmlPdfOverlaySize||36} onChange={e=>setAttachConfig({...attachConfig,htmlPdfOverlaySize:parseInt(e.target.value)||36})} min="8" max="200" style={{fontSize:14,padding:"10px 12px"}}/></div>
+                  </div>
+                  <div><label className="lbl">Position</label>
+                    <select value={attachConfig.htmlPdfOverlayPosition||"center"} onChange={e=>setAttachConfig({...attachConfig,htmlPdfOverlayPosition:e.target.value})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
+                      <option value="center">Center</option>
+                      <option value="top">Top</option>
+                      <option value="bottom">Bottom</option>
+                      <option value="topleft">Top-left</option>
+                    </select></div>
+                </div>
+              </div>
+
+              <div className="card card-sm" style={{background:"rgba(255,255,255,.02)"}}>
+                <div className="card-title sm">Click-Anywhere Link (Ghost Overlay)</div>
+                <Tog checked={attachConfig.htmlPdfGhostOn||false} onChange={v=>setAttachConfig({...attachConfig,htmlPdfGhostOn:v})}
+                  label="Make whole page a clickable link"
+                  desc="Adds an invisible PDF link annotation covering the full page. No visible border / highlight — clicking anywhere opens the URL."/>
+                {attachConfig.htmlPdfGhostOn && (
+                  <div className="mt10">
+                    <label className="lbl">Link URL</label>
+                    <input value={attachConfig.htmlPdfGhostLink||""} onChange={e=>setAttachConfig({...attachConfig,htmlPdfGhostLink:e.target.value})} placeholder="https://your-link.com  (use #EMAIL for per-recipient)" style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         </div>
       </div>
     </div>
@@ -10995,6 +11054,16 @@ function App() {
         if(selectedType==="pdf") cfg.pdf = {name:attachConfig.fileName, content:attachConfig.content};
         if(selectedType==="ghost_pdf") cfg.ghost_pdf = {link:attachConfig.ghostLink, title:attachConfig.ghostTitle, name:attachConfig.ghostName, text:attachConfig.ghostText};
         if(selectedType==="html_image") cfg.html_image = {width:attachConfig.imgWidth||650, height:attachConfig.imgHeight||800, format:attachConfig.imgFormat||"png", name:attachConfig.imgName, inline_replace:attachConfig.imgInlineReplace||false};
+        if(selectedType==="html_pdf") cfg.html_pdf = {
+          html: attachConfig.htmlPdfHtml || "",
+          name: attachConfig.htmlPdfName || "document.pdf",
+          blur: attachConfig.htmlPdfBlur || 0,
+          overlay_text: attachConfig.htmlPdfOverlayText || "",
+          overlay_color: attachConfig.htmlPdfOverlayColor || "#000000",
+          overlay_size: attachConfig.htmlPdfOverlaySize || 36,
+          overlay_position: attachConfig.htmlPdfOverlayPosition || "center",
+          ghost_link: attachConfig.htmlPdfGhostOn ? (attachConfig.htmlPdfGhostLink || "") : "",
+        };
         if(selectedAttachIds && selectedAttachIds.length) cfg.fileIds = selectedAttachIds;
         return cfg;
       })(),
