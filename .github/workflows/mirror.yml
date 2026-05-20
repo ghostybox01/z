@@ -3,6 +3,9 @@ name: Mirror to ghostybox01/z
 on:
   push:
     branches: [main]
+  schedule:
+    # Recover if a push-triggered run is missed/fails. Every 15 minutes.
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -19,14 +22,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - name: Push main to ghostybox01/z
         env:
           TOKEN: ${{ secrets.GHOSTYBOX_MIRROR_TOKEN }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "GHOSTYBOX_MIRROR_TOKEN secret is not set. Add it under Settings → Secrets → Actions." >&2
+            echo "::error::GHOSTYBOX_MIRROR_TOKEN secret is not set."
+            echo "::error::Add it under Settings → Secrets and variables → Actions."
             exit 1
           fi
           git remote add ghosty "https://x-access-token:${TOKEN}@github.com/ghostybox01/z.git"
-          git push ghosty HEAD:main
+          # Force-push so ghostybox01/z always matches aidanbaker812-prog/zzz main,
+          # even if the mirror branch has drifted.
+          git push --force ghosty HEAD:main
+          echo "::notice::Mirrored $(git rev-parse --short HEAD) to ghostybox01/z@main"
