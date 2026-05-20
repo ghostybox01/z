@@ -7707,6 +7707,65 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 "note": "If link_replaced is false, links_cfg was empty — check you clicked Apply in the UI"
             })
 
+        elif p == "/api/tools/html-to-pdf":
+            if not (sess := self._auth()): return
+            try:
+                data = self._read_body()
+            except Exception:
+                self._json(400, {"error": "Invalid JSON"}); return
+            html_content = data.get("html", "")
+            if not html_content:
+                self._json(400, {"error": "Missing 'html' field"}); return
+            filename = (data.get("filename") or "document.pdf").strip()
+            if not filename.endswith(".pdf"):
+                filename += ".pdf"
+
+            pdf_data = None
+
+            # Method 1: weasyprint
+            try:
+                from weasyprint import HTML as WP_HTML
+                pdf_data = WP_HTML(string=html_content).write_pdf()
+            except Exception:
+                pdf_data = None
+
+            # Method 2: pdfkit (wkhtmltopdf wrapper)
+            if not pdf_data:
+                try:
+                    import pdfkit
+                    opts = {"quiet": "", "page-size": "A4", "encoding": "UTF-8"}
+                    pdf_data = pdfkit.from_string(html_content, False, options=opts)
+                except Exception:
+                    pdf_data = None
+
+            # Method 3: fpdf2 minimal text fallback
+            if not pdf_data:
+                try:
+                    from fpdf import FPDF
+                    from core.mime_builder import _strip_html
+                    pdf = FPDF()
+                    pdf.add_page()
+                    pdf.set_font("Helvetica", size=11)
+                    text = _strip_html(html_content)
+                    for line in text.split("\n"):
+                        pdf.multi_cell(0, 7, line[:200])
+                    pdf_data = pdf.output()
+                    if isinstance(pdf_data, str):
+                        pdf_data = pdf_data.encode("latin-1")
+                except Exception:
+                    pdf_data = None
+
+            if not pdf_data:
+                self._json(500, {"error": "PDF generation failed — weasyprint, pdfkit, and fpdf2 all unavailable"}); return
+
+            self.send_response(200)
+            self._cors(self.headers.get("Origin", ""))
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Content-Length", str(len(pdf_data)))
+            self.end_headers()
+            self.wfile.write(pdf_data)
+
         else:
             self._json(404, {"error": "Not found"})
 
