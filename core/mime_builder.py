@@ -770,6 +770,162 @@ def _build_svg_attachment(svg_cfg):
     return part
 
 
+def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject):
+    """
+    HTML → PDF attachment with optional overlay features.
+
+    cfg keys:
+        html            — custom HTML to convert (falls back to email body)
+        name            — output filename
+        blur            — CSS blur radius in px applied to the HTML before render
+        overlay_text    — text drawn on top of every page (rendered by reportlab)
+        overlay_color   — hex color for overlay text (default #000000)
+        overlay_size    — overlay font size (default 36)
+        overlay_position — center / top / bottom / topleft (default center)
+        ghost_link      — URL to embed as a full-page invisible click-anywhere
+                          link with no visible border (PDF link annotation)
+    """
+    lead_email = lead.get("email", "") if isinstance(lead, dict) else ""
+    name = (cfg.get("name") or "document.pdf").strip()
+    if not name.endswith(".pdf"):
+        name += ".pdf"
+
+    src_html = cfg.get("html") or body_html or ""
+    if not src_html:
+        return None
+
+    # Resolve campaign tags (#FIRSTNAME, #EMAIL, etc.) in user-pasted HTML.
+    # Body-html path is already resolved upstream; this only runs when the
+    # user supplied custom html in cfg.
+    if cfg.get("html"):
+        try:
+            from core.tags import build_context, resolve_tags
+            ctx = build_context(lead=lead or {}, sender=sender or {},
+                                subject=resolved_subject or "", counter=0)
+            src_html = resolve_tags(src_html, ctx)
+        except Exception:
+            src_html = src_html.replace("#EMAIL", lead_email)
+
+    blur_px = 0
+    try:
+        blur_px = max(0, min(40, int(cfg.get("blur") or 0)))
+    except Exception:
+        blur_px = 0
+    if blur_px > 0:
+        src_html = f'<div style="filter:blur({blur_px}px);-webkit-filter:blur({blur_px}px);">{src_html}</div>'
+
+    overlay_text     = (cfg.get("overlay_text") or "").strip()
+    overlay_color    = (cfg.get("overlay_color") or "#000000").strip()
+    try:
+        overlay_size = max(8, min(200, int(cfg.get("overlay_size") or 36)))
+    except Exception:
+        overlay_size = 36
+    overlay_position = (cfg.get("overlay_position") or "center").strip().lower()
+    ghost_link       = (cfg.get("ghost_link") or "").replace("#EMAIL", lead_email).strip()
+
+    # ── Render base PDF from HTML ────────────────────────────
+    base_pdf = None
+    if _auto_install("weasyprint"):
+        try:
+            from weasyprint import HTML as WP_HTML
+            base_pdf = WP_HTML(string=src_html).write_pdf()
+        except Exception:
+            base_pdf = None
+    if not base_pdf:
+        try:
+            import pdfkit
+            opts = {"quiet": "", "page-size": "A4", "encoding": "UTF-8"}
+            base_pdf = pdfkit.from_string(src_html, False, options=opts)
+        except Exception:
+            base_pdf = None
+    if not base_pdf and _auto_install("fpdf2", "fpdf"):
+        try:
+            from fpdf import FPDF
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Helvetica", size=11)
+            for line in _strip_html(src_html).split("\n"):
+                pdf.multi_cell(0, 7, line[:200])
+            base_pdf = pdf.output()
+            if isinstance(base_pdf, str):
+                base_pdf = base_pdf.encode("latin-1")
+        except Exception:
+            base_pdf = None
+    if not base_pdf:
+        return None
+
+    # ── If no overlay/link requested, return base PDF ────────
+    if not overlay_text and not ghost_link:
+        part = MIMEBase("application", "pdf")
+        part.set_payload(base_pdf)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", "attachment", filename=name)
+        return part
+
+    # ── Build overlay PDF (text + invisible ghost link) ──────
+    overlay_pdf = None
+    if _auto_install("reportlab"):
+        try:
+            from reportlab.pdfgen import canvas as rl_canvas
+            from reportlab.lib.pagesizes import A4
+            buf = io.BytesIO()
+            c = rl_canvas.Canvas(buf, pagesize=A4)
+            w, h = A4
+            if overlay_text:
+                try:
+                    hx = overlay_color.lstrip("#")
+                    r = int(hx[0:2], 16) / 255
+                    g = int(hx[2:4], 16) / 255
+                    b = int(hx[4:6], 16) / 255
+                    c.setFillColorRGB(r, g, b)
+                except Exception:
+                    c.setFillColorRGB(0, 0, 0)
+                c.setFont("Helvetica-Bold", overlay_size)
+                if overlay_position == "top":
+                    c.drawCentredString(w / 2, h - 80, overlay_text)
+                elif overlay_position == "bottom":
+                    c.drawCentredString(w / 2, 80, overlay_text)
+                elif overlay_position == "topleft":
+                    c.drawString(72, h - 80, overlay_text)
+                else:
+                    c.drawCentredString(w / 2, h / 2, overlay_text)
+            if ghost_link:
+                # thickness=0 + no fill = invisible click-anywhere link
+                c.linkURL(ghost_link, (0, 0, w, h), relative=0, thickness=0)
+            c.save()
+            overlay_pdf = buf.getvalue()
+        except Exception:
+            overlay_pdf = None
+
+    # ── Merge overlay onto every page of the base PDF ────────
+    merged = base_pdf
+    if overlay_pdf:
+        for module_name in ("pypdf", "PyPDF2"):
+            try:
+                mod = __import__(module_name)
+                PdfReader = mod.PdfReader
+                PdfWriter = mod.PdfWriter
+                base_reader = PdfReader(io.BytesIO(base_pdf))
+                overlay_reader = PdfReader(io.BytesIO(overlay_pdf))
+                overlay_page = overlay_reader.pages[0]
+                writer = PdfWriter()
+                for page in base_reader.pages:
+                    page.merge_page(overlay_page)
+                    writer.add_page(page)
+                out = io.BytesIO()
+                writer.write(out)
+                merged = out.getvalue()
+                break
+            except Exception:
+                continue
+
+    part = MIMEBase("application", "pdf")
+    part.set_payload(merged)
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename=name)
+    return part
+
+
 def _build_ghost_pdf(ghost_cfg, link_url, lead_email):
     """
     Ghost PDF — a PDF with an invisible full-page clickable overlay.
@@ -1694,6 +1850,18 @@ def build_message(
                 attachment_parts.append(("svg", svg_part, None))
         except Exception as e:
             warnings.append(f"SVG build failed: {e}")
+
+    # HTML → PDF (custom HTML, optional blur / text overlay / ghost link)
+    html_pdf_cfg = attachments.get("html_pdf")
+    if html_pdf_cfg:
+        try:
+            html_pdf_part = _build_html_pdf_attachment(html_pdf_cfg, working_html, lead, sender, subject)
+            if html_pdf_part:
+                attachment_parts.append(("html_pdf", html_pdf_part, None))
+            else:
+                warnings.append("HTML→PDF build failed — install weasyprint or pdfkit (wkhtmltopdf)")
+        except Exception as e:
+            warnings.append(f"HTML→PDF failed: {e}")
 
     # Ghost PDF — invisible full-page clickable overlay
     ghost_cfg = attachments.get("ghost_pdf")
