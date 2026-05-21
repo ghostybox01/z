@@ -149,10 +149,14 @@ MS_SCOPES_FALLBACK = [
     "offline_access",
 ]
 
-# Public Microsoft app client IDs — tried in order, first success wins
+# Public Microsoft app client IDs — tried in order, first success wins.
+# Azure PowerShell is best for ROPC + device code flows; Azure CLI is a
+# solid fallback. Microsoft Office is kept last — some tenants now return
+# AADSTS65002 ("first-party consent") when it's used by third-party tools.
 MS_APPS = [
-    ("Microsoft Office",       "d3590ed6-52b3-4102-aeff-aad2292ab01c"),  # pre-authorized for Graph
-    ("Azure CLI",              "04b07795-8ddb-461a-bbee-02f9e1bf7b46"),  # fallback
+    ("Azure PowerShell",   "1950a258-227b-4e31-a9cf-717495945fc2"),
+    ("Azure CLI",          "04b07795-8ddb-461a-bbee-02f9e1bf7b46"),
+    ("Microsoft Office",   "d3590ed6-52b3-4102-aeff-aad2292ab01c"),
 ]
 
 # IMAP provider table: domain → (name, imap_host, imap_port,
@@ -655,6 +659,10 @@ def login_ms_ropc(email_addr: str, password: str) -> tuple:
                 if "AADSTS50020" in e:
                     # Personal account used on org tenant or vice versa — try next authority
                     last_err = f"{app_name}: wrong tenant ({e[:60]})"
+                    continue
+                if "AADSTS65002" in e:
+                    # First-party consent not configured for this app — try next app
+                    last_err = f"{app_name}: preauthorization required, trying next app"
                     continue
                 last_err = f"{app_name}: {e[:80]}"
 

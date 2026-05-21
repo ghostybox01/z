@@ -3979,8 +3979,10 @@ function TabMethod({
   smtpFailThreshold, setSmtpFailThreshold,
   smtpCooldownSecs, setSmtpCooldownSecs,
   sendersRaw, setSendersRaw,
+  officeConnectorHost, setOfficeConnectorHost,
 }) {
   const [mTab, setMTab] = useState("smtp");
+  const [officeConnectorHost, setOfficeConnectorHost] = useState("");
   const [smtpPreset, setSmtpPreset] = useState("");
   const [testR, setTestR] = useState({});
   const [testL, setTestL] = useState({});
@@ -4398,14 +4400,21 @@ function TabMethod({
             <OfficeConnectorPanel/>
           </div>
           <div className="card mb12">
-            <div className="card-title">Step 2 — Use as a sending method</div>
-            <Info type="w">
-              <strong>Pre-MVP:</strong> the actual send through the M365 connector reuses the SMTP path under the hood.
-              For now, configure your connector with the IP shown above, then add the connector hostname (e.g.
-              <code> yourtenant-com.mail.protection.outlook.com</code>) as a regular SMTP server in the SMTP tab on
-              port 25.  Future versions will fold this into a dedicated send path.
-            </Info>
-            <button className="btn btn-g btn-sm mt12" onClick={()=>setMTab("smtp")}>→ Open SMTP tab</button>
+            <div className="card-title">Step 2 — Configure Connector Hostname</div>
+            <div className="dim sm mb10">
+              Enter your Microsoft 365 smart host — the inbound connector will accept mail from this VPS's IP on port 25 without credentials.
+              Format: <code>yourtenant-com.mail.protection.outlook.com</code>
+            </div>
+            <div className="col g10">
+              <div>
+                <label className="lbl">M365 Smart Host (connector hostname)</label>
+                <input value={officeConnectorHost||""} onChange={e=>setOfficeConnectorHost(e.target.value)}
+                  placeholder="yourtenant-com.mail.protection.outlook.com"
+                  style={{fontSize:14,padding:"10px 12px",fontFamily:"var(--font-mono)"}}/>
+                <div className="dim sm mt4">Find this in Exchange Admin Center → Mail flow → Connectors → your inbound connector → Smart host.</div>
+              </div>
+            </div>
+            {officeConnectorHost && <div className="ib ib-ok mt10 sm"><span className="ib-ic">✓</span>Campaigns set to <strong>Office Admin</strong> will relay through <code>{officeConnectorHost}:25</code> — no credentials needed.</div>}
           </div>
         </div>
       )}
@@ -10355,6 +10364,7 @@ function App() {
   // ── Method ──
   const [activeMethod, setActiveMethod] = useState(_g("activeMethod","smtp"));
   const [smtpList, setSmtpList]       = useState(_g("smtpList",[]));
+  const [officeConnectorHost, setOfficeConnectorHost] = useState(_g("officeConnectorHost",""));
   // SMTP rotation + failover settings — applied at campaign send time.
   const [smtpRotation,      setSmtpRotation]      = useState(_g("smtpRotation","random"));
   const [smtpAutoDisable,   setSmtpAutoDisable]   = useState(_g("smtpAutoDisable", true));
@@ -11007,7 +11017,7 @@ function App() {
       replyTo:senderReplyTo.split("\n").map(s=>s.trim()).filter(Boolean)[0]||"",
       replyTos:senderReplyTo.split("\n").map(s=>s.trim()).filter(Boolean),
       _uid: (()=>{try{const u=JSON.parse(atob((localStorage.getItem("st_token")||"").split(".")[1]||"{}"));return u.sub||u.id||u.user_id||"";}catch(e){return "";}})(),
-      method:effectiveMethod, smtpServers:smtpList, apiKeys:apiList,
+      method:effectiveMethod, smtpServers:smtpList, apiKeys:apiList, connectorHost:officeConnectorHost||"",
       inboxProfile:true,
       owa:owaConfig, crm:crmConfig, tunnels:effectiveTunnels,
       // Only include ispTunnels if actually using ISP method — prevents auto-switch to tunnel
@@ -11606,7 +11616,8 @@ function App() {
                                           smtpRotation={smtpRotation} setSmtpRotation={setSmtpRotation}
                                           smtpAutoDisable={smtpAutoDisable} setSmtpAutoDisable={setSmtpAutoDisable}
                                           smtpFailThreshold={smtpFailThreshold} setSmtpFailThreshold={setSmtpFailThreshold}
-                                          smtpCooldownSecs={smtpCooldownSecs} setSmtpCooldownSecs={setSmtpCooldownSecs}/>{isMobile&&<MobSpacer/>}</>;
+                                          smtpCooldownSecs={smtpCooldownSecs} setSmtpCooldownSecs={setSmtpCooldownSecs}
+                                          officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost}/>{isMobile&&<MobSpacer/>}</>;
       case "proxies":     return <>{isMobile&&<MobTopBar/>}<TabProxies proxies={proxies} setProxies={setProxies} proxyDraft={proxyDraft} setProxyDraft={setProxyDraft} proxyType={proxyType} setProxyType={setProxyType}/>{isMobile&&<MobSpacer/>}</>;
       case "b2b":         return <>{isMobile&&<MobTopBar/>}<TabB2B setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
       case "attachments": return <>{isMobile&&<MobTopBar/>}<TabAttachments filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} selectedType={selectedType} setSelectedType={setSelectedType} attachConfig={attachConfig} setAttachConfig={setAttachConfig}/>{isMobile&&<MobSpacer/>}</>;

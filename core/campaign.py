@@ -126,7 +126,7 @@ MS_RATE_DOMAINS = frozenset({
     "hotmail.co.uk", "hotmail.fr", "outlook.co.uk",
 })
 
-VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b"})
+VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b", "office"})
 
 
 def _check_socks5(host: str, port: int, timeout: int = 5) -> tuple:
@@ -462,6 +462,7 @@ class CampaignOptions:
         subject_encoding:   int   = 0,
         link_method:        int   = 0,
         b2b_cfg:            dict  = None,
+        connector_host:     str   = "",
     ):
         self.uid            = uid
         self.inbox_profile  = bool(inbox_profile)
@@ -493,6 +494,7 @@ class CampaignOptions:
         self.subject_encoding = int(subject_encoding)
         self.link_method      = int(link_method)
         self.b2b_cfg          = b2b_cfg or {}
+        self.connector_host   = connector_host or ""
 
     @classmethod
     def _build_proxy_cfg(cls, data: dict) -> dict:
@@ -759,6 +761,7 @@ class CampaignOptions:
             subject_encoding   = int(data.get("subjectEncoding", 0)),
             link_method        = int(data.get("linkMethod", 0)),
             b2b_cfg            = data.get("b2bConfig") or data.get("b2b") or {},
+            connector_host     = data.get("connectorHost") or "",
         )
 
 
@@ -976,6 +979,41 @@ def _send_one(
     # Default via label — overridden below per method
     via = server.get("label", server.get("provider",
                      server.get("host", method)))
+
+    # ─── OFFICE / M365 INBOUND CONNECTOR ────────────────────
+    # Sends via port 25 to the O365 smart host. The VPS IP must already
+    # be whitelisted in an Exchange Online inbound connector (no auth needed).
+    if method == "office":
+        connector_host = getattr(opts, "connector_host", "").strip()
+        if not connector_host:
+            yield {"type": "error", "message": "Office Admin: connector hostname not set — configure it in Method → Office Admin tab"}
+            return
+        office_smtp = {
+            "host":       connector_host,
+            "port":       25,
+            "username":   "",
+            "password":   "",
+            "encryption": "NONE",
+        }
+        for i, lead in enumerate(opts.leads):
+            lead_email = lead.get("email", "") if isinstance(lead, dict) else str(lead)
+            try:
+                send_smtp(
+                    smtp_cfg       = office_smtp,
+                    sender         = opts.senders[i % len(opts.senders)] if opts.senders else {},
+                    lead           = lead,
+                    resolved_html  = opts.html_bodies[i % len(opts.html_bodies)] if opts.html_bodies else opts.html_body,
+                    resolved_plain = opts.plain_body,
+                    resolved_subj  = opts.subjects[i % len(opts.subjects)] if opts.subjects else "",
+                    dlv            = dlv,
+                    custom_headers = hdrs,
+                    pool           = None,
+                    attachments    = opts.attachments or {},
+                )
+                yield {"type": "sent", "email": lead_email, "via": f"office/{connector_host}:25"}
+            except Exception as exc:
+                yield {"type": "error", "email": lead_email, "message": str(exc)}
+        return
 
     # ─── SMTP ────────────────────────────────────────────────
     if method == "smtp":
