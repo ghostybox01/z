@@ -4365,6 +4365,7 @@ function TabMethod({
             {id:"crm",    ico:"🗄️", name:"CRM Integration", desc:"Salesforce, HubSpot, etc."},
             {id:"tunnel", ico:"🔑", name:"SSH Tunnel",      desc:"Route via remote server"},
             {id:"b2b",    ico:"🔒", name:"B2B Inbox",       desc:"Send from extracted inboxes"},
+            {id:"mx",     ico:"📡", name:"Direct MX",       desc:"Port 25 via SOCKS5 proxy list"},
             {id:"isp",    ico:"🌐", name:"ISP Proxy SMTP",  desc:"Residential ISP routing"},
           ].map(m=>(
             <div key={m.id} className={`mc ${activeMethod===m.id?"sel":""}`} onClick={()=>setActiveMethod(m.id)}>
@@ -4379,7 +4380,7 @@ function TabMethod({
 
       {/* Config tabs */}
       <div className="tab-bar">
-        {["smtp","api","office","owa","crm","tunnel","isp"].map(t=>(
+        {["smtp","api","office","owa","crm","tunnel","isp","mx"].map(t=>(
           <button key={t} className={`tb ${mTab===t?"on":""}`} onClick={()=>setMTab(t)}>
             {t==="office"?"OFFICE ADMIN":t.toUpperCase()}
           </button>
@@ -5017,6 +5018,32 @@ function TabMethod({
         </div>
       )}
       {mTab==="isp" && <IspProxySMTPPanel/>}
+
+      {/* ── DIRECT MX ── */}
+      {mTab==="mx" && (
+        <div>
+          <Info type="i">
+            <strong>Direct MX</strong> — sends on port 25 directly to each recipient's mail server, routed through your SOCKS5 proxy list (Proxies tab).
+            Each proxy acts as the exit node, so mail originates from that IP. Add your RDP's 3proxy as a proxy to send from an IP with port 25 open.
+          </Info>
+          <div className="card mb12 mt12" style={{borderLeft:"3px solid #6366f1"}}>
+            <div className="card-title">How to add your RDP as a proxy</div>
+            <div className="dim sm mb10">Run these two commands in CMD on your RDP (one-time setup). 3proxy creates a SOCKS5 listener on port 1080.</div>
+            <div style={{background:"var(--bg2)",borderRadius:6,padding:"10px 14px",fontFamily:"var(--font-mono)",fontSize:12,marginBottom:8}}>
+              <div style={{color:"var(--ok)"}}>:: Download 3proxy (run once)</div>
+              <div>curl -L -o 3proxy.exe https://github.com/3proxy/3proxy/releases/download/0.9.5/3proxy-0.9.5-win64.zip</div>
+              <div style={{marginTop:6,color:"var(--ok)"}}>:: Start SOCKS5 on port 1080 (no auth)</div>
+              <div>echo socks -p1080 -i0.0.0.0 &gt; 3p.cfg &amp;&amp; 3proxy.exe 3p.cfg</div>
+            </div>
+            <div className="dim sm">Then add <code>RDP-IP:1080</code> as a <strong>SOCKS5</strong> proxy in the <strong>Proxies</strong> tab. Multiple RDPs = automatic IP rotation.</div>
+          </div>
+          <div className="card mb12" style={{borderLeft:"3px solid #6366f1"}}>
+            <div className="card-title">Proxy list</div>
+            <div className="dim sm">Proxies are managed in the <strong>Proxies</strong> tab. All SOCKS5 proxies in that list will be used for Direct MX sends with per-email rotation.</div>
+            <div className="dim sm mt8">If no proxies are added, sends go direct from the VPS — only works if your VPS has port 25 outbound open.</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

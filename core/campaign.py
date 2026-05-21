@@ -126,7 +126,7 @@ MS_RATE_DOMAINS = frozenset({
     "hotmail.co.uk", "hotmail.fr", "outlook.co.uk",
 })
 
-VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b", "office"})
+VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b", "office", "mx"})
 
 
 def _check_socks5(host: str, port: int, timeout: int = 5) -> tuple:
@@ -1426,6 +1426,83 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             delay_range = _b2b_delay,
             max_sends   = min(len(opts.leads), len(threads)) if opts.leads else 0,
         )
+        return
+
+    # ─── DIRECT MX via proxy list ────────────────────────────
+    # Sends port-25 direct-to-MX through SOCKS5 proxies from the
+    # Proxies tab (each proxy can be an RDP running 3proxy, a
+    # residential proxy service, or blank for bare-VPS port 25).
+    if method == "mx":
+        proxy_list = opts.proxy.get("list", []) if opts.proxy else []
+        proxy_rot  = opts.proxy.get("rotation", "random") if opts.proxy else "random"
+        dead_proxies: set = set()
+        yield {"type": "info", "msg": f"Direct MX: {len(proxy_list)} proxy/proxies loaded — sending on port 25"}
+        if not proxy_list:
+            yield {"type": "info", "msg": "No proxies configured — sending direct from VPS (port 25 must be open)"}
+
+        total   = len(opts.leads)
+        sent    = 0
+        failed  = 0
+        for i, lead in enumerate(opts.leads):
+            lead_email = lead.get("email", "") if isinstance(lead, dict) else str(lead)
+            sender     = opts.senders[i % len(opts.senders)] if opts.senders else {}
+            subject    = opts.subjects[i % len(opts.subjects)] if opts.subjects else ""
+            html       = opts.html_bodies[i % len(opts.html_bodies)] if opts.html_bodies else opts.html_body
+            plain      = opts.plain_body
+            from_email = sender.get("fromEmail", "")
+            ehlo       = from_email.split("@")[-1] if "@" in from_email else "mail.local"
+
+            # pick proxy, skip dead ones
+            socks_cfg  = None
+            proxy_label = "direct"
+            if proxy_list:
+                live = [p for p in proxy_list if p.get("host") not in dead_proxies]
+                p    = _pick(live or proxy_list, proxy_rot, i)
+                if p:
+                    socks_cfg   = {"host": p.get("host"), "port": p.get("port"),
+                                   "username": p.get("username") or p.get("user"),
+                                   "password": p.get("password") or p.get("pass")}
+                    proxy_label = f"{p.get('host')}:{p.get('port')}"
+
+            try:
+                msg, _ = build_message(
+                    lead        = lead,
+                    sender      = sender,
+                    subject     = subject,
+                    html        = html,
+                    plain       = plain,
+                    dlv         = dlv,
+                    custom_hdrs = hdrs,
+                    ehlo_domain = ehlo,
+                    preheader   = dlv.get("preheader", ""),
+                    attachments = opts.attachments or {},
+                )
+                mx_host = send_direct_mx(
+                    lead_email  = lead_email,
+                    sender      = sender,
+                    msg         = msg,
+                    ehlo_domain = ehlo,
+                    socks_proxy = socks_cfg,
+                    ctx         = get_global_ctx(),
+                )
+                sent += 1
+                yield {"type": "sent", "email": lead_email,
+                       "via": f"{proxy_label} → MX:{mx_host}",
+                       "progress": {"sent": sent, "failed": failed, "total": total}}
+            except Exception as exc:
+                err = _parse_smtp_error(exc, lead_email) if "_parse_smtp_error" in dir() else str(exc)
+                if socks_cfg and ("refused" in str(exc).lower() or "timed out" in str(exc).lower()):
+                    dead_proxies.add(socks_cfg["host"])
+                failed += 1
+                yield {"type": "error", "email": lead_email, "message": err,
+                       "via": proxy_label,
+                       "progress": {"sent": sent, "failed": failed, "total": total}}
+
+            delay = _base_delay()
+            if delay > 0:
+                time.sleep(delay)
+
+        yield {"type": "done", "sent": sent, "failed": failed, "total": total}
         return
 
     pool_map = {
