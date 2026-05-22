@@ -986,8 +986,7 @@ def _send_one(
     if method == "office":
         connector_host = getattr(opts, "connector_host", "").strip()
         if not connector_host:
-            yield {"type": "error", "message": "Office Admin: connector hostname not set — configure it in Method → Office Admin tab"}
-            return
+            return False, "Office Admin: connector hostname not set — configure it in Method → Office Admin tab", via
         office_smtp = {
             "host":       connector_host,
             "port":       25,
@@ -995,25 +994,22 @@ def _send_one(
             "password":   "",
             "encryption": "NONE",
         }
-        for i, lead in enumerate(opts.leads):
-            lead_email = lead.get("email", "") if isinstance(lead, dict) else str(lead)
-            try:
-                send_smtp(
-                    smtp_cfg       = office_smtp,
-                    sender         = opts.senders[i % len(opts.senders)] if opts.senders else {},
-                    lead           = lead,
-                    resolved_html  = opts.html_bodies[i % len(opts.html_bodies)] if opts.html_bodies else opts.html_body,
-                    resolved_plain = opts.plain_body,
-                    resolved_subj  = opts.subjects[i % len(opts.subjects)] if opts.subjects else "",
-                    dlv            = dlv,
-                    custom_headers = hdrs,
-                    pool           = None,
-                    attachments    = opts.attachments or {},
-                )
-                yield {"type": "sent", "email": lead_email, "via": f"office/{connector_host}:25"}
-            except Exception as exc:
-                yield {"type": "error", "email": lead_email, "message": str(exc)}
-        return
+        try:
+            send_smtp(
+                smtp_cfg       = office_smtp,
+                sender         = sender,
+                lead           = lead,
+                resolved_html  = html,
+                resolved_plain = plain,
+                resolved_subj  = subject,
+                dlv            = dlv,
+                custom_headers = hdrs,
+                pool           = None,
+                attachments    = opts.attachments or {},
+            )
+            return True, "", f"office/{connector_host}:25"
+        except Exception as exc:
+            return False, _parse_smtp_error(exc, lead.get("email", "")), via
 
     # ─── SMTP ────────────────────────────────────────────────
     if method == "smtp":

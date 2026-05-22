@@ -34,7 +34,7 @@ jobs:
             exit 1
           fi
           git remote add ghosty "https://x-access-token:${TOKEN}@github.com/ghostybox01/z.git"
-          # Force-push so ghostybox01/z always matches aidanbaker812-prog/zzz main,
+          # Force-push so ghostybox01/z always matches main,
           # even if the mirror branch has drifted.
           git push --force ghosty HEAD:main
           echo "::notice::Mirrored $(git rev-parse --short HEAD) to ghostybox01/z@main"
