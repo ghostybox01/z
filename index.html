@@ -7253,6 +7253,23 @@ function TabRedirects({setHtmlBody, setTab, addLog, showPopup}) {
   const [creating, setCreating]         = React.useState(false);
   const [origin, setOrigin]             = React.useState(window.location.origin);
   const [rTool, setRTool]               = React.useState("hosted");
+  const [bulkOpen,   setBulkOpen]       = React.useState(false);
+  const [bulkDest,   setBulkDest]       = React.useState("");
+  const [bulkCount,  setBulkCount]      = React.useState(10);
+  const [bulkBot,    setBulkBot]        = React.useState(true);
+  const [bulkLoading,setBulkLoading]    = React.useState(false);
+  const [bulkMsg,    setBulkMsg]        = React.useState("");
+
+  const REDIRECT_TEMPLATES = [
+    { name:"Cold Outreach Cloaker", ico:"🥷", desc:"Bot-filter ON, blank theme, query preserved. Hides your real landing page from security scanners.", config:{theme:"blank",antiBot:true,antiVPN:false,botUrl:"https://www.google.com/",preserveQuery:true,telegramNotify:false}, type:"single" },
+    { name:"Newsletter Click Link", ico:"📧", desc:"No bot filter — all clicks count for your ESP metrics. Passthrough with query string.", config:{theme:"blank",antiBot:false,antiVPN:false,preserveQuery:true,telegramNotify:false}, type:"single" },
+    { name:"Geo-Filtered Campaign", ico:"🌍", desc:"Anti-bot ON, query preserved. Use allow-countries to restrict by region.", config:{theme:"blank",antiBot:true,antiVPN:true,preserveQuery:true,telegramNotify:false}, type:"single", geoPrompt:true },
+    { name:"Domain Reputation Warmer", ico:"🔥", desc:"No filters at all — wants every hit. Use a decoy destination for warming sequences.", config:{theme:"blank",antiBot:false,antiVPN:false,preserveQuery:false,telegramNotify:false}, type:"single" },
+    { name:"LinkedIn-Safe Redirect", ico:"💼", desc:"Bot-filter ON with google.com decoy. LinkedIn, Outlook and security scanners get the decoy, real users get through.", config:{theme:"blank",antiBot:true,antiVPN:false,botUrl:"https://www.google.com/",preserveQuery:true,telegramNotify:false}, type:"single" },
+    { name:"Open-Tracking Pixel", ico:"👁", desc:"Image pixel for email open detection. Paste the <img> tag into your HTML template.", config:{theme:"blank",antiBot:false,antiVPN:false,preserveQuery:false,telegramNotify:true}, type:"pixel" },
+    { name:"Redirect Chain (3-hop)", ico:"🔗", desc:"Three-hop chain to burn through link scanners before reaching your destination.", config:{theme:"blank",antiBot:true,antiVPN:false,preserveQuery:true,telegramNotify:false}, type:"chain" },
+    { name:"Telegram-Notified Link", ico:"📬", desc:"Every click fires a Telegram notification. Great for cold outreach where you want instant open alerts.", config:{theme:"blank",antiBot:true,antiVPN:false,preserveQuery:true,telegramNotify:true}, type:"single" },
+  ];
 
   // ── S3 Redirect Generator state ──
   const [s3AccessKey, setS3AccessKey]   = useState(localStorage.getItem("st_s3_ak")||"");
@@ -7615,6 +7632,46 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
     addLog?.(`📋 Copied ${url}`,"inf");
   }
 
+  function loadTemplate(tpl) {
+    resetDraft();
+    setDraftType(tpl.type);
+    setDraftAntiBot(tpl.config.antiBot ?? true);
+    setDraftAntiVPN(tpl.config.antiVPN ?? false);
+    setDraftBotUrl(tpl.config.botUrl || "https://www.google.com/");
+    setDraftPreserveQ(tpl.config.preserveQuery ?? true);
+    setDraftTgNotify(tpl.config.telegramNotify ?? false);
+    setDraftTheme(tpl.config.theme || "blank");
+    if (tpl.type === "chain") setDraftChain(["","",""]);
+    setRTool("hosted");
+    setView("create");
+  }
+
+  async function bulkCreate() {
+    if (!bulkDest.trim()) { setBulkMsg("Destination URL required"); return; }
+    setBulkLoading(true); setBulkMsg("");
+    let ok = 0, fail = 0;
+    for (let i = 0; i < bulkCount; i++) {
+      try {
+        const r = await apiCall("/api/redirects", {method:"POST", body:JSON.stringify({
+          type:"single", destination:bulkDest.trim(), short_path:"",
+          config:{theme:"blank",antiBot:bulkBot,antiVPN:false,botUrl:"https://www.google.com/",
+                  preserveQuery:true,telegramNotify:false}
+        })});
+        if (r.ok) ok++; else fail++;
+      } catch(e) { fail++; }
+    }
+    setBulkLoading(false);
+    setBulkMsg(`✓ Created ${ok} redirect${ok!==1?"s":""}${fail?` (${fail} failed)`:""}`);
+    if (ok > 0) loadList();
+  }
+
+  function sendToLinkRotation() {
+    const urls = items.filter(it=>it.type!=="pixel").map(it=>it.url).join("\n");
+    if (!urls) return;
+    window.dispatchEvent(new CustomEvent("st_load_links", {detail:{links:urls}}));
+    addLog?.(`→ Sent ${items.filter(it=>it.type!=="pixel").length} redirect URLs to link rotation`,"inf");
+  }
+
   /* ── HEADER ── */
   return (
     <div>
@@ -7623,9 +7680,10 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
         <div className="ph-sub">Create themed short links, redirect chains, and email-open pixels.  Hosted on this server at <code>/r/&lt;short&gt;</code>.</div>
       </div>
 
-      {/* Sub-nav: Hosted Links | S3 Buckets | Lambda Code Generator */}
+      {/* Sub-nav */}
       <div className="tab-bar mb16">
-        <button className={`tb ${rTool==="hosted"?"on":""}`} onClick={()=>setRTool("hosted")}>🔗 Hosted Links</button>
+        <button className={`tb ${rTool==="hosted"?"on":""}`} onClick={()=>{setRTool("hosted");setView("list");}}>🔗 Hosted Links</button>
+        <button className={`tb ${rTool==="templates"?"on":""}`} onClick={()=>setRTool("templates")}>📋 Templates</button>
         <button className={`tb ${rTool==="s3redir"?"on":""}`} onClick={()=>setRTool("s3redir")}>☁️ S3 Buckets</button>
         <button className={`tb ${rTool==="lambdaredir"?"on":""}`} onClick={()=>setRTool("lambdaredir")}>λ Lambda Code Generator</button>
       </div>
@@ -7637,9 +7695,38 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
               <button className="btn btn-p btn-sm" onClick={()=>{resetDraft(); setDraftType("single"); setView("create");}}>+ Single Redirect</button>
               <button className="btn btn-g btn-sm" onClick={()=>{resetDraft(); setDraftType("chain"); setView("create");}}>+ Redirect Chain</button>
               <button className="btn btn-g btn-sm" onClick={()=>{resetDraft(); setDraftType("pixel"); setView("create");}}>+ Image Tracking</button>
+              <button className="btn btn-g btn-sm" onClick={()=>{setBulkOpen(v=>!v);setBulkMsg("");}}>⚡ Bulk Create</button>
             </div>
-            <button className="btn btn-g btn-sm" onClick={loadList} disabled={loading}>{loading?"Refreshing…":"↻ Refresh"}</button>
+            <div className="row g6">
+              {items.length > 0 && <button className="btn btn-g btn-sm" onClick={sendToLinkRotation} title="Load all (non-pixel) short URLs into campaign link rotation">→ Campaign Links</button>}
+              <button className="btn btn-g btn-sm" onClick={loadList} disabled={loading}>{loading?"Refreshing…":"↻ Refresh"}</button>
+            </div>
           </div>
+
+          {bulkOpen && (
+            <div className="card mb12">
+              <div className="card-title">⚡ Bulk Create Redirects</div>
+              <div className="g3 mt12" style={{alignItems:"end"}}>
+                <div>
+                  <label className="lbl">Destination URL (all will forward here)</label>
+                  <input value={bulkDest} onChange={e=>setBulkDest(e.target.value)} placeholder="https://yourlandingpage.com" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div>
+                  <label className="lbl">Number to create</label>
+                  <input type="number" min={1} max={200} value={bulkCount} onChange={e=>setBulkCount(parseInt(e.target.value)||10)} style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div>
+                  <Tog checked={bulkBot} onChange={setBulkBot} label="Anti-bot filter" desc="Block scanners on all generated links"/>
+                </div>
+                <div>
+                  <button className="btn btn-p" onClick={bulkCreate} disabled={bulkLoading||!bulkDest.trim()}>
+                    {bulkLoading?`⏳ Creating…`:`⚡ Create ${bulkCount} Redirect${bulkCount!==1?"s":""}`}
+                  </button>
+                </div>
+              </div>
+              {bulkMsg && <div className={`ib mt10 sm ${bulkMsg.startsWith("✓")?"ib-ok":"ib-e"}`}><span className="ib-ic">{bulkMsg.startsWith("✓")?"✓":"✗"}</span><span>{bulkMsg}</span></div>}
+            </div>
+          )}
 
           {items.length === 0 && (
             <div className="ib ib-i"><span className="ib-ic">ℹ</span><span>No redirects yet.  Create your first one above.</span></div>
@@ -7877,6 +7964,33 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
                 )}
               </tbody>
             </table></div>
+          </div>
+        </div>
+      )}
+
+      {rTool==="templates" && (
+        <div>
+          <div className="ib ib-i mb16"><span className="ib-ic">ℹ</span><span>Click <strong>Use Template</strong> to pre-fill the create form. You can still edit every field before saving.</span></div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:12}}>
+            {REDIRECT_TEMPLATES.map((tpl,i)=>(
+              <div key={i} className="card" style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div className="row ac-center g8">
+                  <span style={{fontSize:22}}>{tpl.ico}</span>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:14}}>{tpl.name}</div>
+                    <Bdg t="n">{tpl.type}</Bdg>
+                  </div>
+                </div>
+                <div className="dim sm" style={{flex:1}}>{tpl.desc}</div>
+                <div className="row g6 mt4" style={{flexWrap:"wrap"}}>
+                  {tpl.config.antiBot && <Bdg t="ok">🛡 Bot filter</Bdg>}
+                  {tpl.config.antiVPN && <Bdg t="w">🔒 VPN filter</Bdg>}
+                  {tpl.config.telegramNotify && <Bdg t="a">📬 TG notify</Bdg>}
+                  {tpl.config.preserveQuery && <Bdg>?q preserved</Bdg>}
+                </div>
+                <button className="btn btn-p btn-sm mt4" onClick={()=>loadTemplate(tpl)}>Use Template →</button>
+              </div>
+            ))}
           </div>
         </div>
       )}
