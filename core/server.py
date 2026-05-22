@@ -5964,9 +5964,9 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             except Exception as e:
                 self._json(200, {"error": str(e)[:200]})
 
-        # ── GitHub update: apply latest tracked files (admin only) ─
+        # ── GitHub update: apply latest tracked files ──────────────────
         elif p == "/api/update/apply":
-            if not (sess := self._admin()): return
+            if not (sess := self._auth()): return
             # Optional: trigger a service restart after a successful update.
             try:
                 req_data = self._read_body() if self._body_bytes else {}
