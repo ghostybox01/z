@@ -1490,8 +1490,12 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                        "via": f"{proxy_label} → MX:{mx_host}",
                        "progress": {"sent": sent, "failed": failed, "total": total}}
             except Exception as exc:
-                err = _parse_smtp_error(exc, lead_email) if "_parse_smtp_error" in dir() else str(exc)
-                if socks_cfg and ("refused" in str(exc).lower() or "timed out" in str(exc).lower()):
+                err = _parse_smtp_error(exc, lead_email)
+                _exc_l = str(exc).lower()
+                _dead_signals = ("refused", "timed out", "0x02", "not allowed",
+                                 "socks blocked", "general socks", "network unreachable",
+                                 "cannot connect", "pysocks")
+                if socks_cfg and any(s in _exc_l for s in _dead_signals):
                     dead_proxies.add(socks_cfg["host"])
                 failed += 1
                 yield {"type": "error", "email": lead_email, "message": err,

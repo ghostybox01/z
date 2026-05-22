@@ -4005,12 +4005,11 @@ function TabMethod({
     setTunnelTestLoading(false);
   }
 
-  async function testMxProxy(px) {
-    const pid = px.id||px.host+":"+px.port;
+  async function testMxProxy(px, pid) {
+    pid = pid || ("mx_"+(proxies||[]).indexOf(px));
     setMxProxyTests(t=>({...t,[pid]:{loading:true}}));
     try {
-      const u = px.user||px.username, pw = px.pass||px.password;
-      const proxyStr = px.raw||("socks5://"+(u?u+":"+pw+"@":"")+(px.host)+":"+(px.port||1080));
+      const proxyStr = px.raw||("socks5://"+(px.user||px.username?((px.user||px.username)+":"+(px.pass||px.password||"")+"@"):"")+(px.host||"")+(px.host?":"+(px.port||1080):""));
       const r=await apiCall("/api/test-proxy",{method:"POST",body:JSON.stringify({proxy:proxyStr})});
       const d=await r.json();
       setMxProxyTests(t=>({...t,[pid]:{loading:false,...d}}));
@@ -4020,7 +4019,7 @@ function TabMethod({
   async function testAllMxProxies() {
     if(!(proxies||[]).length) return;
     setMxTestingAll(true);
-    for(const px of (proxies||[])) await testMxProxy(px);
+    for(let i=0;i<(proxies||[]).length;i++) await testMxProxy(proxies[i],"mx_"+i);
     setMxTestingAll(false);
   }
 
@@ -5106,30 +5105,31 @@ function TabMethod({
             <div className="card-title">Step 2 — Add proxy &amp; test port 25</div>
             <div className="dim sm mb10">Add your RDP's IP + port 1080 here, then click Test to confirm port 25 is reachable through it.</div>
             {(proxies||[]).length===0 ? (
-              <div className="dim2 sm" style={{padding:"10px 0"}}>No proxies in the Proxies tab yet. Add one there first, or use the form below.</div>
+              <Info type="w">No SOCKS5 proxies configured yet. Go to the <strong>Proxies</strong> tab and paste <code>socks5://RDP-IP:1080</code> in the textarea.</Info>
             ) : (
               <div>
                 <div className="row jb ac-center mb8">
-                  <span className="dim2 xs">{(proxies||[]).length} proxy/proxies configured</span>
+                  <span className="dim2 xs">{(proxies||[]).length} proxy/proxies in Proxies tab</span>
                   <button className="btn btn-g btn-sm" onClick={testAllMxProxies} disabled={mxTestingAll}>
                     {mxTestingAll?"🔍 Testing all…":"🔍 Test All (port 25)"}
                   </button>
                 </div>
                 {(proxies||[]).map((px,i)=>{
-                  const pid=px.id||px.host+":"+px.port;
+                  const pid="mx_"+i;
+                  const label=px.raw||(px.host?(px.host+":"+(px.port||1080)):"proxy "+(i+1));
                   const tr=mxProxyTests[pid];
                   return(
                     <div key={pid} className="row ac-center g10 card card-sm mb6">
-                      <span className="mono f1" style={{fontSize:12}}>{px.host}:{px.port||1080}</span>
+                      <span className="mono f1" style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
                       {tr && !tr.loading && (
-                        <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,
+                        <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,flexShrink:0,
                           background:tr.status==="ok"?"rgba(34,197,94,.15)":"rgba(239,68,68,.12)",
                           color:tr.status==="ok"?"var(--ok)":"var(--err)",
                           border:"1px solid "+(tr.status==="ok"?"rgba(34,197,94,.3)":"rgba(239,68,68,.2)")}}>
-                          {tr.status==="ok"?`✓ p25 open${tr.latency_ms?" "+tr.latency_ms+"ms":""}`:"✗ "+((tr.message||"").split(".")[0]||"failed").slice(0,40)}
+                          {tr.status==="ok"?`✓ p25 open${tr.latency_ms?" "+tr.latency_ms+"ms":""}`:"✗ "+((tr.message||"").split(".")[0]||"failed").slice(0,50)}
                         </span>
                       )}
-                      <button className="btn btn-g btn-xs" onClick={()=>testMxProxy(px)} disabled={tr&&tr.loading}>
+                      <button className="btn btn-g btn-xs" style={{flexShrink:0}} onClick={()=>testMxProxy(px,pid)} disabled={tr&&tr.loading}>
                         {tr&&tr.loading?"…":"Test"}
                       </button>
                     </div>
@@ -5137,7 +5137,7 @@ function TabMethod({
                 })}
               </div>
             )}
-            <div className="dim2 xs mt10">Manage the full proxy list in the <strong>Proxies</strong> tab. All SOCKS5 proxies there are used for Direct MX sends with per-email rotation.</div>
+            <div className="dim2 xs mt10">All SOCKS5 proxies in the Proxies tab are used for Direct MX sends with per-email rotation.</div>
           </div>
         </div>
       )}
@@ -5833,13 +5833,14 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
       </div>
 
       <div className="tab-bar">
-        {[["list","ISP Proxies"],["9proxy","9Proxy"],["builder","Builder"],["deploy","Deploy VPS"]].map(([k,l])=>(
+        {[["list","SOCKS5 Proxies"],["9proxy","9Proxy"],["builder","Builder"],["deploy","Deploy VPS"]].map(([k,l])=>(
           <button key={k} className={`tb ${pTab===k?"on":""}`} onClick={()=>setPTab(k)}>{l}</button>
         ))}
       </div>
 
       {pTab==="list" && (
         <div className="g2" style={{alignItems:"start"}}>
+          <Info type="i">These SOCKS5 proxies are used by the <strong>Direct MX</strong> send method to route outbound port-25 connections. Each proxy should be a SOCKS5 server listening on port 1080 (e.g. your RDP machine running 3proxy). HTTP proxies cannot relay raw SMTP and will be skipped.</Info>
           <div className="card">
             {serverIp && <div style={{background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:6,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,fontSize:13}}>
               <span style={{color:"var(--t2)"}}>🖥️ Your server IP (whitelist this in proxy dashboards):</span>
