@@ -5017,6 +5017,27 @@ function TabMethod({
       {/* ── TUNNEL ── */}
       {mTab==="tunnel" && (
         <div>
+          <div className="card mb12" style={{borderLeft:"3px solid #6366f1"}}>
+            <div className="card-title">How to use SSH Tunnel</div>
+            <div className="col g10" style={{fontSize:13}}>
+              <div className="row g10 ac-center">
+                <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>1</span>
+                <span><strong>Get a VPS</strong> (Vultr, Hetzner, DigitalOcean, etc.) with SSH root access. The VPS IP becomes your sending IP, so it must have <strong>port 25 outbound open</strong> — check your provider's panel or test with <code style={{fontFamily:"monospace",fontSize:11}}>telnet portquiz.net 25</code> from the VPS.</span>
+              </div>
+              <div className="row g10 ac-center">
+                <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>2</span>
+                <span>Enter the VPS <strong>IP, SSH port (22), username and password</strong> below. Optionally set a relay host if you want to route through an SMTP relay on the remote end instead of sending direct-to-MX.</span>
+              </div>
+              <div className="row g10 ac-center">
+                <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>3</span>
+                <span>Click <strong>Test Connection</strong> to verify SSH works. Then click <strong>+ Add Tunnel</strong>.</span>
+              </div>
+              <div className="row g10 ac-center">
+                <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>4</span>
+                <span>In your campaign, select <strong>Method: Direct MX</strong>. SynthTel opens the SSH tunnel and routes all port-25 connections through it. The recipient sees the VPS IP, not your server IP.</span>
+              </div>
+            </div>
+          </div>
           <div className="card mb12">
             <div className="card-title">
               <Tip text="Routes SMTP traffic through an SSH tunnel to a remote server. The tunnel server acts as your sending IP. Useful for bypassing ISP port-25 blocks or sending from a specific clean IP.">
@@ -5484,6 +5505,30 @@ function IspProxySMTPPanel() {
 
   return (
     <div>
+      {/* How-to guide */}
+      <div className="card mb14" style={{borderLeft:"3px solid #6366f1"}}>
+        <div className="card-title">How to use ISP Proxy SMTP</div>
+        <div className="col g10" style={{fontSize:13}}>
+          <div className="row g10 ac-center">
+            <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>1</span>
+            <span><strong>Get residential ISP proxies</strong> from a provider like <strong>9proxy.com</strong> or <strong>niceproxy.io</strong>. You need proxies tied to a real ISP (Shaw, Rogers, Bell, Cogeco) — these ISPs run SMTP servers that accept mail from their own residential IPs.</span>
+          </div>
+          <div className="row g10 ac-center">
+            <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>2</span>
+            <span><strong>With 9proxy:</strong> go to the <strong>Proxies → 9proxy tab</strong>, enter your API key, pick your ISP, and click <strong>Fetch Proxies</strong>. The ISP SMTP host is filled in automatically. <br/><strong>With niceproxy or manual:</strong> use <strong>Bulk Import</strong> below — paste <code style={{fontFamily:"monospace",fontSize:11}}>user:pass:host:port</code> lines and enter the ISP SMTP host (e.g. <code style={{fontFamily:"monospace",fontSize:11}}>smtp.shaw.ca</code>).</span>
+          </div>
+          <div className="row g10 ac-center">
+            <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>3</span>
+            <span>Click <strong>Test</strong> on each proxy. A green result means the proxy can reach the ISP SMTP and port 25 is open.</span>
+          </div>
+          <div className="row g10 ac-center">
+            <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>4</span>
+            <span>Go to <strong>Campaign → Method: ISP Proxy SMTP</strong>. Each email routes through a different proxy → the ISP SMTP server → the recipient. The ISP SMTP accepts it because the proxy IP is a real residential address on that ISP's network.</span>
+          </div>
+        </div>
+        <Info type="i" style={{marginTop:10}}>The key difference from Direct MX: instead of connecting directly to the recipient's mail server, you relay through the ISP's own SMTP (e.g. <code style={{fontFamily:"monospace",fontSize:11}}>smtp.shaw.ca</code>). This adds the ISP's sending reputation to your emails.</Info>
+      </div>
+
       <div className="card mb16">
         <div className="card-title">ISP Proxy SMTP Fleet</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginTop:10}}>
@@ -5840,7 +5885,7 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
 
       {pTab==="list" && (
         <div className="g2" style={{alignItems:"start"}}>
-          <Info type="i">These SOCKS5 proxies are used by the <strong>Direct MX</strong> send method to route outbound port-25 connections. Each proxy should be a SOCKS5 server listening on port 1080 (e.g. your RDP machine running 3proxy). HTTP proxies cannot relay raw SMTP and will be skipped.</Info>
+          <Info type="i">These SOCKS5 proxies are used by the <strong>Direct MX</strong> send method to route outbound port-25 connections. Add them manually below, use the <strong>9proxy tab</strong> to auto-import residential ISP proxies, or use the <strong>Builder tab</strong> to construct URLs from credential fields. HTTP proxies cannot relay raw SMTP and will be skipped.</Info>
           <div className="card">
             {serverIp && <div style={{background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:6,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,fontSize:13}}>
               <span style={{color:"var(--t2)"}}>🖥️ Your server IP (whitelist this in proxy dashboards):</span>
@@ -5952,6 +5997,30 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
 
       {pTab==="9proxy" && (
         <div>
+          {/* How-to guide */}
+          <div className="card mb14" style={{borderLeft:"3px solid #6366f1"}}>
+            <div className="card-title">How to use 9proxy with Direct MX</div>
+            <div className="col g10" style={{fontSize:13}}>
+              <div className="row g10 ac-center">
+                <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>1</span>
+                <span><strong>Sign up</strong> at <span className="mono" style={{fontSize:12}}>9proxy.com</span> and purchase a <strong>residential ISP plan</strong>. IP-based plans give you dedicated IPs; GB-based plans rotate automatically.</span>
+              </div>
+              <div className="row g10 ac-center">
+                <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>2</span>
+                <span>In your 9proxy dashboard → <strong>API</strong> section, copy your API key and paste it below. Click <strong>Save &amp; Connect</strong>.</span>
+              </div>
+              <div className="row g10 ac-center">
+                <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>3</span>
+                <span>In <strong>Fetch Proxies</strong> below: pick your plan type, select <strong>country + ISP</strong>, set a count, then click <strong>Fetch Proxies</strong>. The proxies are imported straight into your SOCKS5 Proxies list.</span>
+              </div>
+              <div className="row g10 ac-center">
+                <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>4</span>
+                <span>Go to <strong>Campaign → Method: Direct MX</strong>. SynthTel connects on port 25 through each proxy, rotating per email automatically. No extra config needed.</span>
+              </div>
+            </div>
+            <Info type="w" style={{marginTop:10}}>Not all ISPs have port 25 outbound open. Pick ISPs known to allow outbound SMTP — Cogeco, Rogers, and Bell CA residential lines usually work. Use the <strong>Test All (port 25)</strong> button in the Direct MX tab to verify before sending.</Info>
+          </div>
+
           {/* API Key Card */}
           <div className="card mb14">
             <div className="card-title">9Proxy API Key</div>
