@@ -3980,6 +3980,7 @@ function TabMethod({
   smtpCooldownSecs, setSmtpCooldownSecs,
   sendersRaw, setSendersRaw,
   officeConnectorHost, setOfficeConnectorHost,
+  proxies,
 }) {
   const [mTab, setMTab] = useState("smtp");
   const [officeConnectorHost, setOfficeConnectorHost] = useState("");
@@ -3988,6 +3989,40 @@ function TabMethod({
   const [testL, setTestL] = useState({});
   const [apiTestResult, setApiTestResult] = useState(null);
   const [apiTestLoading, setApiTestLoading] = useState(false);
+  const [tunnelTestResult, setTunnelTestResult] = useState(null);
+  const [tunnelTestLoading, setTunnelTestLoading] = useState(false);
+  const [mxProxyTests, setMxProxyTests] = useState({});
+  const [mxTestingAll, setMxTestingAll] = useState(false);
+
+  async function testTunnelConn() {
+    if(!tunnelDraft.sshHost){return;}
+    setTunnelTestResult(null); setTunnelTestLoading(true);
+    try {
+      const r=await apiCall("/api/test-tunnel",{method:"POST",body:JSON.stringify({tunnel:{...tunnelDraft,tunnelType:"ssh"}})});
+      const d=await r.json();
+      setTunnelTestResult(d);
+    } catch(e){setTunnelTestResult({status:"error",message:e.message});}
+    setTunnelTestLoading(false);
+  }
+
+  async function testMxProxy(px) {
+    const pid = px.id||px.host+":"+px.port;
+    setMxProxyTests(t=>({...t,[pid]:{loading:true}}));
+    try {
+      const u = px.user||px.username, pw = px.pass||px.password;
+      const proxyStr = px.raw||("socks5://"+(u?u+":"+pw+"@":"")+(px.host)+":"+(px.port||1080));
+      const r=await apiCall("/api/test-proxy",{method:"POST",body:JSON.stringify({proxy:proxyStr})});
+      const d=await r.json();
+      setMxProxyTests(t=>({...t,[pid]:{loading:false,...d}}));
+    } catch(e){setMxProxyTests(t=>({...t,[pid]:{loading:false,status:"error",message:e.message}}));}
+  }
+
+  async function testAllMxProxies() {
+    if(!(proxies||[]).length) return;
+    setMxTestingAll(true);
+    for(const px of (proxies||[])) await testMxProxy(px);
+    setMxTestingAll(false);
+  }
 
   // ── Bulk SMTP upload + validate ──
   const [bulkRaw, setBulkRaw]         = useState("");
@@ -5003,11 +5038,29 @@ function TabMethod({
               <div><label className="lbl">Relay Host</label><input value={tunnelDraft.smtpRelayHost} onChange={e=>setTunnelDraft({...tunnelDraft,smtpRelayHost:e.target.value})} placeholder="blank = direct-to-MX" style={{fontSize:14,padding:"10px 12px"}}/></div>
               <div><label className="lbl">Relay Port</label><input type="number" value={tunnelDraft.smtpRelayPort} onChange={e=>setTunnelDraft({...tunnelDraft,smtpRelayPort:parseInt(e.target.value)})} style={{fontSize:15,padding:"10px 12px"}}/></div>
             </div>
-            <button className="btn btn-p btn-sm" onClick={()=>{
-              if(!tunnelDraft.sshHost) return;
-              setTunnelList(p=>[...p,{...tunnelDraft,id:Date.now()}]);
-              setTunnelDraft({sshHost:"",sshPort:22,sshUser:"root",sshPass:"",smtpRelayHost:"",smtpRelayPort:587});
-            }}>+ Add Tunnel</button>
+            <div className="row g8 mt4">
+              <button className="btn btn-g btn-sm" onClick={testTunnelConn} disabled={tunnelTestLoading||!tunnelDraft.sshHost}>
+                {tunnelTestLoading?"🔍 Testing…":"🔍 Test Connection"}
+              </button>
+              <button className="btn btn-p btn-sm" onClick={()=>{
+                if(!tunnelDraft.sshHost) return;
+                setTunnelList(p=>[...p,{...tunnelDraft,id:Date.now()}]);
+                setTunnelTestResult(null);
+                setTunnelDraft({sshHost:"",sshPort:22,sshUser:"root",sshPass:"",smtpRelayHost:"",smtpRelayPort:587});
+              }}>+ Add Tunnel</button>
+            </div>
+            {tunnelTestResult && (
+              <div className="mt8">
+                <Info type={tunnelTestResult.status==="ok"?"ok":"e"}>
+                  {tunnelTestResult.status==="ok"
+                    ? `✓ ${tunnelTestResult.message}${tunnelTestResult.latency_ms?" ("+tunnelTestResult.latency_ms+"ms)":""}`
+                    : `✗ ${tunnelTestResult.message||"Connection failed"}`}
+                </Info>
+                {tunnelTestResult.status!=="ok" && (
+                  <div className="dim2 xs mt4">Check: SSH port {tunnelDraft.sshPort} is open on {tunnelDraft.sshHost||"the host"}, firewall allows inbound, and your credentials are correct.</div>
+                )}
+              </div>
+            )}
           </div>
           {tunnelList.map((t,i)=>(
             <div key={t.id} className="row ac-center g10 card card-sm mb8">
@@ -5023,24 +5076,68 @@ function TabMethod({
       {mTab==="mx" && (
         <div>
           <Info type="i">
-            <strong>Direct MX</strong> — sends on port 25 directly to each recipient's mail server, routed through your SOCKS5 proxy list (Proxies tab).
-            Each proxy acts as the exit node, so mail originates from that IP. Add your RDP's 3proxy as a proxy to send from an IP with port 25 open.
+            <strong>Direct MX</strong> — connects on port 25 directly to each recipient's MX server, tunnelled through your SOCKS5 proxy.
+            The proxy IP is the sender IP, so it must have port 25 outbound open. Typical source: Windows RDP running 3proxy.
           </Info>
+
+          {/* ── 3proxy setup ── */}
           <div className="card mb12 mt12" style={{borderLeft:"3px solid #6366f1"}}>
-            <div className="card-title">How to add your RDP as a proxy</div>
-            <div className="dim sm mb10">Run these two commands in CMD on your RDP (one-time setup). 3proxy creates a SOCKS5 listener on port 1080.</div>
-            <div style={{background:"var(--bg2)",borderRadius:6,padding:"10px 14px",fontFamily:"var(--font-mono)",fontSize:12,marginBottom:8}}>
-              <div style={{color:"var(--ok)"}}>:: Download 3proxy (run once)</div>
-              <div>curl -L -o 3proxy.exe https://github.com/3proxy/3proxy/releases/download/0.9.5/3proxy-0.9.5-win64.zip</div>
-              <div style={{marginTop:6,color:"var(--ok)"}}>:: Start SOCKS5 on port 1080 (no auth)</div>
-              <div>echo socks -p1080 -i0.0.0.0 &gt; 3p.cfg &amp;&amp; 3proxy.exe 3p.cfg</div>
+            <div className="card-title">Step 1 — Set up 3proxy on your Windows RDP</div>
+            <div className="dim sm mb10">Run each block in <strong>PowerShell (as Admin)</strong> on your RDP. Do Step 1 once, then Step 2–3 each time you need to start the proxy.</div>
+            <div style={{background:"var(--bg2)",borderRadius:6,padding:"10px 14px",fontFamily:"var(--font-mono)",fontSize:12,marginBottom:6}}>
+              <div style={{color:"var(--accent)",marginBottom:4,fontWeight:600}}># ① Download &amp; extract 3proxy (one-time)</div>
+              <div style={{wordBreak:"break-all",marginBottom:2}}>Invoke-WebRequest 'https://github.com/3proxy/3proxy/releases/download/0.9.5/3proxy-0.9.5-win64.zip' -OutFile 3p.zip; Expand-Archive 3p.zip -Force; Copy-Item (Get-ChildItem -Recurse -Filter 3proxy.exe | Select -First 1).FullName 3proxy.exe</div>
             </div>
-            <div className="dim sm">Then add <code>RDP-IP:1080</code> as a <strong>SOCKS5</strong> proxy in the <strong>Proxies</strong> tab. Multiple RDPs = automatic IP rotation.</div>
+            <div style={{background:"var(--bg2)",borderRadius:6,padding:"10px 14px",fontFamily:"var(--font-mono)",fontSize:12,marginBottom:6}}>
+              <div style={{color:"var(--accent)",marginBottom:4,fontWeight:600}}># ② Open firewall port 1080 so the VPS can reach in (one-time)</div>
+              <div>netsh advfirewall firewall add rule name="3proxy" dir=in action=allow protocol=tcp localport=1080</div>
+            </div>
+            <div style={{background:"var(--bg2)",borderRadius:6,padding:"10px 14px",fontFamily:"var(--font-mono)",fontSize:12,marginBottom:8}}>
+              <div style={{color:"var(--accent)",marginBottom:4,fontWeight:600}}># ③ Write config &amp; start 3proxy (run this each session, or set up as a Windows Service)</div>
+              <div style={{marginBottom:2}}>"socks -p1080 -i0.0.0.0" | Out-File 3p.cfg -Encoding ascii</div>
+              <div>Start-Process -FilePath .\3proxy.exe -ArgumentList .\3p.cfg -WindowStyle Hidden</div>
+            </div>
+            <Info type="w">Without step ②, Windows Firewall silently blocks the VPS connection even when 3proxy is running — this is the most common reason tests fail.</Info>
+            <div className="dim sm mt8">Then add your <strong>RDP's public IP : 1080</strong> as a SOCKS5 proxy below.</div>
           </div>
+
+          {/* ── Quick add proxy ── */}
           <div className="card mb12" style={{borderLeft:"3px solid #6366f1"}}>
-            <div className="card-title">Proxy list</div>
-            <div className="dim sm">Proxies are managed in the <strong>Proxies</strong> tab. All SOCKS5 proxies in that list will be used for Direct MX sends with per-email rotation.</div>
-            <div className="dim sm mt8">If no proxies are added, sends go direct from the VPS — only works if your VPS has port 25 outbound open.</div>
+            <div className="card-title">Step 2 — Add proxy &amp; test port 25</div>
+            <div className="dim sm mb10">Add your RDP's IP + port 1080 here, then click Test to confirm port 25 is reachable through it.</div>
+            {(proxies||[]).length===0 ? (
+              <div className="dim2 sm" style={{padding:"10px 0"}}>No proxies in the Proxies tab yet. Add one there first, or use the form below.</div>
+            ) : (
+              <div>
+                <div className="row jb ac-center mb8">
+                  <span className="dim2 xs">{(proxies||[]).length} proxy/proxies configured</span>
+                  <button className="btn btn-g btn-sm" onClick={testAllMxProxies} disabled={mxTestingAll}>
+                    {mxTestingAll?"🔍 Testing all…":"🔍 Test All (port 25)"}
+                  </button>
+                </div>
+                {(proxies||[]).map((px,i)=>{
+                  const pid=px.id||px.host+":"+px.port;
+                  const tr=mxProxyTests[pid];
+                  return(
+                    <div key={pid} className="row ac-center g10 card card-sm mb6">
+                      <span className="mono f1" style={{fontSize:12}}>{px.host}:{px.port||1080}</span>
+                      {tr && !tr.loading && (
+                        <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,
+                          background:tr.status==="ok"?"rgba(34,197,94,.15)":"rgba(239,68,68,.12)",
+                          color:tr.status==="ok"?"var(--ok)":"var(--err)",
+                          border:"1px solid "+(tr.status==="ok"?"rgba(34,197,94,.3)":"rgba(239,68,68,.2)")}}>
+                          {tr.status==="ok"?`✓ p25 open${tr.latency_ms?" "+tr.latency_ms+"ms":""}`:"✗ "+((tr.message||"").split(".")[0]||"failed").slice(0,40)}
+                        </span>
+                      )}
+                      <button className="btn btn-g btn-xs" onClick={()=>testMxProxy(px)} disabled={tr&&tr.loading}>
+                        {tr&&tr.loading?"…":"Test"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="dim2 xs mt10">Manage the full proxy list in the <strong>Proxies</strong> tab. All SOCKS5 proxies there are used for Direct MX sends with per-email rotation.</div>
           </div>
         </div>
       )}
@@ -6573,11 +6670,14 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
       }
       const r=await apiCall(ep,{method:"POST",body:JSON.stringify(body)});
       const d=await r.json();
-      if(d.session||d.status==="ok"){
+      if(d.session||d.status==="ok"||d.ok){
         setSession(d.session||d);setStep(2);
         setInfo("✓ Authenticated successfully — ready to extract","ok");
       } else {
-        setInfo("Authentication failed: "+(d.error||"Check your credentials and try again"),"e");
+        let errMsg = d.error||"Check your credentials and try again";
+        if(d.hint==="APP_PW_REQUIRED") errMsg="This account requires an App Password (not your real password). Generate one in your provider's security settings (e.g. myaccount.google.com/apppasswords).";
+        else if(d.hint==="MFA_REQUIRED") errMsg="MFA is active on this account — use the Device Code flow instead (see the Auth Tips panel).";
+        setInfo("Authentication failed: "+errMsg,"e");
       }
     } catch(e){setInfo("Auth error: "+e.message,"e");}
     setLoading(false);
@@ -11644,7 +11744,8 @@ function App() {
                                           smtpAutoDisable={smtpAutoDisable} setSmtpAutoDisable={setSmtpAutoDisable}
                                           smtpFailThreshold={smtpFailThreshold} setSmtpFailThreshold={setSmtpFailThreshold}
                                           smtpCooldownSecs={smtpCooldownSecs} setSmtpCooldownSecs={setSmtpCooldownSecs}
-                                          officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost}/>{isMobile&&<MobSpacer/>}</>;
+                                          officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost}
+                                          proxies={proxies}/>{isMobile&&<MobSpacer/>}</>;
       case "proxies":     return <>{isMobile&&<MobTopBar/>}<TabProxies proxies={proxies} setProxies={setProxies} proxyDraft={proxyDraft} setProxyDraft={setProxyDraft} proxyType={proxyType} setProxyType={setProxyType}/>{isMobile&&<MobSpacer/>}</>;
       case "b2b":         return <>{isMobile&&<MobTopBar/>}<TabB2B setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
       case "attachments": return <>{isMobile&&<MobTopBar/>}<TabAttachments filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} selectedType={selectedType} setSelectedType={setSelectedType} attachConfig={attachConfig} setAttachConfig={setAttachConfig}/>{isMobile&&<MobSpacer/>}</>;

@@ -1472,7 +1472,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     html        = html,
                     plain       = plain,
                     dlv         = dlv,
-                    custom_hdrs = hdrs,
+                    custom_hdrs = opts.custom_headers,
                     ehlo_domain = ehlo,
                     preheader   = dlv.get("preheader", ""),
                     attachments = opts.attachments or {},
