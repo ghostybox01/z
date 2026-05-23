@@ -286,7 +286,7 @@ def _build_ssh_cmd(cfg: dict, local_port: int) -> tuple:
     ssh_host  = cfg.get("sshHost", "")
     ssh_port  = _safe_int(cfg.get("sshPort", 22), 22)
     ssh_user  = cfg.get("sshUser", "") or _DEFAULT_SSH_USER
-    ssh_key   = cfg.get("sshKey",  "")
+    ssh_key   = cfg.get("sshKey", "") or cfg.get("sshPass", "")
     ehlo      = cfg.get("ehloDomain", "")
 
     cmd = [

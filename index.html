@@ -5025,7 +5025,7 @@ function TabMethod({
               </div>
               <div className="row g10 ac-center">
                 <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>2</span>
-                <span>Enter the VPS <strong>IP, SSH port (22), username and password</strong> below. Optionally set a relay host if you want to route through an SMTP relay on the remote end instead of sending direct-to-MX.</span>
+                <span>Enter the VPS <strong>IP, SSH port (22), username and password</strong> below.</span>
               </div>
               <div className="row g10 ac-center">
                 <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>3</span>
@@ -5033,7 +5033,7 @@ function TabMethod({
               </div>
               <div className="row g10 ac-center">
                 <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>4</span>
-                <span>In your campaign, select <strong>Method: Direct MX</strong>. SynthTel opens the SSH tunnel and routes all port-25 connections through it. The recipient sees the VPS IP, not your server IP.</span>
+                <span>In your campaign, select <strong>Method: SSH Tunnel</strong>. SynthTel opens the tunnel and routes SMTP through it. Configure the SMTP relay in the <strong>Method → SMTP</strong> tab — it will be sent through the tunnel automatically.</span>
               </div>
             </div>
           </div>
@@ -5052,11 +5052,6 @@ function TabMethod({
               <label className="lbl">SSH Password</label>
               <input type="password" value={tunnelDraft.sshPass} onChange={e=>setTunnelDraft({...tunnelDraft,sshPass:e.target.value})} style={{fontSize:14,padding:"10px 12px"}}/>
             </div>
-            <div className="div-lbl">SMTP RELAY THROUGH TUNNEL (optional)</div>
-            <div className="g2 mb12">
-              <div><label className="lbl">Relay Host</label><input value={tunnelDraft.smtpRelayHost} onChange={e=>setTunnelDraft({...tunnelDraft,smtpRelayHost:e.target.value})} placeholder="blank = direct-to-MX" style={{fontSize:14,padding:"10px 12px"}}/></div>
-              <div><label className="lbl">Relay Port</label><input type="number" value={tunnelDraft.smtpRelayPort} onChange={e=>setTunnelDraft({...tunnelDraft,smtpRelayPort:parseInt(e.target.value)})} style={{fontSize:15,padding:"10px 12px"}}/></div>
-            </div>
             <div className="row g8 mt4">
               <button className="btn btn-g btn-sm" onClick={testTunnelConn} disabled={tunnelTestLoading||!tunnelDraft.sshHost}>
                 {tunnelTestLoading?"🔍 Testing…":"🔍 Test Connection"}
@@ -5065,7 +5060,7 @@ function TabMethod({
                 if(!tunnelDraft.sshHost) return;
                 setTunnelList(p=>[...p,{...tunnelDraft,id:Date.now()}]);
                 setTunnelTestResult(null);
-                setTunnelDraft({sshHost:"",sshPort:22,sshUser:"root",sshPass:"",smtpRelayHost:"",smtpRelayPort:587});
+                setTunnelDraft({sshHost:"",sshPort:22,sshUser:"root",sshPass:""});
               }}>+ Add Tunnel</button>
             </div>
             {tunnelTestResult && (
@@ -10567,7 +10562,7 @@ function App() {
   const [owaConfig, setOwaConfig]     = useState(_g("owaConfig",{url:"",username:"",password:""}));
   const [crmConfig, setCrmConfig]     = useState(_g("crmConfig",{provider:"salesforce",url:"",username:"",password:"",token:""}));
   const [tunnelList, setTunnelList]   = useState(_g("tunnelList",[]));
-  const [tunnelDraft, setTunnelDraft] = useState({sshHost:"",sshPort:22,sshUser:"root",sshPass:"",smtpRelayHost:"",smtpRelayPort:587});
+  const [tunnelDraft, setTunnelDraft] = useState({sshHost:"",sshPort:22,sshUser:"root",sshPass:""});
 
   // ── Deliverability ──
   const [priority, setPriority]     = useState(_g("priority","normal"));
