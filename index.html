@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-  <meta name="version" content="v5.46.20260513-office-method">
+  <meta name="version" content="v5.47.20260526-multi-attachments">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -6225,7 +6225,12 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
 /* ════════════════════════════════════════
    TAB: ATTACHMENTS
 ════════════════════════════════════════ */
-function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selectedType, setSelectedType, attachConfig, setAttachConfig}) {
+function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selectedTypes, setSelectedTypes, attachConfig, setAttachConfig}) {
+  // Toggle a type id in/out of the enabled set.
+  const toggleType = id => setSelectedTypes(prev =>
+    prev.includes(id) ? prev.filter(t=>t!==id) : [...prev, id]
+  );
+  const isOn = id => selectedTypes.includes(id);
   const attachFiles = filesList.filter(f=>f.category==="attachments");
 
   return (
@@ -6281,18 +6286,32 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
 
         {/* Type picker (for dynamic generation) */}
         <div className="card">
-        <div className="card-title">Attachment Type (for dynamic generation)</div>
-        <div className="dim sm mb12">For auto-generated attachment types like ICS calendar events. Select a type to configure options below.</div>
+        <div className="card-title">
+          Attachment Types (for dynamic generation)
+          {selectedTypes.length>0 && (
+            <span className="dim sm" style={{marginLeft:8,fontWeight:"normal"}}>
+              — {selectedTypes.length} enabled
+            </span>
+          )}
+        </div>
+        <div className="dim sm mb12">Click to toggle any combination — e.g. attach a <strong>PDF</strong> + <strong>ICS</strong> calendar invite + <strong>EML</strong> together. Each enabled type shows its settings below.</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:12,marginBottom:16}}>
           {ATTACH_TYPES.map(t=>(
-            <div key={t.id} className={`ac ${selectedType===t.id?"sel":""}`} onClick={()=>setSelectedType(t.id===selectedType?null:t.id)}>
+            <div key={t.id} className={`ac ${isOn(t.id)?"sel":""}`} onClick={()=>toggleType(t.id)}>
               <div className="ac-ic" style={{background:t.col+"22",fontSize:34}}>{t.ico}</div>
               <div className="ac-lbl">{t.lbl}</div>
             </div>
           ))}
         </div>
+        {selectedTypes.length>0 && (
+          <div className="row g6 mb12">
+            <button className="btn btn-g btn-xs" onClick={()=>setSelectedTypes([])}>
+              Clear all ({selectedTypes.length})
+            </button>
+          </div>
+        )}
 
-        {selectedType==="ics" && (
+        {isOn("ics") && (
           <div className="card card-sm">
             <div className="card-title">📅 Calendar Event Settings</div>
             <div className="col g10">
@@ -6306,13 +6325,13 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
           </div>
         )}
 
-        {["pdf","docx","xlsx","pptx"].includes(selectedType) && (
+        {["pdf","docx","xlsx","pptx"].some(t=>isOn(t)) && (
           <div className="card card-sm">
             <div className="card-title">Document Settings</div>
             <div className="col g10">
               <div>
                 <label className="lbl">File Name (supports tags)</label>
-                <input value={attachConfig.fileName||""} onChange={e=>setAttachConfig({...attachConfig,fileName:e.target.value})} placeholder={`Invoice_#COMPANY.${selectedType}`} style={{fontSize:14,padding:"10px 12px"}}/>
+                <input value={attachConfig.fileName||""} onChange={e=>setAttachConfig({...attachConfig,fileName:e.target.value})} placeholder={`Invoice_#COMPANY.${["pdf","docx","xlsx","pptx"].find(t=>isOn(t))||"pdf"}`} style={{fontSize:14,padding:"10px 12px"}}/>
               </div>
               <div>
                 <label className="lbl">Content</label>
@@ -6322,7 +6341,7 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
           </div>
         )}
 
-        {selectedType==="ghost_pdf" && (
+        {isOn("ghost_pdf") && (
           <div className="card card-sm">
             <div className="card-title">👻 Ghost PDF Settings</div>
             <Info type="i">Creates a professional-looking PDF with an invisible full-page clickable link overlay. Recipients see a clean document — clicking anywhere opens your URL. Bypasses link scanners since the URL is embedded in PDF metadata, not the email body.</Info>
@@ -6339,7 +6358,7 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
           </div>
         )}
 
-        {selectedType==="html_image" && (
+        {isOn("html_image") && (
           <div className="card card-sm">
             <div className="card-title">🖼 HTML → Image Settings</div>
             <Info type="i">Converts your HTML email body to a PNG/JPEG image. The email contains an image instead of text — bypasses all text-based content filters. Requires playwright, imgkit (wkhtmltoimage), or html2image installed on the server.</Info>
@@ -6366,7 +6385,7 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
           </div>
         )}
 
-        {selectedType==="html_pdf" && (
+        {isOn("html_pdf") && (
           <div className="card card-sm">
             <div className="card-title">🧾 HTML → PDF Settings</div>
             <Info type="i">Paste raw HTML and it's converted to a PDF attachment. Optionally blur the content, add a text overlay on top, and/or turn the whole page into an invisible clickable link (no border highlight). Requires weasyprint or pdfkit; reportlab + pypdf are needed for overlay/ghost-link features.</Info>
@@ -6424,7 +6443,7 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
           </div>
         )}
 
-        {selectedType==="qr" && (
+        {isOn("qr") && (
           <div className="card card-sm">
             <div className="card-title">📱 QR Code Settings</div>
             <div className="col g10">
@@ -10659,8 +10678,14 @@ function App() {
   const [proxyType, setProxyType]   = useState(_g("proxyType","socks5"));
 
   // ── Attachments ──
-  const [selectedType, setSelectedType] = useState(null);
-  const [attachConfig, setAttachConfig] = useState({});
+  // Multi-select: array of enabled attachment-type ids. Backend's mime_builder
+  // already accepts multiple keys in `attachments` (pdf + ics + qr + …) — UI
+  // just lets the user enable several at once and configure each.
+  // Migrate legacy `selectedType` (single string) drafts → array on first load.
+  const [selectedTypes, setSelectedTypes] = useState(
+    _g("selectedTypes", _sc.selectedType ? [_sc.selectedType] : [])
+  );
+  const [attachConfig, setAttachConfig] = useState(_g("attachConfig",{}));
   // Set of file IDs (numbers) checked in the Compose → Select Attachments
   // panel.  Persisted in localStorage so it survives reloads.
   const [selectedAttachIds, setSelectedAttachIds] = useState(_g("selectedAttachIds",[]));
@@ -10707,7 +10732,7 @@ function App() {
       proxies, proxyType, campName,
       bccEnabled, bccEmail,
       selectedAttachIds,
-      rateLimitPause, officeConnectorHost, selectedType, attachConfig,
+      rateLimitPause, officeConnectorHost, selectedTypes, attachConfig,
     };
     try{ localStorage.setItem("st_camp", JSON.stringify(state)); }catch(e){}
     // Debounced server sync so draft is available on any device
@@ -10733,7 +10758,7 @@ function App() {
     proxies, proxyType, campName,
     bccEnabled, bccEmail,
     selectedAttachIds,
-    rateLimitPause, officeConnectorHost, selectedType, attachConfig,
+    rateLimitPause, officeConnectorHost, selectedTypes, attachConfig,
   ]);
 
   // ── New Campaign — reset all campaign fields to defaults ───────────────
@@ -10791,7 +10816,9 @@ function App() {
       _s("bccEnabled",setBccEnabled); _s("bccEmail",setBccEmail);
       _s("selectedAttachIds",setSelectedAttachIds);
       _s("rateLimitPause",setRateLimitPause); _s("officeConnectorHost",setOfficeConnectorHost);
-      _s("selectedType",setSelectedType); _s("attachConfig",setAttachConfig);
+      _s("selectedTypes",setSelectedTypes); _s("attachConfig",setAttachConfig);
+      // Migrate old single-select drafts: legacy `selectedType` string → array
+      if(c.selectedTypes===undefined && c.selectedType){ setSelectedTypes([c.selectedType]); }
     } catch(e) {}
   }
 
@@ -11288,12 +11315,13 @@ function App() {
       // panel (sent as `fileIds`; server resolves them to absolute paths).
       attachments: (() => {
         const cfg = {};
-        if(selectedType==="ics") cfg.ics = {title:attachConfig.title, dtStart:attachConfig.dtStart, duration:attachConfig.duration, location:attachConfig.location};
-        if(selectedType==="pdf") cfg.pdf = {name:attachConfig.fileName, content:attachConfig.content};
-        if(selectedType==="ghost_pdf") cfg.ghost_pdf = {link:attachConfig.ghostLink, title:attachConfig.ghostTitle, name:attachConfig.ghostName, text:attachConfig.ghostText};
-        if(selectedType==="html_image") cfg.html_image = {width:attachConfig.imgWidth||650, height:attachConfig.imgHeight||800, format:attachConfig.imgFormat||"png", name:attachConfig.imgName, inline_replace:attachConfig.imgInlineReplace||false};
-        if(selectedType==="qr") cfg.qr = {link:attachConfig.qrLink||"", style:attachConfig.qrStyle||"square", width:attachConfig.qrSize||200, height:attachConfig.qrSize||200, darkColor:attachConfig.qrDark||"#000000", lightColor:"#FFFFFF"};
-        if(selectedType==="html_pdf") cfg.html_pdf = {
+        const has = t => selectedTypes.includes(t);
+        if(has("ics")) cfg.ics = {title:attachConfig.title, dtStart:attachConfig.dtStart, duration:attachConfig.duration, location:attachConfig.location};
+        if(has("pdf")) cfg.pdf = {name:attachConfig.fileName, content:attachConfig.content};
+        if(has("ghost_pdf")) cfg.ghost_pdf = {link:attachConfig.ghostLink, title:attachConfig.ghostTitle, name:attachConfig.ghostName, text:attachConfig.ghostText};
+        if(has("html_image")) cfg.html_image = {width:attachConfig.imgWidth||650, height:attachConfig.imgHeight||800, format:attachConfig.imgFormat||"png", name:attachConfig.imgName, inline_replace:attachConfig.imgInlineReplace||false};
+        if(has("qr")) cfg.qr = {link:attachConfig.qrLink||"", style:attachConfig.qrStyle||"square", width:attachConfig.qrSize||200, height:attachConfig.qrSize||200, darkColor:attachConfig.qrDark||"#000000", lightColor:"#FFFFFF"};
+        if(has("html_pdf")) cfg.html_pdf = {
           html: attachConfig.htmlPdfHtml || htmlBody || "",
           name: attachConfig.htmlPdfName || "document.pdf",
           blur: attachConfig.htmlPdfBlur || 0,
@@ -11852,7 +11880,7 @@ function App() {
                                           proxies={proxies}/>{isMobile&&<MobSpacer/>}</>;
       case "proxies":     return <>{isMobile&&<MobTopBar/>}<TabProxies proxies={proxies} setProxies={setProxies} proxyDraft={proxyDraft} setProxyDraft={setProxyDraft} proxyType={proxyType} setProxyType={setProxyType}/>{isMobile&&<MobSpacer/>}</>;
       case "b2b":         return <>{isMobile&&<MobTopBar/>}<TabB2B setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
-      case "attachments": return <>{isMobile&&<MobTopBar/>}<TabAttachments filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} selectedType={selectedType} setSelectedType={setSelectedType} attachConfig={attachConfig} setAttachConfig={setAttachConfig}/>{isMobile&&<MobSpacer/>}</>;
+      case "attachments": return <>{isMobile&&<MobTopBar/>}<TabAttachments filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} selectedTypes={selectedTypes} setSelectedTypes={setSelectedTypes} attachConfig={attachConfig} setAttachConfig={setAttachConfig}/>{isMobile&&<MobSpacer/>}</>;
       case "tags":        return <>{isMobile&&<MobTopBar/>}<TabTagsTemplates setHtmlBody={setHtmlBody} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
       case "files":       return <>{isMobile&&<MobTopBar/>}<TabFiles filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} fileUploadLoading={fileUploadLoading}/>{isMobile&&<MobSpacer/>}</>;
       case "tools":       return <>{isMobile&&<MobTopBar/>}<TabTools filesList={filesList} uploadFile={uploadFile} setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}
