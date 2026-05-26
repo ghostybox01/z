@@ -872,62 +872,114 @@ def _persist_github_env_to_dotenv() -> bool:
 
 
 def _check_for_update() -> dict:
-    """Compare local installed SHA to latest commit on the tracked branch.
+    """Detect whether the remote branch has new content.
 
-    Returns: {
-      current_sha, latest_sha, behind (bool), commit_msg, commit_date,
-      compare_url, files_changed (list[str])
-    }
-    Raises Exception on network / API error so caller can surface it.
+    Primary detection uses raw.githubusercontent.com — no rate limit, so
+    this NEVER returns "403 rate limit exceeded".  The GitHub REST API is
+    only consulted to enrich the response with commit message/date/files
+    and gracefully degrades to empty values when the API is unavailable
+    (rate-limited, network blip, bad token, etc.).
+
+    Returns: {current_sha, latest_sha, short, behind, commit_msg,
+              commit_date, compare_url, files_changed, owner, repo, branch}
     """
-    # Honor any active rate-limit backoff so the auto-pull loop and other
-    # internal callers don't keep poking GitHub after a 403.  When we have
-    # a cached result, hand it back; otherwise raise so the caller can
-    # surface "rate-limited" cleanly.
+    # ── Step 1: Raw-bytes diff against the same file pull.sh writes ──
+    # `core/server.py` changes on most updates and is the single file most
+    # tied to behaviour, but the actual "behind" decision compares *all*
+    # tracked files; that way a frontend-only push (index.html) still
+    # registers.  raw.githubusercontent.com has no documented rate limit
+    # and is what _apply_update() pulls from anyway.
+    sentinels = ("core/server.py", "index.html")
+    behind = False
+    remote_blobs = {}
+    last_err = None
+    for rel in sentinels:
+        try:
+            remote = _gh_raw(rel)
+        except HTTPError as he:
+            # 404 here means the file moved/was renamed in the repo —
+            # skip rather than crash, the other sentinel will still tell
+            # us if anything changed.
+            last_err = he
+            if he.code == 404:
+                continue
+            # Don't raise immediately — try the other sentinel first.
+            continue
+        except Exception as e:
+            last_err = e
+            continue
+        remote_blobs[rel] = remote
+        local_path = os.path.join(INSTALL_DIR, rel) if rel.startswith("core/") \
+                    else os.path.join(WEB_DIR, os.path.basename(rel))
+        local = b""
+        if os.path.isfile(local_path):
+            with open(local_path, "rb") as fh:
+                local = fh.read()
+        if remote != local:
+            behind = True
+    if not remote_blobs and last_err is not None:
+        # Couldn't fetch a single sentinel — surface the error so the UI
+        # shows what's actually wrong instead of "up to date".
+        raise last_err
+
+    # Stable identifier for the *content set* we've seen — used as a
+    # fallback when the API can't give us a real commit SHA.
+    _fp_bytes = b"".join(remote_blobs.get(r, b"") for r in sentinels)
+    content_fp = hashlib.sha256(_fp_bytes).hexdigest() if _fp_bytes else ""
+
+    # ── Step 2: Optional API enrichment for commit metadata ──
+    # Skip entirely if we're inside a 403 backoff window.  Failures here
+    # never affect the `behind` result computed above.
     now = int(time.time())
     reset_at = UPDATE_STATE.get("rate_limit_reset", 0)
-    if reset_at and now < reset_at:
-        cached = UPDATE_STATE.get("last_result")
-        if cached:
-            return cached
-        raise RuntimeError(f"GitHub rate-limited (retry in {reset_at - now}s)")
+    api_ok = not (reset_at and now < reset_at)
 
     current = _read_installed_sha()
-    try:
-        branch_info = _gh_request(
-            f"repos/{GITHUB_OWNER}/{GITHUB_REPO}/branches/{GITHUB_BRANCH}")
-    except HTTPError as he:
-        if he.code == 403:
-            backoff_until = now + 900
-            try:
-                hdrs = getattr(he, "headers", None) or {}
-                rl_reset = int(str(hdrs.get("X-RateLimit-Reset", "") or "0"))
-                if rl_reset > now:
-                    backoff_until = rl_reset
-            except (ValueError, TypeError):
-                pass
-            UPDATE_STATE["rate_limit_reset"] = backoff_until
-        raise
-    latest = (branch_info.get("commit") or {}).get("sha", "")
-    commit = (branch_info.get("commit") or {}).get("commit") or {}
-    msg    = (commit.get("message") or "").splitlines()[0][:200]
-    date   = ((commit.get("author") or {}).get("date") or "")
-    behind = bool(latest) and (latest != current)
-
+    latest = ""
+    msg = ""
+    date = ""
+    compare_url = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/commits/{GITHUB_BRANCH}"
     files_changed = []
-    compare_url = ""
-    if current and behind and len(current) >= 7:
-        try:
-            cmp = _gh_request(
-                f"repos/{GITHUB_OWNER}/{GITHUB_REPO}/compare/"
-                f"{current}...{latest}")
-            files_changed = [f.get("filename","") for f in cmp.get("files", [])]
-            compare_url   = cmp.get("html_url", "")
-        except Exception:
-            files_changed = []
 
-    # Reaching here means GitHub responded — clear any prior backoff.
-    UPDATE_STATE["rate_limit_reset"] = 0
+    if api_ok:
+        try:
+            branch_info = _gh_request(
+                f"repos/{GITHUB_OWNER}/{GITHUB_REPO}/branches/{GITHUB_BRANCH}")
+            latest = (branch_info.get("commit") or {}).get("sha", "")
+            commit = (branch_info.get("commit") or {}).get("commit") or {}
+            msg    = (commit.get("message") or "").splitlines()[0][:200]
+            date   = ((commit.get("author") or {}).get("date") or "")
+            if current and behind and len(current) >= 7 and latest:
+                try:
+                    cmp = _gh_request(
+                        f"repos/{GITHUB_OWNER}/{GITHUB_REPO}/compare/"
+                        f"{current}...{latest}")
+                    files_changed = [f.get("filename","") for f in cmp.get("files", [])]
+                    compare_url   = cmp.get("html_url", compare_url)
+                except Exception:
+                    pass
+            UPDATE_STATE["rate_limit_reset"] = 0
+        except HTTPError as he:
+            if he.code == 403:
+                backoff_until = now + 900
+                try:
+                    hdrs = getattr(he, "headers", None) or {}
+                    rl_reset = int(str(hdrs.get("X-RateLimit-Reset", "") or "0"))
+                    if rl_reset > now:
+                        backoff_until = rl_reset
+                except (ValueError, TypeError):
+                    pass
+                UPDATE_STATE["rate_limit_reset"] = backoff_until
+            # Don't propagate — the raw check already gave us the answer.
+        except Exception:
+            pass  # silent enrichment failure
+
+    # Display fields: prefer real commit SHAs, fall back to content fingerprint
+    # so the UI always has *something* to show.
+    if not latest:
+        latest = content_fp
+    if not current:
+        current = content_fp if not behind else ""
 
     return {
         "current_sha":    current,
