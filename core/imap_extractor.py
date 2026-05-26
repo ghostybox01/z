@@ -582,7 +582,10 @@ def list_letters(email_addr, password, token=None, limit=50,
                 msg = _email.message_from_bytes(raw)
             except Exception:
                 continue
-            addr, name = _parse_from(msg.get("From", ""))
+            try:
+                addr, name = _parse_from(msg.get("From", ""))
+            except Exception:
+                addr, name = "", ""
             letters.append({
                 "id":       seq_id,
                 "from":     addr or "",

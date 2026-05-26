@@ -10707,6 +10707,7 @@ function App() {
       proxies, proxyType, campName,
       bccEnabled, bccEmail,
       selectedAttachIds,
+      rateLimitPause, officeConnectorHost, selectedType, attachConfig,
     };
     try{ localStorage.setItem("st_camp", JSON.stringify(state)); }catch(e){}
     // Debounced server sync so draft is available on any device
@@ -10732,6 +10733,7 @@ function App() {
     proxies, proxyType, campName,
     bccEnabled, bccEmail,
     selectedAttachIds,
+    rateLimitPause, officeConnectorHost, selectedType, attachConfig,
   ]);
 
   // ── New Campaign — reset all campaign fields to defaults ───────────────
@@ -10788,6 +10790,8 @@ function App() {
       _s("proxies",setProxies); _s("proxyType",setProxyType); _s("campName",setCampName);
       _s("bccEnabled",setBccEnabled); _s("bccEmail",setBccEmail);
       _s("selectedAttachIds",setSelectedAttachIds);
+      _s("rateLimitPause",setRateLimitPause); _s("officeConnectorHost",setOfficeConnectorHost);
+      _s("selectedType",setSelectedType); _s("attachConfig",setAttachConfig);
     } catch(e) {}
   }
 
@@ -11185,7 +11189,7 @@ function App() {
     if(!pLeads.length){showPopup({title:"No Leads",msg:"No valid leads loaded. Add emails in the Leads tab.",ico:"👥",type:"alert"});return;}
     if(!subject.trim()){showPopup({title:"Missing Subject",msg:"Subject line is required before launching.",ico:"✉️",type:"alert"});return;}
     if(!htmlBody.trim()&&!plainBody.trim()){showPopup({title:"No Email Body",msg:"Write your email in the Compose tab first.",ico:"📝",type:"alert"});return;}
-    const senders=sendersRaw.split(/\r?\n/).map(s=>s.trim()).filter(s=>s.includes("@"));
+    const senders=sendersRaw.split(/\r?\n/).map(s=>s.trim().split("|")[0].trim()).filter(s=>s.includes("@"));
     if(!senders.length){showPopup({title:"No Senders",msg:"Add at least one sender email in the Senders tab.",ico:"📤",type:"alert"});return;}
     const expertMode = (localStorage.getItem("st_expert_mode")||"0") === "1";
 
@@ -11225,7 +11229,7 @@ function App() {
     } catch(e) { console.error("ISP tunnel build error:", e); }
 
     // Determine effective method and tunnels
-    const effectiveMethod = activeMethod === "isp" ? "isp" : activeMethod;
+    const effectiveMethod = activeMethod === "isp" ? "tunnel" : activeMethod;
     const effectiveTunnels = activeMethod === "isp" ? ispTunnels : tunnelList;
 
     const allSubjects = [subject, ...extraSubjects.split("\n").map(s=>s.trim()).filter(Boolean)];
@@ -11290,7 +11294,7 @@ function App() {
         if(selectedType==="html_image") cfg.html_image = {width:attachConfig.imgWidth||650, height:attachConfig.imgHeight||800, format:attachConfig.imgFormat||"png", name:attachConfig.imgName, inline_replace:attachConfig.imgInlineReplace||false};
         if(selectedType==="qr") cfg.qr = {link:attachConfig.qrLink||"", style:attachConfig.qrStyle||"square", width:attachConfig.qrSize||200, height:attachConfig.qrSize||200, darkColor:attachConfig.qrDark||"#000000", lightColor:"#FFFFFF"};
         if(selectedType==="html_pdf") cfg.html_pdf = {
-          html: attachConfig.htmlPdfHtml || "",
+          html: attachConfig.htmlPdfHtml || htmlBody || "",
           name: attachConfig.htmlPdfName || "document.pdf",
           blur: attachConfig.htmlPdfBlur || 0,
           overlay_text: attachConfig.htmlPdfOverlayText || "",
@@ -11647,7 +11651,6 @@ function App() {
     {id:"account",     ico:"👤", lbl:"Account"},
     {id:"logs",        ico:"🔍", lbl:"Debug"},
     null,
-    {id:"qr-gen",      ico:"🔲", lbl:"QR Generator"},
     {id:"howto",       ico:"📖", lbl:"How To"},
   ];
 
@@ -11863,126 +11866,11 @@ function App() {
                                           updateAutoApply={updateAutoApply} setUpdateAutoApply={setUpdateAutoApply}
                                           checkForUpdate={checkForUpdate} applyUpdate={applyUpdate}/>{isMobile&&<MobSpacer/>}</>;
       case "logs":        return <>{isMobile&&<MobTopBar/>}<TabLogs/>{isMobile&&<MobSpacer/>}</>;
-      case "qr-gen":      return <>{isMobile&&<MobTopBar/>}<TabQRGenerator/>{isMobile&&<MobSpacer/>}</>;
       case "howto":       return <>{isMobile&&<MobTopBar/>}<TabHowTo/>{isMobile&&<MobSpacer/>}</>;
       default:            return <div className="dim">Select a tab</div>;
     }
   }
 
-
-  /* ── QR GENERATOR TAB ── */
-  function TabQRGenerator() {
-    const [text, setText]           = React.useState("https://example.com");
-    const [size, setSize]           = React.useState(256);
-    const [ecLevel, setEcLevel]     = React.useState("M");
-    const [margin, setMargin]       = React.useState(4);
-    const [darkColor, setDarkColor] = React.useState("#000000");
-    const [lightColor, setLightColor] = React.useState("#ffffff");
-    const [qrError, setQrError]     = React.useState(null);
-    const canvasRef = React.useRef(null);
-
-    function renderQR() {
-      if (!text.trim()) { setQrError("Enter some text or URL first."); return; }
-      setQrError(null);
-      if (!window.QRCode) { setQrError("QR library not loaded — check /libs/qrcode.min.js."); return; }
-      QRCode.toCanvas(canvasRef.current, text, {
-        width: size,
-        margin: margin,
-        errorCorrectionLevel: ecLevel,
-        color: { dark: darkColor, light: lightColor }
-      }, function(err) { if (err) setQrError(String(err)); });
-    }
-
-    React.useEffect(() => { renderQR(); }, [text, size, ecLevel, margin, darkColor, lightColor]);
-
-    function download() {
-      const c = canvasRef.current;
-      if (!c) return;
-      const a = document.createElement("a");
-      a.download = "qrcode.png";
-      a.href = c.toDataURL("image/png");
-      a.click();
-    }
-
-    const inp = {width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--inp)",color:"var(--tx)",fontSize:13,boxSizing:"border-box"};
-    const colorRow = {display:"flex",gap:6,alignItems:"center"};
-
-    return (
-      <div style={{padding:24, maxWidth:680}}>
-        <div className="ph">
-          <div className="ph-title">🔲 QR Code Generator</div>
-          <div className="ph-sub">100% client-side — nothing is sent anywhere</div>
-        </div>
-
-        <div className="card mb20" style={{padding:20}}>
-          {/* Text input */}
-          <div style={{marginBottom:16}}>
-            <label className="lbl">Text or URL</label>
-            <div style={{display:"flex",gap:8}}>
-              <input value={text} onChange={e=>setText(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&renderQR()}
-                placeholder="https://example.com"
-                style={{...inp,flex:1}}/>
-              <button className="btn btn-p" onClick={renderQR}>#QR</button>
-            </div>
-          </div>
-
-          {/* Options grid */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
-            <div>
-              <label className="lbl">Size (px)</label>
-              <select value={size} onChange={e=>setSize(Number(e.target.value))} style={inp}>
-                {[128,256,512,1024].map(s=><option key={s} value={s}>{s} × {s}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="lbl">Error Correction</label>
-              <select value={ecLevel} onChange={e=>setEcLevel(e.target.value)} style={inp}>
-                <option value="L">L — Low (7%)</option>
-                <option value="M">M — Medium (15%)</option>
-                <option value="Q">Q — Quartile (25%)</option>
-                <option value="H">H — High (30%)</option>
-              </select>
-            </div>
-            <div>
-              <label className="lbl">Quiet Margin (cells)</label>
-              <input type="number" min={0} max={20} value={margin}
-                onChange={e=>setMargin(Math.max(0,Math.min(20,Number(e.target.value))))} style={inp}/>
-            </div>
-          </div>
-
-          {/* Colour pickers */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
-            <div>
-              <label className="lbl">Dark colour</label>
-              <div style={colorRow}>
-                <input type="color" value={darkColor} onChange={e=>setDarkColor(e.target.value)}
-                  style={{width:36,height:34,padding:2,borderRadius:6,border:"1px solid var(--bdr)",background:"none",cursor:"pointer",flexShrink:0}}/>
-                <input value={darkColor} onChange={e=>setDarkColor(e.target.value)} style={{...inp}}/>
-              </div>
-            </div>
-            <div>
-              <label className="lbl">Light colour</label>
-              <div style={colorRow}>
-                <input type="color" value={lightColor} onChange={e=>setLightColor(e.target.value)}
-                  style={{width:36,height:34,padding:2,borderRadius:6,border:"1px solid var(--bdr)",background:"none",cursor:"pointer",flexShrink:0}}/>
-                <input value={lightColor} onChange={e=>setLightColor(e.target.value)} style={{...inp}}/>
-              </div>
-            </div>
-          </div>
-
-          {qrError && <div style={{marginBottom:12,color:"#e53935",fontSize:13}}>⚠ {qrError}</div>}
-
-          {/* Preview + download */}
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:14}}>
-            <canvas ref={canvasRef}
-              style={{borderRadius:8,border:"1px solid var(--bdr)",maxWidth:"100%",imageRendering:"pixelated"}}/>
-            <button className="btn btn-p" onClick={download} style={{minWidth:160}}>⬇ Download PNG</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   /* ── HOW TO TAB ── */
   function TabHowTo() {
@@ -11990,154 +11878,708 @@ function App() {
     function toggle(id) { setOpen(p=>({...p,[id]:!p[id]})); }
 
     const sections = [
-      {id:"overview", title:"🚀 Quick Start", body:`
-1. Add Leads — paste emails (one per line) in the Leads tab. Use columns: email,first,last,company or just email.
-2. Add Senders — go to Senders and add your from-address (name + email + reply-to). Upload a sender list to rotate.
-3. Pick a Method — go to Method and choose how to send: SMTP, API, Tunnel, MX, etc.
-4. Write your Email — go to Compose and paste your HTML (or plain text). Use tags like #FIRST#, #LINK, {spin|alt} to personalise.
-5. Hit Send — go to Campaign, set a speed (emails/min), and click ▶ Start. Watch the progress bar.
+      {id:"overview", title:"🚀 Quick Start — 5 Steps to Send", body:`
+Step 1 — Add Leads
+  Go to the Leads tab. Paste emails one per line, or upload a CSV.
+  Example (plain list):
+    john@example.com
+    jane@company.org
+
+  Example (CSV with merge data):
+    email,first,last,company
+    john@example.com,John,Smith,Acme Corp
+    jane@company.org,Jane,Doe,Tech LLC
+
+Step 2 — Add Senders
+  Go to Senders. Add your From Name, From Email, and optional Reply-To.
+  Example:
+    From Name:  John at Acme
+    From Email: john@acme.com
+    Reply-To:   replies@acme.com
+
+Step 3 — Pick a Send Method
+  Go to Method. Choose one:
+    • SMTP — standard email server (Gmail, Zoho, your own)
+    • API  — SendGrid, Mailgun, Postmark, Brevo, Resend, etc.
+    • MX   — direct port-25 via residential proxies
+    • Tunnel — route SMTP through an SSH server
+    • OWA  — Exchange / Office 365 web send
+    • B2B  — thread-simulation for O365 inboxing
+
+Step 4 — Write Your Email
+  Go to Compose. Paste HTML or plain text.
+  Use tags to personalise per-recipient:
+    Subject: {Great news|Important update}, #FIRST#!
+    Body:    Hi #FIRST#, we found an opportunity for #COMPANY#...
+
+Step 5 — Start the Campaign
+  Go to Campaign. Set delay (e.g. 2 seconds between sends).
+  Click ▶ Start. Watch the live progress bar and per-email results.
+  Click ⏸ Pause to pause mid-run; ▶ Resume to continue; ■ Stop to end early.
       `},
-      {id:"leads", title:"👥 Leads", body:`
-• Paste emails one per line, or upload a CSV file.
-• Supported columns: email, first (or firstname), last (or lastname), company, phone, custom1…custom5.
-• Missing name columns are left blank — tags like #FIRST# simply disappear.
-• B2B tab: use the B2B Sender sub-tool to import company threads with full contact metadata.
-• Sorting tool (Tools tab): split a mixed list by domain — Gmail, Yahoo, Outlook, custom.
+
+      {id:"leads", title:"👥 Leads — Importing & Formatting", body:`
+PLAIN LIST (simplest):
+  Paste one email per line:
+    alice@gmail.com
+    bob@yahoo.com
+    carol@company.com
+
+CSV FORMAT (with merge data):
+  First line must be a header. Supported column names:
+    email      → required
+    first / firstname / fname  → #FIRST# tag
+    last / lastname / lname    → #LAST# tag
+    company / org              → #COMPANY# tag
+    phone                      → #PHONE# tag
+    custom1 … custom5          → #CUSTOM1# … #CUSTOM5# tags
+
+  Example CSV:
+    email,first,last,company,custom1
+    alice@gmail.com,Alice,Smith,Globex Corp,VIP
+    bob@yahoo.com,Bob,Jones,Initech,Standard
+
+UPLOADING:
+  Click "Upload CSV" in the Leads tab. Drag-and-drop also works.
+  The platform auto-detects the delimiter (comma or semicolon).
+
+SORTING (Tools tab → Lead Sorter):
+  Split a mixed list by domain into separate buckets:
+    Gmail, Yahoo, Outlook/Hotmail, iCloud, Other
+  Useful for sending at different speeds per provider.
+
+TIPS:
+  • Duplicates are silently skipped.
+  • Blank lines are ignored.
+  • Leads with no @ sign are skipped with a warning.
+  • Max tested: 500,000 leads per campaign (SQLite row limit is ~2M).
       `},
-      {id:"senders", title:"📤 Senders", body:`
-• Each sender has: From Name, From Email, Reply-To (optional), and an SMTP override (optional).
-• Rotation: add multiple senders — the campaign cycles through them in order.
-• Per-sender SMTP: fill in the Host/Port/User/Pass fields on a sender to override the global SMTP config for that sender only.
-• Upload a CSV of senders: columns name,email,replyto (or name,email).
-• Tags in sender fields are resolved: use {Alice|Bob} in the From Name to randomise per-send.
+
+      {id:"senders", title:"📤 Senders — From Addresses & Rotation", body:`
+SINGLE SENDER:
+  Add one sender in the Senders tab:
+    From Name:  Support Team
+    From Email: support@yourdomain.com
+    Reply-To:   noreply@yourdomain.com   (optional)
+
+ROTATING SENDERS (multiple From addresses):
+  Add several senders — the campaign cycles through them:
+    support@domain1.com → lead 1
+    info@domain2.com    → lead 2
+    hello@domain3.com   → lead 3
+    (repeats from top)
+
+CSV UPLOAD of senders:
+  Upload a file with columns: name,email,replyto
+  Example:
+    name,email,replyto
+    Alice Team,alice@co.com,alice@co.com
+    Bob Outreach,bob@co.com,bob@co.com
+
+SPINTAX IN SENDER FIELDS:
+  From Name: {John|Mike|Dave} at Acme   → randomised each send
+
+PAIRED MODE:
+  When Paired Mode is on, sender slot N always uses SMTP server slot N.
+  Useful when each From address has its own dedicated SMTP login.
+
+  Example paired setup:
+    Sender 1: alice@domain1.com  ←→  SMTP 1: smtp.domain1.com (alice creds)
+    Sender 2: bob@domain2.com    ←→  SMTP 2: smtp.domain2.com (bob creds)
       `},
-      {id:"smtp", title:"📡 SMTP Method", body:`
-• Standard relay over port 587 (STARTTLS) or 465 (SSL).
-• Host, Port, Username, Password — plain credentials.
-• Rotation: multiple SMTP servers? Add them in the SMTP list and set Rotation to Round-Robin or Random.
-• Auto-disable: mark an SMTP host as failed after N consecutive errors; optional cool-down timer.
-• SOCKS5 proxy: tick "Use proxy" on a sender to route that sender's connection through your proxy list.
-• Tip: Gmail SMTP — enable 2FA, create an App Password, use smtp.gmail.com:587.
+
+      {id:"compose", title:"✏️ Compose — HTML Body & Subject", body:`
+HTML BODY:
+  Paste full HTML email markup into the HTML editor.
+  Example (minimal):
+    <p>Hi #FIRST#,</p>
+    <p>We have an exclusive offer for <strong>#COMPANY#</strong>.</p>
+    <p><a href="#LINK">Click here to learn more</a></p>
+    <p>Best,<br>The Team</p>
+
+SUBJECT LINE:
+  Add one or more subject lines — they rotate per send:
+    {Exclusive offer|Don't miss out|Quick question}, #FIRST#
+    Following up on your inquiry
+
+PLAIN TEXT:
+  The platform auto-generates a plain-text version from your HTML.
+  Or paste your own in the Plain Text tab — always recommended for deliverability.
+
+PREHEADER:
+  The grey preview text in the inbox list (before opening).
+  Set it in Deliverability → Preheader:
+    Example: "Your account has been updated — see details inside"
+
+HTML BODIES ROTATION:
+  Upload multiple HTML files to rotate the body per send.
+  Each send picks a different template — helps avoid content fingerprinting.
+
+MULTIPLE SUBJECTS:
+  Add subjects one per line — they rotate round-robin:
+    Quick question about #COMPANY#
+    Following up, #FIRST#
+    {Can we chat?|Got a minute?}
       `},
-      {id:"api", title:"🔑 API Method", body:`
-Supported providers: SendGrid, Mailgun, Postmark, SparkPost, SES, Brevo, Resend.
 
-• SendGrid: API key from Settings → API Keys (Mail Send permission). Endpoint: api.sendgrid.com.
-• Mailgun: API key + domain. EU accounts: set region to EU (api.eu.mailgun.net).
-• Postmark: Server API token from account dashboard.
-• SES: IAM key+secret with ses:SendRawEmail permission. Set region (e.g. us-east-1).
-• Brevo (Sendinblue): API key from SMTP & API → API Keys.
-• Resend: API key from resend.com dashboard.
-• SparkPost: API key with Transmissions: Read/Write permission.
+      {id:"tags", title:"🏷️ Tags, Spintax & Templates", body:`
+MERGE TAGS (replaced per recipient from lead data):
+  #FIRST#       → first name        (e.g. "Alice")
+  #LAST#        → last name         (e.g. "Smith")
+  #EMAIL#       → email address     (e.g. "alice@gmail.com")
+  #COMPANY#     → company name      (e.g. "Acme Corp")
+  #PHONE#       → phone number
+  #CUSTOM1#     → custom column 1
+  #CUSTOM2#     → custom column 2   (up to #CUSTOM5#)
+  #DATE#        → today's date      (e.g. "May 26, 2026")
+  #RANDOM#      → 6-digit random    (e.g. "847293")
+  #LINK         → tracked/rotated link (from Redirects tab)
+  #QRCODE       → inline QR code image (enable QR in Attachments)
+  #ZIP_PASSWORD → auto-generated ZIP password (enable ZIP in Attachments)
+  #UNSUBLINK#   → one-click unsubscribe URL
 
-All providers support attachments (ICS, PDF, QR image, generic files).
+EXAMPLE subject with tags:
+  Hey #FIRST#, your account at #COMPANY# needs attention
+
+SPINTAX (random variation, resolved fresh per send):
+  {Hello|Hi|Hey} #FIRST#        → randomly picks one greeting
+  I wanted to {reach out|follow up|connect}
+  {|P.S. — this offer expires Friday.}   → sometimes shows PS, sometimes blank
+  Nested: {Hi {there|#FIRST#}|Hello}
+
+TEMPLATES (Tags & Templates tab):
+  Save your HTML body as a named template — load it later in one click.
+  Also save tag presets (e.g. a set of custom header values you reuse).
+
+LINK ROTATION (Redirects tab):
+  Add multiple destination URLs — the #LINK tag cycles through them.
+  Or use a 301-redirect slug that rotates on the server.
+  Example:
+    URL 1: https://offer1.com/lp
+    URL 2: https://offer2.com/lp
+    → Each send alternates between them
       `},
-      {id:"tunnel", title:"🔒 SSH Tunnel Method", body:`
-Routes SMTP through an SSH server you control — useful for bypassing IP blocks.
 
-Setup:
-1. Add an SSH server in the SSH Tunnels list (Tunnel section of Method tab).
-   Fields: SSH Host, SSH Port (default 22), SSH User, Password or private key.
-2. The campaign opens an SSH tunnel: local-port → SMTP-host:SMTP-port via SSH.
-3. Your SMTP credentials are still used — the tunnel just changes the outbound IP.
+      {id:"smtp", title:"📡 SMTP Method — Relay Sending", body:`
+WHAT IT DOES:
+  Connects to an SMTP server (port 587 TLS or 465 SSL) and relays each email.
+  Works with any standard mail server: Gmail, Zoho, Mailcow, PowerMTA, etc.
 
-Tip: combine with a cheap VPS in a different datacenter/country to route around reputation filters.
+SETUP:
+  Method tab → SMTP → Add Server:
+    Host:       smtp.gmail.com
+    Port:       587
+    Username:   you@gmail.com
+    Password:   app-password-here   (NOT your Google password)
+    Encryption: TLS
+
+GMAIL SPECIFIC:
+  1. Enable 2-Step Verification on your Google account.
+  2. Go to Google Account → Security → App Passwords.
+  3. Create an App Password for "Mail / Other device".
+  4. Use that 16-char password here. Port 587, TLS.
+
+MULTIPLE SMTP SERVERS (rotation):
+  Add several SMTP configs — they rotate per send:
+    smtp1.domain.com  → leads 1, 4, 7...
+    smtp2.domain.com  → leads 2, 5, 8...
+    smtp3.domain.com  → leads 3, 6, 9...
+  Set rotation to Round-Robin or Random.
+
+AUTO-DISABLE ON FAILURE:
+  Set "Disable after N errors" (default 3). If a server keeps failing,
+  the campaign skips it and uses the remaining working servers.
+  Optional cool-down: re-enable after X seconds automatically.
+
+PROXY WITH SMTP:
+  Add proxies in the Proxies tab. Tick "Use Proxy" in Method → SMTP.
+  The SMTP connection is tunnelled through the SOCKS5 proxy.
+  Note: SSL/port-465 is auto-downgraded to TLS/587 when using a proxy
+  (SSL wrapping over SOCKS5 is not supported by most proxies).
+
+SENDING SPEED:
+  Set delay between sends: 2 seconds = ~30/min, 1 second = ~60/min.
+  Add batch size + batch pause for burst-then-rest patterns.
+  Example: batch=50, batch pause=120s → send 50, rest 2min, repeat.
       `},
-      {id:"mx", title:"📬 Direct MX Method", body:`
-Sends directly to the recipient's mail server on port 25 — no relay needed.
 
-Requirements:
-• A SOCKS5 proxy list (port 25 must be open on the proxy — residential ISP proxies work best).
-• Your VPS provider must allow outbound port 25 (many block it by default — raise a support ticket).
+      {id:"api", title:"🔑 API Method — Provider Sending", body:`
+WHAT IT DOES:
+  Sends via an external ESP's REST API — no SMTP ports needed.
+  Higher deliverability on shared infrastructure (SendGrid, Mailgun, etc.)
 
-Setup:
-1. Add proxies in the Proxies tab (format: host:port:user:pass or host:port).
-2. Set Method → Direct MX.
-3. The campaign resolves MX records for each recipient and connects through a rotating proxy.
+SUPPORTED PROVIDERS + SETUP:
 
-Tip: use residential proxies (nodemaven, brightdata, etc.) for the highest deliverability.
+  SendGrid:
+    API key: app.sendgrid.com → Settings → API Keys → Full Access or Mail Send
+    Key starts with "SG."
+    Example: SG.abc123xyz...
+
+  Mailgun:
+    API key: app.mailgun.com → Settings → API keys → Private API key
+    Domain:  your sending domain registered in Mailgun (e.g. mg.yourdomain.com)
+    Region:  US (default) or EU if your account is on eu.mailgun.com
+
+  Brevo (Sendinblue):
+    API key: app.brevo.com → Profile → API Keys
+    Key starts with "xkeysib-"
+
+  Resend:
+    API key: resend.com → Dashboard → API Keys
+    Key starts with "re_"
+
+  Postmark:
+    Server Token: postmarkapp.com → Servers → your server → API Tokens tab
+    Key is 40 chars, hex format
+
+  SparkPost:
+    API key: app.sparkpost.com → Configuration → API Keys
+    Permission needed: Transmissions: Read/Write
+
+  Amazon SES:
+    Key format: ACCESS_KEY_ID:SECRET_ACCESS_KEY  (colon separated)
+    Region: us-east-1 (or your region, e.g. eu-west-1)
+    IAM permission needed: ses:SendEmail, ses:SendRawEmail
+
+ATTACHMENTS WITH API:
+  All providers support file, ICS, QR, and PDF attachments.
+  Mailgun uses multipart/form-data; all others use JSON with base64 content.
+
+ROTATING API KEYS:
+  Add multiple API configs — they rotate per send just like SMTP.
+  Useful for spreading volume across multiple accounts.
       `},
-      {id:"attachments", title:"📎 Attachments", body:`
-Select one attachment type per campaign. Supported types:
 
-• Generic File — attach any file from your Files tab (PDF, Word, image, etc.)
-• ICS Calendar — auto-generate a calendar invite (.ics). Fill: title, start/end time, location, organiser, description.
-• QR Code — embed a QR code image in the email (inline CID). Set link, size, colours.
-• HTML → Image — render your HTML body as a PNG and attach it.
-• HTML → PDF — render your HTML body as a PDF attachment.
-• ZIP Archive — attach a ZIP of selected files.
+      {id:"mx", title:"📬 Direct MX Method — Port 25", body:`
+WHAT IT DOES:
+  Resolves the recipient's MX records and connects directly on port 25.
+  No relay, no API key — sends straight to the destination mail server.
 
-All attachment types work with SMTP, API, and Tunnel methods.
+REQUIREMENTS:
+  • SOCKS5 proxies with port 25 open (residential ISP proxies work best).
+  • Your VPS's outbound port 25 must not be blocked.
 
-ICS tip: use the 'REQUEST' method so recipients see Accept/Decline buttons in Outlook and Gmail.
-      `},
-      {id:"proxies", title:"🌐 Proxies", body:`
-Proxies are used by the MX and ISP send methods to rotate outbound IPs.
-
-Format (one per line):
+PROXY FORMAT (add in Method → MX → Proxies):
   host:port
   host:port:username:password
   socks5://user:pass@host:port
 
-Supported protocols: SOCKS5, HTTP.
+  Example:
+    45.91.12.33:1080
+    residential.proxy.com:12345:myuser:mypass
 
-Rotation: the campaign cycles through all proxies in order, or picks randomly.
+SETUP STEPS:
+  1. Method → MX (select Direct MX).
+  2. Add your SOCKS5 proxy list (one per line) in the Proxies section.
+  3. Set rotation (random or sequential).
+  4. Click Start.
 
-Testing: go to Tools → Test Proxy to check if a proxy is reachable and port 25 is open.
+HOW SENDING WORKS:
+  For each lead, the campaign:
+    a) Looks up MX record for recipient domain (e.g. gmail-smtp-in.l.google.com for Gmail)
+    b) Picks a proxy from your list
+    c) Connects through proxy on port 25
+    d) Sends via SMTP with your From: domain as EHLO/MAIL FROM
 
-Tip: buy residential proxies (nodemaven, brightdata, oxylabs) — datacenter IPs are almost always blacklisted for port-25 sending.
+DELIVERABILITY TIPS:
+  • Use residential proxies — datacenter IPs are almost all blacklisted for port 25.
+  • Use SOCKS5 (not HTTP) — most mail servers reject HTTP CONNECT on port 25.
+  • Ensure your From: domain has SPF that lists your proxy exit IPs (or use ~all).
+  • DKIM is recommended; sign in your DNS with a matching key.
+
+DEAD PROXY DETECTION:
+  If a proxy fails (SOCKS error, port blocked), it is automatically skipped
+  and the next proxy is used. Dead proxies are not retried in the same campaign.
       `},
-      {id:"tags", title:"🏷️ Tags & Spintax", body:`
-Personalisation tags (replaced per-recipient):
-  #FIRST#    → recipient's first name
-  #LAST#     → last name
-  #EMAIL#    → recipient email address
-  #COMPANY#  → company
-  #PHONE#    → phone
-  #CUSTOM1# … #CUSTOM5#  → extra CSV columns
-  #LINK      → replaced with a (optionally tracked/rotated) link
-  #DATE#     → today's date
-  #RANDOM#   → random 6-digit number
 
-Spintax (random variation per send):
-  {Hello|Hi|Hey}        → picks one of the three
-  {|text}               → sometimes empty, sometimes "text"
-  Nest freely: {Hi {there|all}|Hey}
+      {id:"tunnel", title:"🔒 SSH Tunnel Method — ISP Routing", body:`
+WHAT IT DOES:
+  Opens an SSH SOCKS5 tunnel to a server you control, then routes SMTP
+  traffic through it. Your outbound IP becomes the SSH server's IP.
 
-Use Tags & Templates tab to save reusable templates and tag presets.
+  Also supports ISP Proxy (residential) mode — direct SOCKS5 → ISP SMTP.
+
+SSH TUNNEL SETUP:
+  Method → Tunnel → Add SSH Tunnel:
+    SSH Host:     your-vps.com
+    SSH Port:     22  (or custom)
+    SSH User:     root
+    SSH Password: (or use private key)
+    Tunnel Type:  SSH
+
+  The campaign automatically opens an SSH tunnel before sending.
+
+ISP PROXY MODE:
+  Method → Tunnel → Add ISP Proxy:
+    Proxy Host:   proxy.niceprovider.com
+    Proxy Port:   17521
+    Proxy User:   your-username
+    Proxy Pass:   your-password
+    ISP SMTP Host: smtp.shaw.ca   (your ISP's outbound SMTP)
+    ISP SMTP Port: 25
+
+  The campaign sends: VPS → ISP Proxy (SOCKS5) → ISP SMTP → recipient.
+  The exit IP is a residential ISP IP with high reputation.
+
+WHY USE TUNNEL:
+  • Your VPS IP is blacklisted but you have a clean SSH server elsewhere.
+  • Your ISP proxy gives you residential IP reputation for direct-MX sends.
+  • You need to send from a specific country/region for geo-targeting.
+
+MULTIPLE TUNNELS:
+  Add several SSH servers — the campaign opens all tunnels on startup and
+  rotates through them per send.
       `},
-      {id:"b2b", title:"🔒 B2B / Office 365", body:`
-B2B mode simulates a thread reply — your email arrives as part of an ongoing Office 365 conversation.
 
-How it works:
-• Generates a realistic Message-ID and In-Reply-To header chain.
-• Bypasses many spam filters that look for "cold" first-contact patterns.
+      {id:"owa", title:"📧 OWA / Exchange Method", body:`
+WHAT IT DOES:
+  Sends through Exchange Web Services (EWS) — the API used by Outlook.
+  Appears as a genuine Outlook send, not a bulk mailer.
 
-Setup:
-1. Go to B2B Sender tab and import your leads with company/contact metadata.
-2. The campaign generates unique thread IDs per recipient.
-3. Works best with API method (SendGrid, Mailgun) or SMTP with a warmed domain.
+WHEN TO USE:
+  • You have access to Office 365 / Exchange mailboxes.
+  • Target recipients are on corporate Exchange / O365 servers.
+  • You want the email to look like it came from a real Outlook user.
 
-Note: works only when the recipient's server accepts the thread reference (mainly O365 and Exchange).
+SETUP:
+  Method → OWA → Add Account:
+    EWS URL:  https://outlook.office365.com/EWS/Exchange.asmx
+              (or your on-prem Exchange: https://mail.corp.com/EWS/Exchange.asmx)
+    Email:    user@yourcompany.com
+    Password: (or OAuth token for MFA-enabled accounts)
+
+OAUTH TOKEN (for MFA accounts):
+  1. Register an app in Azure AD with Mail.Send permission.
+  2. Use the OAuth flow to get a bearer token.
+  3. Paste the token in the "OAuth Token" field.
+  4. Tokens expire — refresh before long campaigns.
+
+ROTATING OWA ACCOUNTS:
+  Add multiple OWA configs — they rotate per send.
+  Useful when spreading volume across many mailboxes.
+
+NOTE:
+  Each send consumes one "send" on that Exchange mailbox.
+  Office 365 has a default limit of 10,000 recipients per day per mailbox.
       `},
-      {id:"account", title:"👤 Account & Updates", body:`
-Account tab:
-• Change your password.
-• Admins can create new user accounts.
 
-Update mechanism:
-• SynthTel checks for updates from the deployment repo (ghostybox01/z).
-• Click "Check for update" to see if a newer version is available.
-• Click "Apply Update" to pull and restart automatically.
-• Enable auto-check to check on login; enable auto-apply to update hands-free.
+      {id:"b2b", title:"🏢 B2B / Thread Simulation", body:`
+WHAT IT DOES:
+  Connects to an Office 365 mailbox via Microsoft Graph API, reads existing
+  inbox threads, and replies to them — so your message arrives inside an
+  existing conversation rather than as a cold email.
 
-Telegram notifications:
-• Set a Telegram bot token + chat ID in your account settings.
-• Receive a message when each campaign finishes with sent/failed counts.
+HOW IT WORKS:
+  1. You provide an O365 mailbox (app ID + secret + tenant ID via MSAL).
+  2. The platform fetches real threads from that mailbox's Inbox folder.
+  3. For each lead, it picks a thread and sends a reply with your HTML body.
+  4. The recipient sees the email inside an existing thread — not a cold contact.
 
-Logs tab:
-• View the last 150 lines of the server log.
-• Use the tag resolver to test #LINK replacement before sending.
+SETUP:
+  Method → B2B → Configure:
+    Tenant ID:    your-azure-tenant-id
+    Client ID:    app-registration-client-id
+    Client Secret: app-secret-value
+    Mailbox:      mailbox@yourcompany.com
+    Folder:       Inbox   (or any subfolder)
+    Thread Limit: 200     (how many threads to load)
+
+AZURE APP SETUP:
+  1. portal.azure.com → Azure Active Directory → App Registrations → New.
+  2. Add permission: Microsoft Graph → Application → Mail.ReadWrite, Mail.Send.
+  3. Grant admin consent.
+  4. Create a Client Secret under Certificates & Secrets.
+
+DELAY SETTINGS:
+  Set a delay range (e.g. 3–8 seconds between sends) to mimic human pacing.
+  The campaign automatically respects this range.
+
+LIMITS:
+  • One send per thread — each thread is used once per campaign.
+  • Works best when the Inbox folder has ≥ as many threads as you have leads.
+      `},
+
+      {id:"attachments", title:"📎 Attachments — All Types", body:`
+Access via the Attachments tab. Select the type, configure, then start your campaign.
+All types work with SMTP, API, Tunnel, MX, and OWA methods.
+
+────────────────────────────────────────
+📁 GENERIC FILE
+  Attach any file you've uploaded to the Files tab.
+  Supports: PDF, DOCX, XLSX, PNG, JPG, MP4, and any other file type.
+  Example use: attach a product brochure or signed contract PDF.
+
+📅 ICS CALENDAR INVITE
+  Auto-generates a .ics meeting request per recipient.
+  Fields:
+    Title:      Quarterly Business Review — #COMPANY#
+    Start:      2026-06-15T14:00:00
+    Duration:   1 hour
+    Location:   Zoom / Teams / conference room
+    Organiser:  #FIRST# from Acme Corp
+  Recipients see Accept / Decline / Maybe buttons in Outlook and Gmail.
+  Tip: personalize title with #COMPANY# so each invite looks unique.
+
+📱 QR CODE
+  Generates a QR code per recipient and embeds it inline (CID) or as attachment.
+  Link: https://your-landing-page.com/?ref=#EMAIL#
+  Style: square (default), dots, or rounded
+  Size: 200×200 (default) up to 1000px
+  Use #QRCODE in your HTML to embed it inline:
+    <img src="cid:qr_xxxxxxxx" style="width:200px"/>
+  Or just add the tag #QRCODE anywhere in the body — auto-replaced.
+
+🗜 ZIP ARCHIVE
+  Wraps your email HTML (or a file) in a password-protected ZIP.
+  Password options: random, digits-only, alpha, or custom.
+  Use #ZIP_PASSWORD in subject/body — auto-replaced with the actual password.
+  Example subject: Your document is attached — password: #ZIP_PASSWORD#
+  AES-256 encryption used when pyzipper is available (auto-installed).
+
+📧 EML (Email-within-email)
+  Attaches a forwarded-style .eml file containing your HTML content.
+  Appears as a forwarded message — useful for thread-simulation scenarios.
+  Customise: inner From, inner Subject, CC field.
+
+📄 PDF (from email body)
+  Converts your HTML email body into a PDF attachment.
+  Engines tried in order: weasyprint → pdfkit → fpdf2 (fallback).
+  Example use: attach a "proposal" PDF version of your email.
+
+🖼 HTML → PDF (custom)
+  Convert a separate custom HTML page (not the email body) into PDF.
+  Options: blur effect, overlay text watermark, invisible ghost link overlay.
+  Ghost link: the entire PDF page becomes a clickable invisible link to your URL.
+
+👻 GHOST PDF
+  Standalone invisible-link PDF.
+  Visible content: a professional letter. Entire page is a clickable link.
+  Good for: getting a click-through from an attachment open.
+
+🖼 HTML → IMAGE
+  Renders your HTML body as a PNG/JPG image and replaces the body.
+  Zero scannable text — content filters see only an image.
+  Enable "Inline Replace" to swap the body with the image entirely.
+  Engines: Playwright → imgkit → html2image (tried in order).
+
+────────────────────────────────────────
+STACKING NOTE:
+  Currently one attachment type is active per campaign.
+  To send file + ICS, enable the file in Files and the ICS in Attachments.
+      `},
+
+      {id:"proxies", title:"🌐 Proxies — SOCKS5 & HTTP", body:`
+WHAT PROXIES ARE USED FOR:
+  • MX method: route port-25 sends through residential IPs.
+  • SMTP method: hide/rotate your VPS IP when connecting to SMTP servers.
+  • Tunnel/ISP method: route through ISP proxy for residential reputation.
+
+SUPPORTED FORMATS (one per line):
+  host:port
+  host:port:username:password
+  socks5://user:pass@host:port
+  http://user:pass@host:port
+
+EXAMPLES:
+  45.91.12.33:1080
+  proxy.provider.com:9999:alice:secret123
+  socks5://bob:pass99@gate.provider.net:5050
+
+PROTOCOLS:
+  SOCKS5 — recommended (supports port 25, DNS resolution on proxy side)
+  HTTP    — works for SMTP on port 587/465 via CONNECT tunnel
+  SOCKS4  — basic support (no username/password)
+
+ROTATION MODES:
+  • Sequential — use proxy 1, then proxy 2, then 3, cycle back to 1
+  • Random      — pick a random proxy each send
+
+DEAD PROXY HANDLING:
+  If a proxy fails (connection refused, SOCKS error 0x02), it is flagged as dead
+  and skipped for the remainder of the campaign. No retries on dead proxies.
+
+TESTING (Tools tab → Proxy Tester):
+  Enter a proxy and test:
+  a) Basic SOCKS5 connectivity
+  b) Port 25 open test (tries to reach gmail-smtp-in.l.google.com:25)
+
+BUYING PROXIES:
+  • Residential (best for MX): NodeMaven, Brightdata, Oxylabs, IPRoyal
+  • ISP proxies (static residential): TrustProxy, ShineProxy
+  • Avoid datacenter IPs for port 25 — nearly all are on MX blacklists
+      `},
+
+      {id:"deliverability", title:"📬 Deliverability Settings", body:`
+Access via the Deliverability tab. These settings control email headers and behaviors.
+
+ESSENTIAL FOR BULK SENDING:
+  ☑ List-Unsubscribe      — required by Gmail & Yahoo for >5K/day bulk.
+                             Enter your unsubscribe URL (e.g. https://unsub.yourdomain.com/?e=#EMAIL#)
+  ☑ One-Click Unsubscribe — RFC 8058 one-click header (Gmail requirement for bulk certification)
+  ☑ Auto Plain Text       — always generate a clean plain-text part (strongly recommended)
+
+INBOXING HELPERS:
+  Preheader text — the inbox preview line. Example: "Your exclusive invite is inside →"
+  X-Mailer       — pretend to be Outlook 16 or Thunderbird (reduces bulk-mail signals)
+  Feedback-ID    — Gmail feedback loop identifier (useful for monitoring)
+  Priority       — High/Normal/Low (avoid High for bulk — triggers spam filters)
+
+ADVANCED (experts only — leave off unless you know what they do):
+  Thread Simulate    — fake In-Reply-To/References (makes filters think it's a reply)
+  MS Exchange Headers — X-MS-Exchange-Organization-SCL:-1 (bypasses Outlook junk filter)
+  ARC Simulate       — fake ARC authentication chain
+  Anti-detect        — randomise MIME boundaries and entropy tokens
+
+INBOX PROFILE MODE:
+  Toggle at the top of Campaign tab. When ON:
+  • Forces plain text on, domain throttle on, safe priority
+  • Disables all synthetic headers and risky bypasses
+  • Enforces one-click unsubscribe when a URL is configured
+  Recommended for Gmail/Yahoo sending above 1000 recipients/day.
+
+WARMUP MODE:
+  Gradually ramps up volume over days to build IP/domain reputation.
+  Day 1: 20 max | Day 2: 100 | Day 3: 500 | Day 4: 2,000 | Day 5+: unlimited
+  Enable in Deliverability → Warmup and set the current day number.
+      `},
+
+      {id:"tools", title:"🔧 Tools — Utilities", body:`
+Access via the Tools tab. Standalone utilities that don't require a campaign.
+
+EMAIL VALIDATOR
+  Paste a list of emails. The tool checks:
+  • Syntax validity (RFC 5321 format)
+  • DNS / MX record existence for the domain
+  • Optional SMTP probe (sends RCPT TO to verify mailbox exists without delivering)
+  Results: valid / invalid / unknown — export clean list as CSV.
+  Example: paste 10,000 emails, export the ~8,500 that pass validation.
+
+LEAD SORTER
+  Split a mixed lead list into per-provider files:
+    gmail.com, yahoo.com, outlook.com/hotmail.com, icloud.com, other
+  Use case: send Gmail leads at 30/min (strict), Outlook leads at 10/min (throttled).
+
+SPAM FILTER CHECKER
+  Paste your email HTML. The tool highlights words/phrases that commonly
+  trigger SpamAssassin, Gmail, and Outlook content filters.
+  Example flagged words: "FREE", "CLICK HERE", "GUARANTEED", "NO RISK"
+
+PROXY TESTER
+  Enter a proxy (host:port or host:port:user:pass).
+  Tests: SOCKS5 handshake, outbound connectivity, and port 25 availability.
+  Shows the exit IP and latency.
+
+IMAP EXTRACTOR
+  Log into an IMAP mailbox and extract emails from a folder.
+  Use case: pull leads from an autoresponder inbox or scrape a contact list.
+  Outputs a CSV of From addresses and names.
+
+TAG RESOLVER (Debug / Logs tab)
+  Paste a template with tags (#FIRST#, {spin|alt}, #LINK) and a sample lead.
+  The resolver shows exactly what the output will be for that lead.
+  Use to preview and debug tag substitution before sending.
+      `},
+
+      {id:"files", title:"📁 Files — Upload & Manage", body:`
+Access via the Files tab. Upload files to attach to campaigns.
+
+UPLOADING:
+  • Click "Upload File" or drag-and-drop.
+  • Files are stored per user at: /opt/synthtel/files/<your_user_id>/
+  • No file size limit enforced by the app (server disk is the limit).
+
+SUPPORTED TYPES:
+  Any file type: PDF, DOCX, XLSX, PNG, JPG, EML, HTML, ZIP, etc.
+  The MIME type is auto-detected from the file extension.
+
+USING IN A CAMPAIGN:
+  1. Upload your file in the Files tab.
+  2. Go to Attachments tab → select "Generic File".
+  3. Pick your uploaded file from the dropdown.
+  4. Start your campaign — the file is attached to every email.
+
+CATEGORIES:
+  Files can be organised into categories (attachments, templates, media).
+  This is managed automatically based on how you upload them.
+
+DELETING:
+  Click the trash icon next to any file to delete it permanently.
+  Deleting a file while a campaign is running that uses it will cause
+  attachment failures for subsequent sends.
+
+TIPS:
+  • Rename files before uploading — the filename is used as the attachment name.
+  • PDFs should be finalized — the system attaches them as-is, no PDF editing.
+  • Large files (>5 MB) may slow down campaign throughput significantly.
+      `},
+
+      {id:"redirects", title:"🔗 Redirects — Link Rotation & Tracking", body:`
+Access via the Redirects tab. Manage #LINK destinations and click tracking.
+
+HOW #LINK WORKS:
+  Add the tag #LINK in your email HTML where you want a URL.
+  Example: <a href="#LINK">Click here</a>
+  The platform replaces it with the actual URL from your rotation list.
+
+LINK ROTATION:
+  Add multiple destination URLs with optional per-URL send limits:
+    URL 1: https://landing-page-a.com  (limit: 100 sends)
+    URL 2: https://landing-page-b.com  (limit: 100 sends)
+    URL 3: https://landing-page-c.com  (no limit)
+  Rotation modes: sequential (default), random.
+
+SERVER-SIDE REDIRECTS:
+  Create a slug that redirects on the server:
+    Slug:        /r/offer2026
+    Destination: https://your-target.com/page
+    Full URL:    https://yourserver.com/r/offer2026
+
+  Benefits:
+  • The email contains yourserver.com — clean, owned domain.
+  • You can change the destination after sending without re-sending.
+  • Click tracking: each click is logged with timestamp and recipient.
+
+CLOUDFLARE SECURITY CHECK:
+  Special link method that routes clicks through a CF-style security page first.
+  Helps bypass URL scanners in mail clients (they see the security page, not the real URL).
+  Use tag [SF_CF] in your HTML instead of #LINK to activate this mode.
+
+PER-LINK TRACKING:
+  Each redirect click is logged. View click counts in the Redirects tab.
+  Data: slug, click count, last click time.
+      `},
+
+      {id:"account", title:"👤 Account, Updates & Notifications", body:`
+ACCESS: Account tab (top of the left sidebar).
+
+PASSWORD CHANGE:
+  Enter your current password, then your new password twice. Click Save.
+
+USER MANAGEMENT (admin only):
+  Admins can create new accounts and set roles (admin or user).
+  Each user's campaigns, files, and settings are fully isolated.
+
+AUTO-UPDATE:
+  SynthTel pulls updates from the deployment repo automatically.
+  • "Check for Update" — contacts the repo and reports if a newer version exists.
+  • "Apply Update"    — pulls latest code and restarts the service.
+  • Auto-Check       — checks for updates every time you log in.
+  • Auto-Apply       — applies updates automatically when found (use with care).
+
+TELEGRAM NOTIFICATIONS:
+  Get a message when each campaign finishes.
+  Setup:
+    1. Message @BotFather on Telegram → /newbot → copy the token.
+    2. Message your bot once (so it can DM you).
+    3. Get your Chat ID: message @userinfobot.
+    4. Enter both in Account → Telegram Settings.
+  Notification includes: sent count, failed count, campaign name, duration.
+
+DEBUG LOGS (Logs tab):
+  • Shows last 150 lines of /opt/synthtel/synthtel.log.
+  • Refresh manually or enable auto-refresh (every 5s).
+  • Use for diagnosing SMTP errors, API failures, or server issues.
+  • Filter by log level: INFO / WARNING / ERROR.
       `},
     ];
 

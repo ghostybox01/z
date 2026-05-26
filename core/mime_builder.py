@@ -1596,8 +1596,8 @@ def _embed_images_as_cid(html: str) -> tuple:
 
     def _replace_src(m):
         before = m.group(1)  # everything before src=
-        url = m.group(2)     # the URL
-        after = m.group(3)   # rest of tag
+        url = m.group(3)     # the URL (group 2 is the quote char)
+        after = m.group(4)   # rest of tag including closing >
 
         # Skip data URIs, already-CID, or non-http
         if not url.startswith(('http://', 'https://')):

@@ -442,6 +442,7 @@ def send_direct_mx(
             )
             smtp.send_message(msg, from_addr=from_email, to_addrs=[lead_email])
             _close_smtp(smtp)
+            smtp = None  # prevent double-close in finally
             tracker.record_send(domain)
             health.record_success(from_email)
             return mx_host
@@ -484,6 +485,7 @@ def send_direct_mx(
                             log.info("[MxSender] fallback sender %s succeeded for %s", alt_email, domain)
                             return mx_host
                         except Exception as alt_exc:
+                            _close_smtp(smtp2)
                             health.record_fail(alt_email, str(alt_exc))
                             continue
                 break
@@ -505,7 +507,7 @@ def send_direct_mx(
                         health.record_success(from_email)
                         return mx_host
                     except Exception:
-                        pass
+                        _close_smtp(smtp2)
                 errors_detail.append(f"{mx_host}(aup_retry_exhausted): {code} {err_str[:80]}")
                 tracker.record_fail(domain, err_str)
 

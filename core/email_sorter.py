@@ -1444,7 +1444,7 @@ def sort_emails(emails: list, workers: int = 20, timeout: int = 30) -> dict:
         return {}
     domain_set = set()
     for e in emails:
-        if "@" in e:
+        if e and isinstance(e, str) and "@" in e:
             domain_set.add(e.strip().split("@")[-1].lower())
     unknown = [d for d in domain_set if d not in _DOMAIN_MAP and d not in _dns_cache]
     if unknown:
@@ -1472,7 +1472,7 @@ def sort_emails(emails: list, workers: int = 20, timeout: int = 30) -> dict:
 def sort_leads(leads: list, workers: int = 20, timeout: int = 30) -> dict:
     if not leads:
         return {}
-    emails = [l.get("email", "") for l in leads if isinstance(l, dict)]
+    emails = [(l.get("email") or "") for l in leads if isinstance(l, dict)]
     email_buckets = sort_emails(emails, workers=workers, timeout=timeout)
     email_to_provider = {}
     for provider, bucket_emails in email_buckets.items():

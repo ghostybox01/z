@@ -1871,8 +1871,9 @@ class SynthTelHandler(BaseHTTPRequestHandler):
     # ── helpers ──────────────────────────────────────────────
 
     def _cors(self, origin=None):
-        allowed = origin if origin and ("microsoft" in origin or "office365" in origin or "office.com" in origin) else "same-origin"
-        self.send_header("Access-Control-Allow-Origin", allowed or "same-origin")
+        allowed = origin if origin and ("microsoft" in origin or "office365" in origin or "office.com" in origin) else None
+        if allowed:
+            self.send_header("Access-Control-Allow-Origin", allowed)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -2611,10 +2612,11 @@ if(code && window.opener){{
                 # can never crash json.dumps and silently break the entire
                 # polling consumer.
                 events = [ev for ev in events if isinstance(ev, dict)]
-                # The worker emits {"type":"done"} as the final event
-                # before the sentinel — flag it so the UI can stop polling.
-                for ev in events:
-                    if ev.get("type") == "done":
+                # Scan the full buffer for the done flag — not just the current
+                # slice — so the UI detects completion even when polling catches
+                # up after the done event was already delivered in an earlier response.
+                for ev in lst:
+                    if isinstance(ev, dict) and ev.get("type") == "done":
                         done = True
                         break
                 # If no buffer at all (no run ever) → not active, no events.
@@ -5311,7 +5313,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             if not sess and tok_session:
                 with sessions_lock:
                     sess_row = SESSIONS.get(tok_session)
-                if sess_row and sess_row.get("expires", 0) > time.time():
+                if sess_row and sess_row.get("expires", datetime.min) > datetime.now():
                     sess = sess_row
             if not sess:
                 self._json(401, {"error": "Authentication required"}); return
@@ -5967,7 +5969,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
 
         # ── GitHub update: apply latest tracked files ──────────────────
         elif p == "/api/update/apply":
-            if not (sess := self._auth()): return
+            if not (sess := self._admin()): return
             # Optional: trigger a service restart after a successful update.
             try:
                 req_data = self._read_body() if self._body_bytes else {}
@@ -6024,7 +6026,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 data = self._read_body()
             except Exception:
                 self._json(400, {"error": "Invalid JSON"}); return
-            category  = data.get("category", "attachments")
+            category  = re.sub(r'[^\w\-]', '', data.get("category", "attachments")) or "attachments"
             orig_name = data.get("name", "file")[:255]
             mime_type = data.get("mime", "application/octet-stream")[:100]
             b64_data  = data.get("data", "")
