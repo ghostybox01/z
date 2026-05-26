@@ -1218,9 +1218,8 @@ def _send_one(
                 resolved_subject = subject,
                 extra_headers    = extra_h,
                 resolved_plain   = plain,
-                # Pass the campaign owner so api_sender's abort-check
-                # honors only THIS user's stop flag (multi-tenant safe).
                 uid              = getattr(opts, "uid", None),
+                attachments      = opts.attachments or {},
             )
             return True, "", server.get("label", server.get("provider", "API"))
         except Exception as exc:

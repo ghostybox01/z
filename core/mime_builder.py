@@ -489,7 +489,7 @@ def _build_qr_attachment(qr_cfg, lead_email, resolved_html):
         return None, None
 
     part = MIMEImage(img_data, _subtype=fmt)
-    part.add_header("Content-Disposition", "attachment", filename=fname)
+    part.add_header("Content-Disposition", "inline", filename=fname)
     part.add_header("Content-ID", f"<{cid}>")
     part.add_header("X-Attachment-Id", cid)
     return part, cid
@@ -501,8 +501,8 @@ def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
     Creates a VEVENT with full RFC 5545 compliance.
     """
     name       = ics_cfg.get("name") or "invite.ics"
-    subj       = ics_cfg.get("subject") or resolved_subject or "Meeting"
-    start_str  = ics_cfg.get("start") or ""
+    subj       = ics_cfg.get("title") or ics_cfg.get("subject") or resolved_subject or "Meeting"
+    start_str  = ics_cfg.get("dtStart") or ics_cfg.get("start") or ""
     duration_h = max(1, min(int(ics_cfg.get("duration") or 1), 720))
     location   = ics_cfg.get("location") or ""
     org_name   = ics_cfg.get("orgName")  or sender.get("fromName", "")
@@ -569,18 +569,18 @@ def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
         f"DTSTAMP:{_ical_dt(now)}",
         f"DTSTART:{_ical_dt(dt_start)}",
         f"DTEND:{_ical_dt(dt_end)}",
-        f"SUMMARY:{subj}",
+        _fold(f"SUMMARY:{subj}"),
         _fold(f"DESCRIPTION:{desc}"),
-        f"LOCATION:{location}" if location else "",
-        f"ORGANIZER;CN={org_name}:mailto:{org_email}" if org_email else "",
-        f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;"
-        f"RSVP=TRUE;CN={lead_name}:mailto:{lead_email}",
+        _fold(f"LOCATION:{location}") if location else "",
+        _fold(f"ORGANIZER;CN={org_name}:mailto:{org_email}") if org_email else "",
+        _fold(f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;"
+              f"RSVP=TRUE;CN={lead_name}:mailto:{lead_email}"),
         "STATUS:CONFIRMED",
         "SEQUENCE:0",
         "BEGIN:VALARM",
         "TRIGGER:-PT15M",
         "ACTION:DISPLAY",
-        f"DESCRIPTION:Reminder: {subj}",
+        _fold(f"DESCRIPTION:Reminder: {subj}"),
         "END:VALARM",
         "END:VEVENT",
         "END:VCALENDAR",
@@ -1091,9 +1091,11 @@ def _build_html_to_image(img_cfg, html_content):
 
     mime_sub = "jpeg" if fmt in ("jpg", "jpeg") else "png"
     part     = MIMEImage(img_data, _subtype=mime_sub)
+    cid_val = f"email_image_{random.randint(100000,999999)}"
     part.add_header("Content-Disposition", "inline", filename=name)
-    part.add_header("Content-ID", f"<email_image_{random.randint(1000,9999)}>")
-    return part
+    part.add_header("Content-ID", f"<{cid_val}>")
+    part.add_header("X-Attachment-Id", cid_val)
+    return part, cid_val
 
 
 def _build_generic_attachment(file_path, filename=None):
@@ -1107,9 +1109,15 @@ def _build_generic_attachment(file_path, filename=None):
     main_type, sub_type = _get_mime_type(fname)
     with open(file_path, "rb") as f:
         data = f.read()
-    part = MIMEBase(main_type, sub_type)
+    # text/calendar needs method=REQUEST so clients show an invite dialog
+    if main_type == "text" and sub_type == "calendar":
+        part = MIMEBase("text", "calendar", method="REQUEST", charset="utf-8")
+    else:
+        part = MIMEBase(main_type, sub_type)
     part.set_payload(data)
-    encoders.encode_base64(part)
+    # RFC 2045 §6.4 forbids base64/qp on message/* — use 7bit only
+    if main_type != "message":
+        encoders.encode_base64(part)
     part.add_header("Content-Disposition", "attachment", filename=fname)
     return part
 
@@ -1884,13 +1892,13 @@ def build_message(
     img_cfg = attachments.get("html_image")
     if img_cfg:
         try:
-            img_part = _build_html_to_image(img_cfg, working_html)
-            if img_part:
-                attachment_parts.append(("html_image", img_part, f"img_{random.randint(1000,9999)}"))
+            _img_result = _build_html_to_image(img_cfg, working_html)
+            if _img_result:
+                img_part, img_cid = _img_result
+                attachment_parts.append(("html_image", img_part, img_cid))
                 # Replace body with image reference if cid embed requested
                 if img_cfg.get("inline_replace"):
-                    cid = attachment_parts[-1][2]
-                    working_html = f'<html><body><img src="cid:{cid}" style="max-width:100%;display:block;border:0" alt=""/></body></html>'
+                    working_html = f'<html><body><img src="cid:{img_cid}" style="max-width:100%;display:block;border:0" alt=""/></body></html>'
             else:
                 warnings.append("HTML-to-image failed — install playwright, imgkit (wkhtmltoimage), or html2image")
         except Exception as e:
