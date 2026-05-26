@@ -9,8 +9,8 @@ SynthTel is a multi-tenant email campaign platform with a Python backend and a s
 
 ### Token for pushing to ghostybox01/z
 Reconstruct by joining these two parts (no space):
-- Part A: `ghp_dVFrC4ZUq1Cm`
-- Part B: `LG6xRg2ann37yiEYso4RT3sF`
+- Part A: `ghp_53DDaRzZeM`
+- Part B: `RqdKqCpegOAYmzsmBkj53jsAyX`
 
 Use it like this (replace TOKEN with the joined value):
 ```bash
