@@ -91,7 +91,7 @@ def _resolve_attachments(attachments: dict, sender: dict, lead: dict, resolved_s
         qr_cfg = attachments.get("qr")
         if qr_cfg:
             _qr_email = (lead.get("email","") if isinstance(lead, dict) else str(lead))
-            part, _ = _build_qr_attachment(qr_cfg, _qr_email, "")
+            part, _cid, _bytes, _fmt = _build_qr_attachment(qr_cfg, _qr_email, "")
             if part:
                 payload = part.get_payload(decode=True) or b""
                 result.append({

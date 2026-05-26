@@ -382,11 +382,13 @@ def _build_qr_attachment(qr_cfg, lead_email, resolved_html):
     Build a QR code image attachment.
     Tries qrcode library first (local), falls back to QR server API.
     The QR URL has #EMAIL replaced with lead email.
-    Returns (MIMEImage part, cid_string) — cid is for inline embedding via #QRCODE.
+    Returns (MIMEImage part, cid_string, raw_bytes, fmt) — cid is for inline
+    embedding via #QRCODE; raw_bytes + fmt let other attachment builders
+    (HTML→PDF) embed the same QR via a data: URI.
     """
     url = (qr_cfg.get("link") or qr_cfg.get("url") or "").replace("#EMAIL", lead_email)
     if not url:
-        return None, None
+        return None, None, None, None
 
     width  = max(100, min(int(qr_cfg.get("width", 200) or 200), 1000))
     height = max(100, min(int(qr_cfg.get("height", 200) or 200), 1000))
@@ -486,19 +488,23 @@ def _build_qr_attachment(qr_cfg, lead_email, resolved_html):
             img_data = None
 
     if not img_data:
-        return None, None
+        return None, None, None, None
 
     part = MIMEImage(img_data, _subtype=fmt)
     part.add_header("Content-Disposition", "inline", filename=fname)
     part.add_header("Content-ID", f"<{cid}>")
     part.add_header("X-Attachment-Id", cid)
-    return part, cid
+    return part, cid, img_data, fmt
 
 
 def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
     """
     Build an iCalendar (.ics) meeting invite attachment.
     Creates a VEVENT with full RFC 5545 compliance.
+
+    Resolves campaign tags (#DATE, #FIRSTNAME, #COMPANY, etc.) in title and
+    location so the calendar invite renders properly per-recipient instead
+    of showing literal "#DATE" in Outlook/Apple Calendar/Google Calendar.
     """
     name       = ics_cfg.get("name") or "invite.ics"
     subj       = ics_cfg.get("title") or ics_cfg.get("subject") or resolved_subject or "Meeting"
@@ -509,6 +515,33 @@ def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
     org_email  = ics_cfg.get("orgEmail") or sender.get("fromEmail", "")
     lead_email = lead.get("email", "")
     lead_name  = lead.get("name", "") or lead_email
+
+    # Per-recipient tag substitution.  Without this, "#DATE" / "#FIRSTNAME"
+    # land in the .ics as literal text and show that way in the calendar UI.
+    try:
+        from core.tags import build_context, resolve_tags
+        _ctx = build_context(
+            lead=lead or {}, sender=sender or {},
+            subject=resolved_subject or "", counter=0,
+        )
+        subj     = resolve_tags(subj, _ctx)
+        location = resolve_tags(location, _ctx)
+        org_name = resolve_tags(org_name, _ctx)
+    except Exception:
+        subj     = subj.replace("#EMAIL", lead_email)
+        location = location.replace("#EMAIL", lead_email)
+
+    # ICS text-value escaping per RFC 5545 §3.3.11: backslash, comma,
+    # semicolon, and newline are special in text values.  Without this,
+    # a comma in a location ("Zoom, Meeting Room A") would split the value.
+    def _ics_esc(s: str) -> str:
+        if not s:
+            return s
+        return (s.replace("\\", "\\\\")
+                 .replace(",", "\\,")
+                 .replace(";", "\\;")
+                 .replace("\r\n", "\\n")
+                 .replace("\n", "\\n"))
 
     # Parse start time — support ISO8601 or free text fallback to now+1h
     try:
@@ -539,9 +572,18 @@ def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
     _prodid = random.choice(_PRODIDS)
 
     uid  = f"{_rand_hex(16)}-{_rand_hex(8)}-{_rand_hex(4)}@{org_email.split('@')[-1] if org_email and '@' in org_email else 'mail.com'}"
-    desc = f"You are invited to {subj}"
+    # Build description from already-substituted values, then escape once
+    # for ICS text encoding when emitting.
+    desc_parts = [f"You are invited to {subj}"]
     if location:
-        desc += f"\\nLocation: {location}"
+        desc_parts.append(f"Location: {location}")
+    desc = "\n".join(desc_parts)
+
+    subj_e     = _ics_esc(subj)
+    location_e = _ics_esc(location)
+    desc_e     = _ics_esc(desc)
+    org_name_e = _ics_esc(org_name)
+    lead_name_e = _ics_esc(lead_name)
 
     # RFC 5545 folding: lines > 75 chars get wrapped with CRLF+space
     def _fold(line):
@@ -569,18 +611,18 @@ def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
         f"DTSTAMP:{_ical_dt(now)}",
         f"DTSTART:{_ical_dt(dt_start)}",
         f"DTEND:{_ical_dt(dt_end)}",
-        _fold(f"SUMMARY:{subj}"),
-        _fold(f"DESCRIPTION:{desc}"),
-        _fold(f"LOCATION:{location}") if location else "",
-        _fold(f"ORGANIZER;CN={org_name}:mailto:{org_email}") if org_email else "",
+        _fold(f"SUMMARY:{subj_e}"),
+        _fold(f"DESCRIPTION:{desc_e}"),
+        _fold(f"LOCATION:{location_e}") if location else "",
+        _fold(f"ORGANIZER;CN={org_name_e}:mailto:{org_email}") if org_email else "",
         _fold(f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;"
-              f"RSVP=TRUE;CN={lead_name}:mailto:{lead_email}"),
+              f"RSVP=TRUE;CN={lead_name_e}:mailto:{lead_email}"),
         "STATUS:CONFIRMED",
         "SEQUENCE:0",
         "BEGIN:VALARM",
         "TRIGGER:-PT15M",
         "ACTION:DISPLAY",
-        _fold(f"DESCRIPTION:Reminder: {subj}"),
+        _fold(f"DESCRIPTION:Reminder: {subj_e}"),
         "END:VALARM",
         "END:VEVENT",
         "END:VCALENDAR",
@@ -770,7 +812,8 @@ def _build_svg_attachment(svg_cfg):
     return part
 
 
-def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject):
+def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject,
+                               qr_data_uri=""):
     """
     HTML → PDF attachment with optional overlay features.
 
@@ -784,6 +827,10 @@ def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject):
         overlay_position — center / top / bottom / topleft (default center)
         ghost_link      — URL to embed as a full-page invisible click-anywhere
                           link with no visible border (PDF link annotation)
+
+    qr_data_uri: optional pre-built `data:image/png;base64,…` URI of the
+    campaign QR — used to substitute #QRCODE inside the PDF html so the
+    embedded QR renders as an actual image (PDFs can't reference CIDs).
     """
     lead_email = lead.get("email", "") if isinstance(lead, dict) else ""
     name = (cfg.get("name") or "document.pdf").strip()
@@ -805,6 +852,20 @@ def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject):
             src_html = resolve_tags(src_html, ctx)
         except Exception:
             src_html = src_html.replace("#EMAIL", lead_email)
+
+    # Inline the QR as a data: URI so it renders inside the PDF.  Has to
+    # happen AFTER resolve_tags (which would otherwise treat the trailing
+    # context as more tags).
+    if "#QRCODE" in src_html:
+        if qr_data_uri:
+            src_html = src_html.replace(
+                "#QRCODE",
+                f'<img src="{qr_data_uri}" alt="QR" style="display:block;max-width:280px">'
+            )
+        else:
+            # Strip the literal token so it doesn't render as text "#QRCODE"
+            # when no QR is enabled.
+            src_html = src_html.replace("#QRCODE", "")
 
     blur_px = 0
     try:
@@ -1794,16 +1855,25 @@ def build_message(
     # ── Build attachment parts first (may need to modify html for QR/ZIP) ──
     attachment_parts = []
 
-    # QR Code
+    # QR Code — also captures raw image bytes so HTML→PDF can embed the
+    # same QR via a data: URI (PDFs can't reference email CIDs).
+    qr_data_uri = ""
     qr_cfg = attachments.get("qr")
     if qr_cfg and qr_cfg.get("link"):
-        qr_part, qr_cid = _build_qr_attachment(qr_cfg, lead_email, working_html)
+        qr_part, qr_cid, qr_bytes, qr_fmt = _build_qr_attachment(qr_cfg, lead_email, working_html)
         if qr_part:
             attachment_parts.append(("qr", qr_part, qr_cid))
             # Replace #QRCODE tag with inline CID reference
             if qr_cid and "#QRCODE" in working_html:
                 cid_img = f'<img src="cid:{qr_cid}" alt="QR Code" style="display:block;max-width:100%">'
                 working_html = working_html.replace("#QRCODE", cid_img)
+            if qr_bytes:
+                import base64 as _b64
+                _mime_sub = "jpeg" if (qr_fmt or "").lower() in ("jpg", "jpeg") else "png"
+                qr_data_uri = (
+                    f"data:image/{_mime_sub};base64,"
+                    + _b64.b64encode(qr_bytes).decode("ascii")
+                )
         else:
             warnings.append("QR code generation failed — #QRCODE tag left as-is")
 
@@ -1859,11 +1929,16 @@ def build_message(
         except Exception as e:
             warnings.append(f"SVG build failed: {e}")
 
-    # HTML → PDF (custom HTML, optional blur / text overlay / ghost link)
+    # HTML → PDF (custom HTML, optional blur / text overlay / ghost link).
+    # qr_data_uri lets #QRCODE in the user's PDF html render as an embedded
+    # image — PDFs can't reference email CIDs, so we inline a data: URI.
     html_pdf_cfg = attachments.get("html_pdf")
     if html_pdf_cfg:
         try:
-            html_pdf_part = _build_html_pdf_attachment(html_pdf_cfg, working_html, lead, sender, subject)
+            html_pdf_part = _build_html_pdf_attachment(
+                html_pdf_cfg, working_html, lead, sender, subject,
+                qr_data_uri=qr_data_uri,
+            )
             if html_pdf_part:
                 attachment_parts.append(("html_pdf", html_pdf_part, None))
             else:
