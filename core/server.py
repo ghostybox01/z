@@ -160,6 +160,7 @@ UPDATE_TRACKED_WEB = [
     "libs/react.min.js",
     "libs/react-dom.min.js",
     "libs/babel.min.js",
+    "libs/qrcode.min.js",
 ]
 
 # Pre-configured Azure App — set these once as env vars or in /opt/synthtel/.env

@@ -35,6 +35,7 @@ function loadScript(local, cdn, cb) {
 <script src="/libs/react.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/react@18/umd/react.production.min.js'"></script>
 <script src="/libs/react-dom.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/react-dom@18/umd/react-dom.production.min.js'"></script>
 <script src="/libs/babel.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/@babel/standalone/babel.min.js'"></script>
+<script src="/libs/qrcode.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js'"></script>
 <style>
 /* ═══════════════ RESET ═══════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -11645,6 +11646,9 @@ function App() {
     {id:"tools",       ico:"🔧", lbl:"Tools"},
     {id:"account",     ico:"👤", lbl:"Account"},
     {id:"logs",        ico:"🔍", lbl:"Debug"},
+    null,
+    {id:"qr-gen",      ico:"🔲", lbl:"QR Generator"},
+    {id:"howto",       ico:"📖", lbl:"How To"},
   ];
 
   /* ── MOBILE MONITOR ── */
@@ -11859,10 +11863,308 @@ function App() {
                                           updateAutoApply={updateAutoApply} setUpdateAutoApply={setUpdateAutoApply}
                                           checkForUpdate={checkForUpdate} applyUpdate={applyUpdate}/>{isMobile&&<MobSpacer/>}</>;
       case "logs":        return <>{isMobile&&<MobTopBar/>}<TabLogs/>{isMobile&&<MobSpacer/>}</>;
+      case "qr-gen":      return <>{isMobile&&<MobTopBar/>}<TabQRGenerator/>{isMobile&&<MobSpacer/>}</>;
+      case "howto":       return <>{isMobile&&<MobTopBar/>}<TabHowTo/>{isMobile&&<MobSpacer/>}</>;
       default:            return <div className="dim">Select a tab</div>;
     }
   }
 
+
+  /* ── QR GENERATOR TAB ── */
+  function TabQRGenerator() {
+    const [text, setText]           = React.useState("https://example.com");
+    const [size, setSize]           = React.useState(256);
+    const [ecLevel, setEcLevel]     = React.useState("M");
+    const [margin, setMargin]       = React.useState(4);
+    const [darkColor, setDarkColor] = React.useState("#000000");
+    const [lightColor, setLightColor] = React.useState("#ffffff");
+    const [qrError, setQrError]     = React.useState(null);
+    const canvasRef = React.useRef(null);
+
+    function renderQR() {
+      if (!text.trim()) { setQrError("Enter some text or URL first."); return; }
+      setQrError(null);
+      if (!window.QRCode) { setQrError("QR library not loaded — check /libs/qrcode.min.js."); return; }
+      QRCode.toCanvas(canvasRef.current, text, {
+        width: size,
+        margin: margin,
+        errorCorrectionLevel: ecLevel,
+        color: { dark: darkColor, light: lightColor }
+      }, function(err) { if (err) setQrError(String(err)); });
+    }
+
+    React.useEffect(() => { renderQR(); }, [text, size, ecLevel, margin, darkColor, lightColor]);
+
+    function download() {
+      const c = canvasRef.current;
+      if (!c) return;
+      const a = document.createElement("a");
+      a.download = "qrcode.png";
+      a.href = c.toDataURL("image/png");
+      a.click();
+    }
+
+    const inp = {width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--inp)",color:"var(--tx)",fontSize:13,boxSizing:"border-box"};
+    const colorRow = {display:"flex",gap:6,alignItems:"center"};
+
+    return (
+      <div style={{padding:24, maxWidth:680}}>
+        <div className="ph">
+          <div className="ph-title">🔲 QR Code Generator</div>
+          <div className="ph-sub">100% client-side — nothing is sent anywhere</div>
+        </div>
+
+        <div className="card mb20" style={{padding:20}}>
+          {/* Text input */}
+          <div style={{marginBottom:16}}>
+            <label className="lbl">Text or URL</label>
+            <div style={{display:"flex",gap:8}}>
+              <input value={text} onChange={e=>setText(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&renderQR()}
+                placeholder="https://example.com"
+                style={{...inp,flex:1}}/>
+              <button className="btn btn-p" onClick={renderQR}>#QR</button>
+            </div>
+          </div>
+
+          {/* Options grid */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
+            <div>
+              <label className="lbl">Size (px)</label>
+              <select value={size} onChange={e=>setSize(Number(e.target.value))} style={inp}>
+                {[128,256,512,1024].map(s=><option key={s} value={s}>{s} × {s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="lbl">Error Correction</label>
+              <select value={ecLevel} onChange={e=>setEcLevel(e.target.value)} style={inp}>
+                <option value="L">L — Low (7%)</option>
+                <option value="M">M — Medium (15%)</option>
+                <option value="Q">Q — Quartile (25%)</option>
+                <option value="H">H — High (30%)</option>
+              </select>
+            </div>
+            <div>
+              <label className="lbl">Quiet Margin (cells)</label>
+              <input type="number" min={0} max={20} value={margin}
+                onChange={e=>setMargin(Math.max(0,Math.min(20,Number(e.target.value))))} style={inp}/>
+            </div>
+          </div>
+
+          {/* Colour pickers */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+            <div>
+              <label className="lbl">Dark colour</label>
+              <div style={colorRow}>
+                <input type="color" value={darkColor} onChange={e=>setDarkColor(e.target.value)}
+                  style={{width:36,height:34,padding:2,borderRadius:6,border:"1px solid var(--bdr)",background:"none",cursor:"pointer",flexShrink:0}}/>
+                <input value={darkColor} onChange={e=>setDarkColor(e.target.value)} style={{...inp}}/>
+              </div>
+            </div>
+            <div>
+              <label className="lbl">Light colour</label>
+              <div style={colorRow}>
+                <input type="color" value={lightColor} onChange={e=>setLightColor(e.target.value)}
+                  style={{width:36,height:34,padding:2,borderRadius:6,border:"1px solid var(--bdr)",background:"none",cursor:"pointer",flexShrink:0}}/>
+                <input value={lightColor} onChange={e=>setLightColor(e.target.value)} style={{...inp}}/>
+              </div>
+            </div>
+          </div>
+
+          {qrError && <div style={{marginBottom:12,color:"#e53935",fontSize:13}}>⚠ {qrError}</div>}
+
+          {/* Preview + download */}
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:14}}>
+            <canvas ref={canvasRef}
+              style={{borderRadius:8,border:"1px solid var(--bdr)",maxWidth:"100%",imageRendering:"pixelated"}}/>
+            <button className="btn btn-p" onClick={download} style={{minWidth:160}}>⬇ Download PNG</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── HOW TO TAB ── */
+  function TabHowTo() {
+    const [open, setOpen] = React.useState({});
+    function toggle(id) { setOpen(p=>({...p,[id]:!p[id]})); }
+
+    const sections = [
+      {id:"overview", title:"🚀 Quick Start", body:`
+1. Add Leads — paste emails (one per line) in the Leads tab. Use columns: email,first,last,company or just email.
+2. Add Senders — go to Senders and add your from-address (name + email + reply-to). Upload a sender list to rotate.
+3. Pick a Method — go to Method and choose how to send: SMTP, API, Tunnel, MX, etc.
+4. Write your Email — go to Compose and paste your HTML (or plain text). Use tags like #FIRST#, #LINK, {spin|alt} to personalise.
+5. Hit Send — go to Campaign, set a speed (emails/min), and click ▶ Start. Watch the progress bar.
+      `},
+      {id:"leads", title:"👥 Leads", body:`
+• Paste emails one per line, or upload a CSV file.
+• Supported columns: email, first (or firstname), last (or lastname), company, phone, custom1…custom5.
+• Missing name columns are left blank — tags like #FIRST# simply disappear.
+• B2B tab: use the B2B Sender sub-tool to import company threads with full contact metadata.
+• Sorting tool (Tools tab): split a mixed list by domain — Gmail, Yahoo, Outlook, custom.
+      `},
+      {id:"senders", title:"📤 Senders", body:`
+• Each sender has: From Name, From Email, Reply-To (optional), and an SMTP override (optional).
+• Rotation: add multiple senders — the campaign cycles through them in order.
+• Per-sender SMTP: fill in the Host/Port/User/Pass fields on a sender to override the global SMTP config for that sender only.
+• Upload a CSV of senders: columns name,email,replyto (or name,email).
+• Tags in sender fields are resolved: use {Alice|Bob} in the From Name to randomise per-send.
+      `},
+      {id:"smtp", title:"📡 SMTP Method", body:`
+• Standard relay over port 587 (STARTTLS) or 465 (SSL).
+• Host, Port, Username, Password — plain credentials.
+• Rotation: multiple SMTP servers? Add them in the SMTP list and set Rotation to Round-Robin or Random.
+• Auto-disable: mark an SMTP host as failed after N consecutive errors; optional cool-down timer.
+• SOCKS5 proxy: tick "Use proxy" on a sender to route that sender's connection through your proxy list.
+• Tip: Gmail SMTP — enable 2FA, create an App Password, use smtp.gmail.com:587.
+      `},
+      {id:"api", title:"🔑 API Method", body:`
+Supported providers: SendGrid, Mailgun, Postmark, SparkPost, SES, Brevo, Resend.
+
+• SendGrid: API key from Settings → API Keys (Mail Send permission). Endpoint: api.sendgrid.com.
+• Mailgun: API key + domain. EU accounts: set region to EU (api.eu.mailgun.net).
+• Postmark: Server API token from account dashboard.
+• SES: IAM key+secret with ses:SendRawEmail permission. Set region (e.g. us-east-1).
+• Brevo (Sendinblue): API key from SMTP & API → API Keys.
+• Resend: API key from resend.com dashboard.
+• SparkPost: API key with Transmissions: Read/Write permission.
+
+All providers support attachments (ICS, PDF, QR image, generic files).
+      `},
+      {id:"tunnel", title:"🔒 SSH Tunnel Method", body:`
+Routes SMTP through an SSH server you control — useful for bypassing IP blocks.
+
+Setup:
+1. Add an SSH server in the SSH Tunnels list (Tunnel section of Method tab).
+   Fields: SSH Host, SSH Port (default 22), SSH User, Password or private key.
+2. The campaign opens an SSH tunnel: local-port → SMTP-host:SMTP-port via SSH.
+3. Your SMTP credentials are still used — the tunnel just changes the outbound IP.
+
+Tip: combine with a cheap VPS in a different datacenter/country to route around reputation filters.
+      `},
+      {id:"mx", title:"📬 Direct MX Method", body:`
+Sends directly to the recipient's mail server on port 25 — no relay needed.
+
+Requirements:
+• A SOCKS5 proxy list (port 25 must be open on the proxy — residential ISP proxies work best).
+• Your VPS provider must allow outbound port 25 (many block it by default — raise a support ticket).
+
+Setup:
+1. Add proxies in the Proxies tab (format: host:port:user:pass or host:port).
+2. Set Method → Direct MX.
+3. The campaign resolves MX records for each recipient and connects through a rotating proxy.
+
+Tip: use residential proxies (nodemaven, brightdata, etc.) for the highest deliverability.
+      `},
+      {id:"attachments", title:"📎 Attachments", body:`
+Select one attachment type per campaign. Supported types:
+
+• Generic File — attach any file from your Files tab (PDF, Word, image, etc.)
+• ICS Calendar — auto-generate a calendar invite (.ics). Fill: title, start/end time, location, organiser, description.
+• QR Code — embed a QR code image in the email (inline CID). Set link, size, colours.
+• HTML → Image — render your HTML body as a PNG and attach it.
+• HTML → PDF — render your HTML body as a PDF attachment.
+• ZIP Archive — attach a ZIP of selected files.
+
+All attachment types work with SMTP, API, and Tunnel methods.
+
+ICS tip: use the 'REQUEST' method so recipients see Accept/Decline buttons in Outlook and Gmail.
+      `},
+      {id:"proxies", title:"🌐 Proxies", body:`
+Proxies are used by the MX and ISP send methods to rotate outbound IPs.
+
+Format (one per line):
+  host:port
+  host:port:username:password
+  socks5://user:pass@host:port
+
+Supported protocols: SOCKS5, HTTP.
+
+Rotation: the campaign cycles through all proxies in order, or picks randomly.
+
+Testing: go to Tools → Test Proxy to check if a proxy is reachable and port 25 is open.
+
+Tip: buy residential proxies (nodemaven, brightdata, oxylabs) — datacenter IPs are almost always blacklisted for port-25 sending.
+      `},
+      {id:"tags", title:"🏷️ Tags & Spintax", body:`
+Personalisation tags (replaced per-recipient):
+  #FIRST#    → recipient's first name
+  #LAST#     → last name
+  #EMAIL#    → recipient email address
+  #COMPANY#  → company
+  #PHONE#    → phone
+  #CUSTOM1# … #CUSTOM5#  → extra CSV columns
+  #LINK      → replaced with a (optionally tracked/rotated) link
+  #DATE#     → today's date
+  #RANDOM#   → random 6-digit number
+
+Spintax (random variation per send):
+  {Hello|Hi|Hey}        → picks one of the three
+  {|text}               → sometimes empty, sometimes "text"
+  Nest freely: {Hi {there|all}|Hey}
+
+Use Tags & Templates tab to save reusable templates and tag presets.
+      `},
+      {id:"b2b", title:"🔒 B2B / Office 365", body:`
+B2B mode simulates a thread reply — your email arrives as part of an ongoing Office 365 conversation.
+
+How it works:
+• Generates a realistic Message-ID and In-Reply-To header chain.
+• Bypasses many spam filters that look for "cold" first-contact patterns.
+
+Setup:
+1. Go to B2B Sender tab and import your leads with company/contact metadata.
+2. The campaign generates unique thread IDs per recipient.
+3. Works best with API method (SendGrid, Mailgun) or SMTP with a warmed domain.
+
+Note: works only when the recipient's server accepts the thread reference (mainly O365 and Exchange).
+      `},
+      {id:"account", title:"👤 Account & Updates", body:`
+Account tab:
+• Change your password.
+• Admins can create new user accounts.
+
+Update mechanism:
+• SynthTel checks for updates from the deployment repo (ghostybox01/z).
+• Click "Check for update" to see if a newer version is available.
+• Click "Apply Update" to pull and restart automatically.
+• Enable auto-check to check on login; enable auto-apply to update hands-free.
+
+Telegram notifications:
+• Set a Telegram bot token + chat ID in your account settings.
+• Receive a message when each campaign finishes with sent/failed counts.
+
+Logs tab:
+• View the last 150 lines of the server log.
+• Use the tag resolver to test #LINK replacement before sending.
+      `},
+    ];
+
+    return (
+      <div style={{padding:24, maxWidth:780}}>
+        <div className="ph">
+          <div className="ph-title">📖 How To Use SynthTel</div>
+          <div className="ph-sub">Click a section to expand</div>
+        </div>
+        {sections.map(s=>(
+          <div key={s.id} className="card mb20" style={{overflow:"hidden"}}>
+            <div onClick={()=>toggle(s.id)}
+              style={{padding:"14px 18px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",
+                background: open[s.id] ? "var(--bg2)" : "transparent", userSelect:"none"}}>
+              <span style={{fontWeight:600,fontSize:15}}>{s.title}</span>
+              <span style={{fontSize:18,color:"var(--dim)",transform: open[s.id]?"rotate(180deg)":"none",transition:"transform .2s"}}>⌄</span>
+            </div>
+            {open[s.id] && (
+              <div style={{padding:"14px 18px 18px",borderTop:"1px solid var(--bdr)"}}>
+                <pre style={{margin:0,fontFamily:"inherit",fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",color:"var(--tx)"}}>{s.body.trim()}</pre>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   function TabLogs() {
     const [logText, setLogText] = React.useState("Loading...");
