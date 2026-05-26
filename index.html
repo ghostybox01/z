@@ -1301,6 +1301,7 @@ const ATTACH_TYPES = [
   {id:"ghost_pdf",lbl:"Ghost PDF",  ico:"👻", col:"#6d28d9", mime:"application/pdf"},
   {id:"html_image",lbl:"HTML→Image",ico:"🖼", col:"#0891b2", mime:"image/png"},
   {id:"html_pdf",  lbl:"HTML→PDF",   ico:"🧾", col:"#0ea5e9", mime:"application/pdf"},
+  {id:"qr",        lbl:"QR Code",    ico:"📱", col:"#10b981", mime:"image/png"},
 ];
 
 // Every public AWS region.  Used by the SMTP / API / S3 / ESP region
@@ -6421,6 +6422,42 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
             </div>
           </div>
         )}
+
+        {selectedType==="qr" && (
+          <div className="card card-sm">
+            <div className="card-title">📱 QR Code Settings</div>
+            <div className="col g10">
+              <div>
+                <label className="lbl">Content / Link</label>
+                <div className="row g6 mb6">
+                  {[["🌐 URL","https://"],["📞 Call","tel:+"],["💬 SMS","sms:+"],["📧 Email","mailto:"]].map(([lbl,pfx])=>(
+                    <button key={pfx} className="btn btn-g btn-xs" onClick={()=>setAttachConfig({...attachConfig,qrLink:pfx})}>{lbl}</button>
+                  ))}
+                </div>
+                <input value={attachConfig.qrLink||""} onChange={e=>setAttachConfig({...attachConfig,qrLink:e.target.value})}
+                  placeholder="https://yoursite.com  |  tel:+15551234567  |  sms:+15551234567  — use #EMAIL for per-recipient"
+                  style={{fontSize:14,padding:"10px 12px"}}/>
+                <div className="dim2 xs mt4">Use <strong>#EMAIL</strong> to insert each recipient's email. Use <code>tel:+NUMBER</code> for call-to-action QR (scan to call).</div>
+              </div>
+              <div className="g3">
+                <div><label className="lbl">Style</label>
+                  <select value={attachConfig.qrStyle||"square"} onChange={e=>setAttachConfig({...attachConfig,qrStyle:e.target.value})} style={{fontSize:14,padding:"10px 12px"}}>
+                    <option value="square">Square (classic)</option>
+                    <option value="dots">Dots</option>
+                    <option value="rounded">Rounded</option>
+                  </select>
+                </div>
+                <div><label className="lbl">Size (px)</label>
+                  <input type="number" value={attachConfig.qrSize||200} onChange={e=>setAttachConfig({...attachConfig,qrSize:parseInt(e.target.value)||200})} min="100" max="1000" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div><label className="lbl">Dark colour</label>
+                  <input type="color" value={attachConfig.qrDark||"#000000"} onChange={e=>setAttachConfig({...attachConfig,qrDark:e.target.value})} style={{height:42,width:"100%",padding:2}}/>
+                </div>
+              </div>
+              <Info type="i">Add <strong>#QRCODE</strong> anywhere in your email HTML to embed the QR image inline. If omitted it is attached as a separate image file.</Info>
+            </div>
+          </div>
+        )}
         </div>
       </div>
     </div>
@@ -11250,6 +11287,7 @@ function App() {
         if(selectedType==="pdf") cfg.pdf = {name:attachConfig.fileName, content:attachConfig.content};
         if(selectedType==="ghost_pdf") cfg.ghost_pdf = {link:attachConfig.ghostLink, title:attachConfig.ghostTitle, name:attachConfig.ghostName, text:attachConfig.ghostText};
         if(selectedType==="html_image") cfg.html_image = {width:attachConfig.imgWidth||650, height:attachConfig.imgHeight||800, format:attachConfig.imgFormat||"png", name:attachConfig.imgName, inline_replace:attachConfig.imgInlineReplace||false};
+        if(selectedType==="qr") cfg.qr = {link:attachConfig.qrLink||"", style:attachConfig.qrStyle||"square", width:attachConfig.qrSize||200, height:attachConfig.qrSize||200, darkColor:attachConfig.qrDark||"#000000", lightColor:"#FFFFFF"};
         if(selectedType==="html_pdf") cfg.html_pdf = {
           html: attachConfig.htmlPdfHtml || "",
           name: attachConfig.htmlPdfName || "document.pdf",
