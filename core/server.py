@@ -771,17 +771,31 @@ def _gh_request(path: str, accept: str = "application/vnd.github+json"):
 
     Raises HTTPError on non-2xx.  Sends Authorization: Bearer when
     GITHUB_TOKEN is set, raising the unauthenticated 60/hr rate limit
-    to 5000/hr.
+    to 5000/hr.  If the token is rejected (401), retry once without it —
+    a stale/revoked token shouldn't break update checks on public repos
+    where unauthenticated reads work fine.
     """
     url = "https://api.github.com/" + path.lstrip("/")
-    req = Request(url, headers={
-        "Accept": accept,
-        "User-Agent": "synthtel-update-checker",
-    })
-    if GITHUB_TOKEN:
-        req.add_header("Authorization", f"Bearer {GITHUB_TOKEN}")
-    with urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read().decode())
+    def _do(send_auth: bool):
+        req = Request(url, headers={
+            "Accept": accept,
+            "User-Agent": "synthtel-update-checker",
+        })
+        if send_auth and GITHUB_TOKEN:
+            req.add_header("Authorization", f"Bearer {GITHUB_TOKEN}")
+        with urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+    try:
+        return _do(send_auth=True)
+    except HTTPError as he:
+        # 401 = token invalid/expired/revoked.  Retry unauthenticated so
+        # public-repo update checks keep working when the VPS .env has a
+        # stale SYNTHTEL_GH_TOKEN. Only swallow when a token was actually
+        # tried (otherwise the unauth call would just re-fail the same way).
+        if he.code == 401 and GITHUB_TOKEN:
+            log.warning("[update] GitHub token rejected (401) — retrying unauthenticated")
+            return _do(send_auth=False)
+        raise
 
 
 def _gh_raw(path: str) -> bytes:
