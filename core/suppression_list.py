@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 # DATABASE
 # ─────────────────────────────────────────────────────────────
 
-_DB_PATH = os.environ.get("ST_DB_PATH", "synthtel.db")
+_DB_PATH = os.environ.get("SYNTHTEL_DB", os.environ.get("ST_DB_PATH", "/opt/synthtel/synthtel.db"))
 _db_lock = threading.Lock()
 
 

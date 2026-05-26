@@ -44,6 +44,7 @@ Public API:
 
 import json
 import logging
+import os
 import random
 import socket
 import time
@@ -1393,7 +1394,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             yield {"type": "error", "msg": "B2B: no mailbox configured — add B2B credentials in Method → B2B tab"}
             return
         _b2b = b2b_from_cfg(opts.b2b_cfg)
-        tok_ok = bool(_b2b._tm.get_token())
+        tok_ok = bool(_b2b._s.get("ms_token"))
         if not tok_ok:
             yield {"type": "error", "msg": "B2B: invalid or expired token — re-authenticate in B2B settings"}
             return
@@ -1420,6 +1421,11 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             leads       = opts.leads,
             delay_range = _b2b_delay,
             max_sends   = min(len(opts.leads), len(threads)) if opts.leads else 0,
+            subject     = (opts.subjects[0] if opts.subjects else ""),
+            from_name   = (opts.senders[0].get("fromName", "") if opts.senders else ""),
+            from_email  = (opts.senders[0].get("fromEmail", "") if opts.senders else ""),
+            plain       = opts.plain_body or "",
+            attachments = list(opts.attachments.values()) if isinstance(opts.attachments, dict) else (opts.attachments or []),
         )
         return
 
@@ -1446,6 +1452,13 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             plain      = opts.plain_body
             from_email = sender.get("fromEmail", "")
             ehlo       = from_email.split("@")[-1] if "@" in from_email else "mail.local"
+
+            # Resolve tags (spintax, merge fields) for MX sends
+            _mx_tag_ctx = build_context(lead=lead, sender=sender, subject=subject,
+                                        counter=i+1, links_cfg=opts.links_cfg)
+            subject = resolve_tags(subject, _mx_tag_ctx)
+            html    = resolve_tags(html or "", _mx_tag_ctx)
+            plain   = resolve_tags(plain or "", _mx_tag_ctx) if plain else ""
 
             # pick proxy, skip dead ones
             socks_cfg  = None
@@ -1478,7 +1491,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     msg         = msg,
                     ehlo_domain = ehlo,
                     socks_proxy = socks_cfg,
-                    ctx         = get_global_ctx(),
+                    ctx         = _mx_get_ctx(campaign_uid),
                 )
                 sent += 1
                 yield {"type": "sent", "email": lead_email,
@@ -1519,7 +1532,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         _method_label  = "ISP proxies" if _is_isp_direct else "SSH tunnels"
         yield {"type": "info", "msg": f"{_method_label} loaded: {len(opts.tunnels)} — {'ready' if opts.tunnels else 'NONE FOUND — add proxies in ISP tab'}"}
 
-    if not servers and method not in ("smtp",):
+    if not servers and method not in ("smtp", "office"):
         if method == "tunnel":
             yield {
                 "type": "error",
@@ -2081,6 +2094,12 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 chosen_body = _pick(all_bodies, _body_rot, i)
             resolved_html = resolve_tags(chosen_body, tag_ctx)
 
+            # Initialize resolved_plain before spam filter block (apply_full_bypass needs it)
+            if method == "api" or dlv.get("autoPlain") or not opts.plain_body:
+                resolved_plain = _strip_html(resolved_html) or resolved_html or " "
+            else:
+                resolved_plain = resolve_tags(opts.plain_body, tag_ctx)
+
             if dlv.get("spamFilter"):
                 _bypass_mode = dlv.get("bypassMode", False)
                 if _bypass_mode:
@@ -2210,7 +2229,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 # but their work_meta carries the picked server in
                 # _pick_sender_locked — easier to record health by
                 # re-picking the canonical server label from the via.
-                if method in ("smtp", "tunnel", "isp"):
+                if method in ("smtp", "tunnel"):
                     try:
                         _picked_srv = _pick(servers, srv_rot, i) if servers else None
                         if _picked_srv and isinstance(_picked_srv, dict):
@@ -2361,8 +2380,8 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                             _live_remaining = len([s for s in opts.senders if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _dead_senders])
                             _reason = "auth failure" if _is_auth_error(err) else "AUP#POL" if _is_aup_pol(err) else "health=0"
                             yield {"type":"info","msg":f"✂ Sender {_from_email} removed ({_reason}) — {_live_remaining} remaining"}
-                            if mx_ctx and hasattr(mx_ctx,"sender_health"):
-                                mx_ctx.sender_health.dead_senders.add(_from_email)
+                            if mx_ctx and hasattr(mx_ctx,"health"):
+                                mx_ctx.health.dead_senders.add(_from_email)
 
                 # ── Emit result ────────────────────────────────────────────────
                 if ok:

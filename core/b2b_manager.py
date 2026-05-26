@@ -130,6 +130,14 @@ except ImportError:
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 
+import json as _json_mod  # noqa: E402 — needed before class definitions
+
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
 # Consumer Microsoft domains — use /consumers authority
 MS_CONSUMER_DOMAINS = frozenset({
     "outlook.com", "hotmail.com", "hotmail.co.uk", "hotmail.fr",
@@ -3472,9 +3480,14 @@ class B2BSender(B2BSession):
                     b2b_leads.append(L)
                 else:
                     b2b_leads.append(B2BLead(
-                        email       = (L.get("email") if isinstance(L, dict) else str(L)) or "",
-                        name        = (L.get("name", "") if isinstance(L, dict) else ""),
-                        score       = int(L.get("score", 0)) if isinstance(L, dict) else 0,
+                        email        = (L.get("email") if isinstance(L, dict) else str(L)) or "",
+                        name         = (L.get("name", "") if isinstance(L, dict) else ""),
+                        last_subject = (L.get("subject", "") if isinstance(L, dict) else ""),
+                        last_date    = (L.get("date", "") if isinstance(L, dict) else ""),
+                        message_id   = (L.get("message_id", "") if isinstance(L, dict) else ""),
+                        thread_ids   = [],
+                        folder       = "Inbox",
+                        score        = int(L.get("score", 0)) if isinstance(L, dict) else 0,
                     ))
         elif threads:
             for t in threads:
@@ -3482,7 +3495,10 @@ class B2BSender(B2BSession):
                     email        = t.get("from_email") or t.get("email", ""),
                     name         = t.get("from_name", ""),
                     last_subject = t.get("subject", ""),
+                    last_date    = t.get("date", ""),
                     message_id   = t.get("message_id", ""),
+                    thread_ids   = [t["message_id"]] if t.get("message_id") else [],
+                    folder       = t.get("folder", "Inbox"),
                     score        = int(t.get("score", 0)),
                 ))
         cap = int(max_sends or len(b2b_leads))

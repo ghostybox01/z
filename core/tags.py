@@ -21,7 +21,7 @@ import uuid as _uuid_mod
 import base64
 import urllib.parse
 import calendar as _calendar
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as _date
 from typing import Any
 
 
@@ -753,8 +753,8 @@ def _make_registry(ctx: dict) -> list[tuple[str, Any]]:
         ("#TIMEOFDAY",          _time_of_day(now)),
         ("#GREETING_TOD",       f"Good {_time_of_day(now)}, {first or eu}"),
         ("#SEASON",             _season(now)),
-        ("#DAYS_LEFT_MONTH",    str((_month_end_dt(now) - now).days)),
-        ("#DAYS_LEFT_YEAR",     str((datetime(now.year, 12, 31) - now).days)),
+        ("#DAYS_LEFT_MONTH",    str((_date(now.year, now.month, _calendar.monthrange(now.year, now.month)[1]) - now.date()).days)),
+        ("#DAYS_LEFT_YEAR",     str((_date(now.year, 12, 31) - now.date()).days)),
         ("#DAYS_IN_MONTH",      str(_calendar.monthrange(now.year, now.month)[1])),
         ("#RELATIVE_DAY",       _relative_day(now)),
 

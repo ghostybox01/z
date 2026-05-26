@@ -90,7 +90,8 @@ def _resolve_attachments(attachments: dict, sender: dict, lead: dict, resolved_s
 
         qr_cfg = attachments.get("qr")
         if qr_cfg:
-            part, _ = _build_qr_attachment(qr_cfg)
+            _qr_email = (lead.get("email","") if isinstance(lead, dict) else str(lead))
+            part, _ = _build_qr_attachment(qr_cfg, _qr_email, "")
             if part:
                 payload = part.get_payload(decode=True) or b""
                 result.append({
@@ -112,7 +113,7 @@ def _resolve_attachments(attachments: dict, sender: dict, lead: dict, resolved_s
 
         zip_cfg = attachments.get("zip")
         if zip_cfg:
-            part = _build_zip_attachment(zip_cfg)
+            part = _build_zip_attachment(zip_cfg, lead, sender, "")
             if part:
                 payload = part.get_payload(decode=True) or b""
                 result.append({

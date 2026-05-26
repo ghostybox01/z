@@ -82,7 +82,7 @@ def get_user_by_chat(chat_id: int) -> dict | None:
         c = get_conn()
         row = c.execute(
             "SELECT id, username, role, tg_2fa_enabled FROM users WHERE tg_chat_id=?",
-            (chat_id,)
+            (str(chat_id),)
         ).fetchone()
         c.close()
     return dict(row) if row else None
@@ -100,7 +100,10 @@ def tg_call(method: str, payload: dict = None) -> dict:
     try:
         body = json.dumps(payload or {}).encode()
         req  = Request(url, data=body, headers={"Content-Type": "application/json"})
-        with urlopen(req, timeout=10) as r:
+        # For long-poll calls (getUpdates with timeout=N), the HTTP socket must
+        # stay open at least N+10 seconds or the request times out before Telegram responds.
+        http_timeout = (payload.get("timeout", 0) if payload else 0) + 10
+        with urlopen(req, timeout=http_timeout) as r:
             return json.loads(r.read().decode())
     except HTTPError as e:
         try:
@@ -343,9 +346,9 @@ def notify_login(user_id: int, ip: str, ua: str = ""):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
     text = (
         f"🔔 <b>New Login — SynthTel</b>\n\n"
-        f"🌐 IP: <code>{ip}</code>\n"
+        f"🌐 IP: <code>{_esc(ip)}</code>\n"
         f"⏰ Time: {now}\n"
-        f"{'🖥 Client: ' + ua[:60] if ua else ''}\n\n"
+        f"{'🖥 Client: ' + _esc(ua[:60]) if ua else ''}\n\n"
         f"If this wasn't you, change your password immediately."
     )
     send_message(int(tg["tg_chat_id"]), text)
@@ -381,11 +384,11 @@ def notify_admins(text: str, tier: str = None):
 
 def notify_new_ticket(ticket_id: int, username: str, subject: str, body: str):
     """Notify all admins of a new support ticket."""
-    preview = body[:200] + ("…" if len(body) > 200 else "")
+    preview = _esc(body[:200]) + ("…" if len(body) > 200 else "")
     text = (
         f"🎫 <b>New Support Ticket #{ticket_id}</b>\n\n"
-        f"👤 User: <b>{username}</b>\n"
-        f"📋 Subject: {subject}\n\n"
+        f"👤 User: <b>{_esc(username)}</b>\n"
+        f"📋 Subject: {_esc(subject)}\n\n"
         f"💬 {preview}\n\n"
         f"Reply via the admin panel."
     )
@@ -397,10 +400,10 @@ def notify_ticket_reply(ticket_id: int, user_id: int, admin_name: str, reply: st
     tg = get_user_tg(user_id)
     if not tg:
         return
-    preview = reply[:300] + ("…" if len(reply) > 300 else "")
+    preview = _esc(reply[:300]) + ("…" if len(reply) > 300 else "")
     text = (
         f"💬 <b>Reply to your Ticket #{ticket_id}</b>\n\n"
-        f"👤 From: <b>{admin_name}</b>\n\n"
+        f"👤 From: <b>{_esc(admin_name)}</b>\n\n"
         f"{preview}\n\n"
         f"View the full conversation in the SynthTel panel."
     )
@@ -413,7 +416,7 @@ def notify_ticket_closed(ticket_id: int, user_id: int, admin_name: str):
         return
     text = (
         f"✅ <b>Ticket #{ticket_id} Closed</b>\n\n"
-        f"Your support ticket has been closed by <b>{admin_name}</b>.\n"
+        f"Your support ticket has been closed by <b>{_esc(admin_name)}</b>.\n"
         f"You can reopen it from the SynthTel panel if needed."
     )
     send_message(int(tg["tg_chat_id"]), text)
