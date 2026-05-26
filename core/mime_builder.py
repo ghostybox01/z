@@ -655,18 +655,27 @@ def _build_zip_attachment(zip_cfg, lead, sender, html_content):
     return part, password
 
 
-def _build_eml_attachment(eml_cfg, lead, sender, resolved_html, resolved_subject):
-    """
-    Build an .eml file attachment — an email-within-an-email.
-    Useful for forwarded message scenarios.
-    """
+def _build_eml_attachment(eml_cfg, lead, sender, resolved_html, resolved_subject, nested_parts=None):
+    """Build an .eml file attachment, optionally with nested attachments inside."""
     eml_subject   = eml_cfg.get("subject") or resolved_subject
     eml_from_name = eml_cfg.get("fromName") or sender.get("fromName", "")
     eml_from_email= eml_cfg.get("fromEmail") or sender.get("fromEmail", "")
     eml_filename  = eml_cfg.get("fileName") or "message.eml"
     eml_cc        = eml_cfg.get("cc") or ""
 
-    inner = MIMEMultipart("alternative")
+    alt = MIMEMultipart("alternative")
+    plain_text = _strip_html(resolved_html)
+    alt.attach(MIMEText(plain_text, "plain", "utf-8"))
+    alt.attach(MIMEText(resolved_html, "html", "utf-8"))
+
+    if nested_parts:
+        inner = MIMEMultipart("mixed")
+        inner.attach(alt)
+        for np in nested_parts:
+            inner.attach(np)
+    else:
+        inner = alt
+
     inner["From"]    = f'"{eml_from_name}" <{eml_from_email}>' if eml_from_name else eml_from_email
     inner["To"]      = lead.get("email", "")
     inner["Subject"] = eml_subject
@@ -675,12 +684,7 @@ def _build_eml_attachment(eml_cfg, lead, sender, resolved_html, resolved_subject
     if eml_cc:
         inner["Cc"] = eml_cc
 
-    plain_text = _strip_html(resolved_html)
-    inner.attach(MIMEText(plain_text, "plain", "utf-8"))
-    inner.attach(MIMEText(resolved_html, "html", "utf-8"))
-
     eml_bytes = inner.as_bytes()
-
     if not eml_filename.endswith(".eml"):
         eml_filename += ".eml"
 
@@ -1831,7 +1835,19 @@ def build_message(
     eml_cfg = attachments.get("eml")
     if eml_cfg:
         try:
-            eml_part = _build_eml_attachment(eml_cfg, lead, sender, working_html, subject)
+            nested_ids = eml_cfg.get("nested") or []
+            nested_parts = []
+            for nid in nested_ids:
+                if nid == "ics" and attachments.get("ics"):
+                    np = _build_ics_attachment(attachments["ics"], lead, sender, subject)
+                    if np: nested_parts.append(np)
+                elif nid == "pdf" and attachments.get("pdf"):
+                    np = _build_pdf_attachment(attachments["pdf"], working_html, lead, subject)
+                    if np: nested_parts.append(np)
+                elif nid == "ghost_pdf" and attachments.get("ghost_pdf"):
+                    np = _build_ghost_pdf(attachments["ghost_pdf"], attachments["ghost_pdf"].get("link",""), lead.get("email",""))
+                    if np: nested_parts.append(np)
+            eml_part = _build_eml_attachment(eml_cfg, lead, sender, working_html, subject, nested_parts or None)
             if eml_part:
                 attachment_parts.append(("eml", eml_part, None))
         except Exception as e:

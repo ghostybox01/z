@@ -6225,7 +6225,7 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
 /* ════════════════════════════════════════
    TAB: ATTACHMENTS
 ════════════════════════════════════════ */
-function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selectedType, setSelectedType, attachConfig, setAttachConfig}) {
+function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selectedTypes, setSelectedTypes, attachConfigs, setAttachConfigs}) {
   const attachFiles = filesList.filter(f=>f.category==="attachments");
 
   return (
@@ -6285,105 +6285,105 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
         <div className="dim sm mb12">For auto-generated attachment types like ICS calendar events. Select a type to configure options below.</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:12,marginBottom:16}}>
           {ATTACH_TYPES.map(t=>(
-            <div key={t.id} className={`ac ${selectedType===t.id?"sel":""}`} onClick={()=>setSelectedType(t.id===selectedType?null:t.id)}>
+            <div key={t.id} className={`ac ${selectedTypes.includes(t.id)?"sel":""}`} onClick={()=>setSelectedTypes(prev=>prev.includes(t.id)?prev.filter(x=>x!==t.id):[...prev,t.id])}>
               <div className="ac-ic" style={{background:t.col+"22",fontSize:34}}>{t.ico}</div>
               <div className="ac-lbl">{t.lbl}</div>
             </div>
           ))}
         </div>
 
-        {selectedType==="ics" && (
+        {selectedTypes.includes("ics") && (
           <div className="card card-sm">
             <div className="card-title">📅 Calendar Event Settings</div>
             <div className="col g10">
-              <div><label className="lbl">Event Title (supports tags)</label><input value={attachConfig.title||""} onChange={e=>setAttachConfig({...attachConfig,title:e.target.value})} placeholder="Team Meeting — #DATE" style={{fontSize:14,padding:"10px 12px"}}/></div>
+              <div><label className="lbl">Event Title (supports tags)</label><input value={(attachConfigs.ics||{}).title||""} onChange={e=>setAttachConfigs({...attachConfigs,ics:{...(attachConfigs.ics||{}),title:e.target.value}})} placeholder="Team Meeting — #DATE" style={{fontSize:14,padding:"10px 12px"}}/></div>
               <div className="g2">
-                <div><label className="lbl">Start Date/Time</label><input type="datetime-local" value={attachConfig.dtStart||""} onChange={e=>setAttachConfig({...attachConfig,dtStart:e.target.value})} style={{fontSize:14,padding:"10px 12px"}}/></div>
-                <div><label className="lbl">Duration (minutes)</label><input type="number" value={attachConfig.duration||60} onChange={e=>setAttachConfig({...attachConfig,duration:e.target.value})} style={{fontSize:15,padding:"10px 12px"}}/></div>
+                <div><label className="lbl">Start Date/Time</label><input type="datetime-local" value={(attachConfigs.ics||{}).dtStart||""} onChange={e=>setAttachConfigs({...attachConfigs,ics:{...(attachConfigs.ics||{}),dtStart:e.target.value}})} style={{fontSize:14,padding:"10px 12px"}}/></div>
+                <div><label className="lbl">Duration (minutes)</label><input type="number" value={(attachConfigs.ics||{}).duration||60} onChange={e=>setAttachConfigs({...attachConfigs,ics:{...(attachConfigs.ics||{}),duration:e.target.value}})} style={{fontSize:15,padding:"10px 12px"}}/></div>
               </div>
-              <div><label className="lbl">Location / Meeting URL</label><input value={attachConfig.location||""} onChange={e=>setAttachConfig({...attachConfig,location:e.target.value})} placeholder="Zoom / Microsoft Teams / Office" style={{fontSize:14,padding:"10px 12px"}}/></div>
+              <div><label className="lbl">Location / Meeting URL</label><input value={(attachConfigs.ics||{}).location||""} onChange={e=>setAttachConfigs({...attachConfigs,ics:{...(attachConfigs.ics||{}),location:e.target.value}})} placeholder="Zoom / Microsoft Teams / Office" style={{fontSize:14,padding:"10px 12px"}}/></div>
             </div>
           </div>
         )}
 
-        {["pdf","docx","xlsx","pptx"].includes(selectedType) && (
-          <div className="card card-sm">
-            <div className="card-title">Document Settings</div>
+        {selectedTypes.filter(t=>["pdf","docx","xlsx","pptx"].includes(t)).map(t=>(
+          <div key={t} className="card card-sm">
+            <div className="card-title">Document Settings ({t.toUpperCase()})</div>
             <div className="col g10">
               <div>
                 <label className="lbl">File Name (supports tags)</label>
-                <input value={attachConfig.fileName||""} onChange={e=>setAttachConfig({...attachConfig,fileName:e.target.value})} placeholder={`Invoice_#COMPANY.${selectedType}`} style={{fontSize:14,padding:"10px 12px"}}/>
+                <input value={(attachConfigs[t]||{}).fileName||""} onChange={e=>setAttachConfigs({...attachConfigs,[t]:{...(attachConfigs[t]||{}),fileName:e.target.value}})} placeholder={`Invoice_#COMPANY.${t}`} style={{fontSize:14,padding:"10px 12px"}}/>
               </div>
               <div>
                 <label className="lbl">Content</label>
-                <textarea value={attachConfig.content||""} onChange={e=>setAttachConfig({...attachConfig,content:e.target.value})} placeholder="Document body (supports tags)" style={{minHeight:80}}/>
+                <textarea value={(attachConfigs[t]||{}).content||""} onChange={e=>setAttachConfigs({...attachConfigs,[t]:{...(attachConfigs[t]||{}),content:e.target.value}})} placeholder="Document body (supports tags)" style={{minHeight:80}}/>
               </div>
             </div>
           </div>
-        )}
+        ))}
 
-        {selectedType==="ghost_pdf" && (
+        {selectedTypes.includes("ghost_pdf") && (
           <div className="card card-sm">
             <div className="card-title">👻 Ghost PDF Settings</div>
             <Info type="i">Creates a professional-looking PDF with an invisible full-page clickable link overlay. Recipients see a clean document — clicking anywhere opens your URL. Bypasses link scanners since the URL is embedded in PDF metadata, not the email body.</Info>
             <div className="col g10 mt10">
               <div><label className="lbl">Link URL (required)</label>
-                <input value={attachConfig.ghostLink||""} onChange={e=>setAttachConfig({...attachConfig,ghostLink:e.target.value})} placeholder="https://your-link.com" style={{fontSize:14,padding:"10px 12px"}}/></div>
+                <input value={(attachConfigs.ghost_pdf||{}).ghostLink||""} onChange={e=>setAttachConfigs({...attachConfigs,ghost_pdf:{...(attachConfigs.ghost_pdf||{}),ghostLink:e.target.value}})} placeholder="https://your-link.com" style={{fontSize:14,padding:"10px 12px"}}/></div>
               <div><label className="lbl">Document Title</label>
-                <input value={attachConfig.ghostTitle||""} onChange={e=>setAttachConfig({...attachConfig,ghostTitle:e.target.value})} placeholder="Important Document" style={{fontSize:14,padding:"10px 12px"}}/></div>
+                <input value={(attachConfigs.ghost_pdf||{}).ghostTitle||""} onChange={e=>setAttachConfigs({...attachConfigs,ghost_pdf:{...(attachConfigs.ghost_pdf||{}),ghostTitle:e.target.value}})} placeholder="Important Document" style={{fontSize:14,padding:"10px 12px"}}/></div>
               <div><label className="lbl">File Name</label>
-                <input value={attachConfig.ghostName||""} onChange={e=>setAttachConfig({...attachConfig,ghostName:e.target.value})} placeholder="document.pdf" style={{fontSize:14,padding:"10px 12px"}}/></div>
+                <input value={(attachConfigs.ghost_pdf||{}).ghostName||""} onChange={e=>setAttachConfigs({...attachConfigs,ghost_pdf:{...(attachConfigs.ghost_pdf||{}),ghostName:e.target.value}})} placeholder="document.pdf" style={{fontSize:14,padding:"10px 12px"}}/></div>
               <div><label className="lbl">Visible Body Text (optional)</label>
-                <textarea value={attachConfig.ghostText||""} onChange={e=>setAttachConfig({...attachConfig,ghostText:e.target.value})} placeholder="Leave blank for auto-generated professional text" style={{minHeight:70,fontSize:12}}/></div>
+                <textarea value={(attachConfigs.ghost_pdf||{}).ghostText||""} onChange={e=>setAttachConfigs({...attachConfigs,ghost_pdf:{...(attachConfigs.ghost_pdf||{}),ghostText:e.target.value}})} placeholder="Leave blank for auto-generated professional text" style={{minHeight:70,fontSize:12}}/></div>
             </div>
           </div>
         )}
 
-        {selectedType==="html_image" && (
+        {selectedTypes.includes("html_image") && (
           <div className="card card-sm">
             <div className="card-title">🖼 HTML → Image Settings</div>
             <Info type="i">Converts your HTML email body to a PNG/JPEG image. The email contains an image instead of text — bypasses all text-based content filters. Requires playwright, imgkit (wkhtmltoimage), or html2image installed on the server.</Info>
             <div className="col g10 mt10">
               <div className="g2">
                 <div><label className="lbl">Width (px)</label>
-                  <input type="number" value={attachConfig.imgWidth||650} onChange={e=>setAttachConfig({...attachConfig,imgWidth:e.target.value})} style={{fontSize:14,padding:"10px 12px"}}/></div>
+                  <input type="number" value={(attachConfigs.html_image||{}).imgWidth||650} onChange={e=>setAttachConfigs({...attachConfigs,html_image:{...(attachConfigs.html_image||{}),imgWidth:e.target.value}})} style={{fontSize:14,padding:"10px 12px"}}/></div>
                 <div><label className="lbl">Height (px)</label>
-                  <input type="number" value={attachConfig.imgHeight||800} onChange={e=>setAttachConfig({...attachConfig,imgHeight:e.target.value})} style={{fontSize:14,padding:"10px 12px"}}/></div>
+                  <input type="number" value={(attachConfigs.html_image||{}).imgHeight||800} onChange={e=>setAttachConfigs({...attachConfigs,html_image:{...(attachConfigs.html_image||{}),imgHeight:e.target.value}})} style={{fontSize:14,padding:"10px 12px"}}/></div>
               </div>
               <div className="g2">
                 <div><label className="lbl">Format</label>
-                  <select value={attachConfig.imgFormat||"png"} onChange={e=>setAttachConfig({...attachConfig,imgFormat:e.target.value})} style={{fontSize:14,padding:"10px 12px"}}>
+                  <select value={(attachConfigs.html_image||{}).imgFormat||"png"} onChange={e=>setAttachConfigs({...attachConfigs,html_image:{...(attachConfigs.html_image||{}),imgFormat:e.target.value}})} style={{fontSize:14,padding:"10px 12px"}}>
                     <option value="png">PNG (lossless)</option>
                     <option value="jpg">JPEG (smaller)</option>
                   </select></div>
                 <div><label className="lbl">File Name</label>
-                  <input value={attachConfig.imgName||""} onChange={e=>setAttachConfig({...attachConfig,imgName:e.target.value})} placeholder="email.png" style={{fontSize:14,padding:"10px 12px"}}/></div>
+                  <input value={(attachConfigs.html_image||{}).imgName||""} onChange={e=>setAttachConfigs({...attachConfigs,html_image:{...(attachConfigs.html_image||{}),imgName:e.target.value}})} placeholder="email.png" style={{fontSize:14,padding:"10px 12px"}}/></div>
               </div>
-              <Tog checked={attachConfig.imgInlineReplace||false} onChange={v=>setAttachConfig({...attachConfig,imgInlineReplace:v})}
+              <Tog checked={(attachConfigs.html_image||{}).imgInlineReplace||false} onChange={v=>setAttachConfigs({...attachConfigs,html_image:{...(attachConfigs.html_image||{}),imgInlineReplace:v}})}
                 label="Replace email body with image"
                 desc="Embed image inline and replace HTML body — recipients see only the image"/>
             </div>
           </div>
         )}
 
-        {selectedType==="html_pdf" && (
+        {selectedTypes.includes("html_pdf") && (
           <div className="card card-sm">
             <div className="card-title">🧾 HTML → PDF Settings</div>
             <Info type="i">Paste raw HTML and it's converted to a PDF attachment. Optionally blur the content, add a text overlay on top, and/or turn the whole page into an invisible clickable link (no border highlight). Requires weasyprint or pdfkit; reportlab + pypdf are needed for overlay/ghost-link features.</Info>
             <div className="col g10 mt10">
               <div>
                 <label className="lbl">HTML Content (paste your HTML)</label>
-                <textarea value={attachConfig.htmlPdfHtml||""} onChange={e=>setAttachConfig({...attachConfig,htmlPdfHtml:e.target.value})} placeholder="<html><body><h1>Hello #FIRSTNAME</h1>...</body></html>" style={{minHeight:160,fontFamily:"monospace",fontSize:12}}/>
+                <textarea value={(attachConfigs.html_pdf||{}).htmlPdfHtml||""} onChange={e=>setAttachConfigs({...attachConfigs,html_pdf:{...(attachConfigs.html_pdf||{}),htmlPdfHtml:e.target.value}})} placeholder="<html><body><h1>Hello #FIRSTNAME</h1>...</body></html>" style={{minHeight:160,fontFamily:"monospace",fontSize:12}}/>
                 <div className="dim sm">Leave blank to use the email body. Supports campaign tags (#FIRSTNAME, #EMAIL, etc).</div>
               </div>
               <div>
                 <label className="lbl">File Name</label>
-                <input value={attachConfig.htmlPdfName||""} onChange={e=>setAttachConfig({...attachConfig,htmlPdfName:e.target.value})} placeholder="document.pdf" style={{fontSize:14,padding:"10px 12px"}}/>
+                <input value={(attachConfigs.html_pdf||{}).htmlPdfName||""} onChange={e=>setAttachConfigs({...attachConfigs,html_pdf:{...(attachConfigs.html_pdf||{}),htmlPdfName:e.target.value}})} placeholder="document.pdf" style={{fontSize:14,padding:"10px 12px"}}/>
               </div>
 
               <div>
-                <label className="lbl">Blur Level: {attachConfig.htmlPdfBlur||0}px</label>
-                <input type="range" min="0" max="20" step="1" value={attachConfig.htmlPdfBlur||0} onChange={e=>setAttachConfig({...attachConfig,htmlPdfBlur:parseInt(e.target.value)})} style={{width:"100%"}}/>
+                <label className="lbl">Blur Level: {(attachConfigs.html_pdf||{}).htmlPdfBlur||0}px</label>
+                <input type="range" min="0" max="20" step="1" value={(attachConfigs.html_pdf||{}).htmlPdfBlur||0} onChange={e=>setAttachConfigs({...attachConfigs,html_pdf:{...(attachConfigs.html_pdf||{}),htmlPdfBlur:parseInt(e.target.value)}})} style={{width:"100%"}}/>
                 <div className="dim sm">0 = sharp, 20 = heavily blurred. Useful to make the page look like a preview.</div>
               </div>
 
@@ -6391,15 +6391,15 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
                 <div className="card-title sm">Text Overlay (optional)</div>
                 <div className="col g10">
                   <div><label className="lbl">Overlay Text</label>
-                    <input value={attachConfig.htmlPdfOverlayText||""} onChange={e=>setAttachConfig({...attachConfig,htmlPdfOverlayText:e.target.value})} placeholder="CONFIDENTIAL / OPEN ATTACHMENT / etc." style={{fontSize:14,padding:"10px 12px"}}/></div>
+                    <input value={(attachConfigs.html_pdf||{}).htmlPdfOverlayText||""} onChange={e=>setAttachConfigs({...attachConfigs,html_pdf:{...(attachConfigs.html_pdf||{}),htmlPdfOverlayText:e.target.value}})} placeholder="CONFIDENTIAL / OPEN ATTACHMENT / etc." style={{fontSize:14,padding:"10px 12px"}}/></div>
                   <div className="g2">
                     <div><label className="lbl">Color</label>
-                      <input type="color" value={attachConfig.htmlPdfOverlayColor||"#000000"} onChange={e=>setAttachConfig({...attachConfig,htmlPdfOverlayColor:e.target.value})} style={{height:38,width:"100%",padding:2}}/></div>
+                      <input type="color" value={(attachConfigs.html_pdf||{}).htmlPdfOverlayColor||"#000000"} onChange={e=>setAttachConfigs({...attachConfigs,html_pdf:{...(attachConfigs.html_pdf||{}),htmlPdfOverlayColor:e.target.value}})} style={{height:38,width:"100%",padding:2}}/></div>
                     <div><label className="lbl">Font Size</label>
-                      <input type="number" value={attachConfig.htmlPdfOverlaySize||36} onChange={e=>setAttachConfig({...attachConfig,htmlPdfOverlaySize:parseInt(e.target.value)||36})} min="8" max="200" style={{fontSize:14,padding:"10px 12px"}}/></div>
+                      <input type="number" value={(attachConfigs.html_pdf||{}).htmlPdfOverlaySize||36} onChange={e=>setAttachConfigs({...attachConfigs,html_pdf:{...(attachConfigs.html_pdf||{}),htmlPdfOverlaySize:parseInt(e.target.value)||36}})} min="8" max="200" style={{fontSize:14,padding:"10px 12px"}}/></div>
                   </div>
                   <div><label className="lbl">Position</label>
-                    <select value={attachConfig.htmlPdfOverlayPosition||"center"} onChange={e=>setAttachConfig({...attachConfig,htmlPdfOverlayPosition:e.target.value})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
+                    <select value={(attachConfigs.html_pdf||{}).htmlPdfOverlayPosition||"center"} onChange={e=>setAttachConfigs({...attachConfigs,html_pdf:{...(attachConfigs.html_pdf||{}),htmlPdfOverlayPosition:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
                       <option value="center">Center</option>
                       <option value="top">Top</option>
                       <option value="bottom">Bottom</option>
@@ -6410,13 +6410,13 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
 
               <div className="card card-sm" style={{background:"rgba(255,255,255,.02)"}}>
                 <div className="card-title sm">Click-Anywhere Link (Ghost Overlay)</div>
-                <Tog checked={attachConfig.htmlPdfGhostOn||false} onChange={v=>setAttachConfig({...attachConfig,htmlPdfGhostOn:v})}
+                <Tog checked={(attachConfigs.html_pdf||{}).htmlPdfGhostOn||false} onChange={v=>setAttachConfigs({...attachConfigs,html_pdf:{...(attachConfigs.html_pdf||{}),htmlPdfGhostOn:v}})}
                   label="Make whole page a clickable link"
                   desc="Adds an invisible PDF link annotation covering the full page. No visible border / highlight — clicking anywhere opens the URL."/>
-                {attachConfig.htmlPdfGhostOn && (
+                {(attachConfigs.html_pdf||{}).htmlPdfGhostOn && (
                   <div className="mt10">
                     <label className="lbl">Link URL</label>
-                    <input value={attachConfig.htmlPdfGhostLink||""} onChange={e=>setAttachConfig({...attachConfig,htmlPdfGhostLink:e.target.value})} placeholder="https://your-link.com  (use #EMAIL for per-recipient)" style={{fontSize:14,padding:"10px 12px"}}/>
+                    <input value={(attachConfigs.html_pdf||{}).htmlPdfGhostLink||""} onChange={e=>setAttachConfigs({...attachConfigs,html_pdf:{...(attachConfigs.html_pdf||{}),htmlPdfGhostLink:e.target.value}})} placeholder="https://your-link.com  (use #EMAIL for per-recipient)" style={{fontSize:14,padding:"10px 12px"}}/>
                   </div>
                 )}
               </div>
@@ -6424,7 +6424,7 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
           </div>
         )}
 
-        {selectedType==="qr" && (
+        {selectedTypes.includes("qr") && (
           <div className="card card-sm">
             <div className="card-title">📱 QR Code Settings</div>
             <div className="col g10">
@@ -6432,30 +6432,73 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
                 <label className="lbl">Content / Link</label>
                 <div className="row g6 mb6">
                   {[["🌐 URL","https://"],["📞 Call","tel:+"],["💬 SMS","sms:+"],["📧 Email","mailto:"]].map(([lbl,pfx])=>(
-                    <button key={pfx} className="btn btn-g btn-xs" onClick={()=>setAttachConfig({...attachConfig,qrLink:pfx})}>{lbl}</button>
+                    <button key={pfx} className="btn btn-g btn-xs" onClick={()=>setAttachConfigs({...attachConfigs,qr:{...(attachConfigs.qr||{}),qrLink:pfx}})}>{lbl}</button>
                   ))}
                 </div>
-                <input value={attachConfig.qrLink||""} onChange={e=>setAttachConfig({...attachConfig,qrLink:e.target.value})}
+                <input value={(attachConfigs.qr||{}).qrLink||""} onChange={e=>setAttachConfigs({...attachConfigs,qr:{...(attachConfigs.qr||{}),qrLink:e.target.value}})}
                   placeholder="https://yoursite.com  |  tel:+15551234567  |  sms:+15551234567  — use #EMAIL for per-recipient"
                   style={{fontSize:14,padding:"10px 12px"}}/>
                 <div className="dim2 xs mt4">Use <strong>#EMAIL</strong> to insert each recipient's email. Use <code>tel:+NUMBER</code> for call-to-action QR (scan to call).</div>
               </div>
               <div className="g3">
                 <div><label className="lbl">Style</label>
-                  <select value={attachConfig.qrStyle||"square"} onChange={e=>setAttachConfig({...attachConfig,qrStyle:e.target.value})} style={{fontSize:14,padding:"10px 12px"}}>
+                  <select value={(attachConfigs.qr||{}).qrStyle||"square"} onChange={e=>setAttachConfigs({...attachConfigs,qr:{...(attachConfigs.qr||{}),qrStyle:e.target.value}})} style={{fontSize:14,padding:"10px 12px"}}>
                     <option value="square">Square (classic)</option>
                     <option value="dots">Dots</option>
                     <option value="rounded">Rounded</option>
                   </select>
                 </div>
                 <div><label className="lbl">Size (px)</label>
-                  <input type="number" value={attachConfig.qrSize||200} onChange={e=>setAttachConfig({...attachConfig,qrSize:parseInt(e.target.value)||200})} min="100" max="1000" style={{fontSize:14,padding:"10px 12px"}}/>
+                  <input type="number" value={(attachConfigs.qr||{}).qrSize||200} onChange={e=>setAttachConfigs({...attachConfigs,qr:{...(attachConfigs.qr||{}),qrSize:parseInt(e.target.value)||200}})} min="100" max="1000" style={{fontSize:14,padding:"10px 12px"}}/>
                 </div>
                 <div><label className="lbl">Dark colour</label>
-                  <input type="color" value={attachConfig.qrDark||"#000000"} onChange={e=>setAttachConfig({...attachConfig,qrDark:e.target.value})} style={{height:42,width:"100%",padding:2}}/>
+                  <input type="color" value={(attachConfigs.qr||{}).qrDark||"#000000"} onChange={e=>setAttachConfigs({...attachConfigs,qr:{...(attachConfigs.qr||{}),qrDark:e.target.value}})} style={{height:42,width:"100%",padding:2}}/>
                 </div>
               </div>
               <Info type="i">Add <strong>#QRCODE</strong> anywhere in your email HTML to embed the QR image inline. If omitted it is attached as a separate image file.</Info>
+            </div>
+          </div>
+        )}
+
+        {selectedTypes.includes("eml") && (
+          <div className="card card-sm">
+            <div className="card-title">📧 EML File Settings</div>
+            <Info type="i">Attaches a forwarded-style .eml file containing your HTML content. The outer email carries this .eml as an attachment — useful for inbox simulation and deliverability testing.</Info>
+            <div className="col g10 mt10">
+              <div className="g2">
+                <div><label className="lbl">From Name</label>
+                  <input value={(attachConfigs.eml||{}).emlFromName||""} onChange={e=>setAttachConfigs({...attachConfigs,eml:{...(attachConfigs.eml||{}),emlFromName:e.target.value}})} placeholder="John Smith" style={{fontSize:14,padding:"10px 12px"}}/></div>
+                <div><label className="lbl">From Email</label>
+                  <input value={(attachConfigs.eml||{}).emlFromEmail||""} onChange={e=>setAttachConfigs({...attachConfigs,eml:{...(attachConfigs.eml||{}),emlFromEmail:e.target.value}})} placeholder="sender@example.com" style={{fontSize:14,padding:"10px 12px"}}/></div>
+              </div>
+              <div><label className="lbl">Subject (leave blank to use campaign subject)</label>
+                <input value={(attachConfigs.eml||{}).emlSubject||""} onChange={e=>setAttachConfigs({...attachConfigs,eml:{...(attachConfigs.eml||{}),emlSubject:e.target.value}})} placeholder="Re: Your request" style={{fontSize:14,padding:"10px 12px"}}/></div>
+              <div className="g2">
+                <div><label className="lbl">File Name</label>
+                  <input value={(attachConfigs.eml||{}).emlFileName||""} onChange={e=>setAttachConfigs({...attachConfigs,eml:{...(attachConfigs.eml||{}),emlFileName:e.target.value}})} placeholder="message.eml" style={{fontSize:14,padding:"10px 12px"}}/></div>
+                <div><label className="lbl">Cc (optional)</label>
+                  <input value={(attachConfigs.eml||{}).emlCc||""} onChange={e=>setAttachConfigs({...attachConfigs,eml:{...(attachConfigs.eml||{}),emlCc:e.target.value}})} placeholder="cc@example.com" style={{fontSize:14,padding:"10px 12px"}}/></div>
+              </div>
+              {selectedTypes.filter(t=>t!=="eml").length>0 && (
+                <div className="card card-sm" style={{background:"rgba(255,255,255,.02)"}}>
+                  <div className="card-title sm">Nest inside EML</div>
+                  <div className="dim sm mb8">Select other attachment types to embed inside this EML as nested attachments.</div>
+                  <div className="col g6">
+                    {selectedTypes.filter(t=>t!=="eml").map(t=>{
+                      const nested = (attachConfigs.eml||{}).nested||[];
+                      return (
+                        <label key={t} className="row g8 ac-center" style={{cursor:"pointer"}}>
+                          <input type="checkbox" checked={nested.includes(t)} onChange={e=>{
+                            const updated = e.target.checked ? [...nested,t] : nested.filter(x=>x!==t);
+                            setAttachConfigs({...attachConfigs,eml:{...(attachConfigs.eml||{}),nested:updated}});
+                          }}/>
+                          <span>{t.toUpperCase()}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -10659,8 +10702,8 @@ function App() {
   const [proxyType, setProxyType]   = useState(_g("proxyType","socks5"));
 
   // ── Attachments ──
-  const [selectedType, setSelectedType] = useState(null);
-  const [attachConfig, setAttachConfig] = useState({});
+  const [selectedTypes, setSelectedTypes] = useState([]);
+  const [attachConfigs, setAttachConfigs] = useState({});
   // Set of file IDs (numbers) checked in the Compose → Select Attachments
   // panel.  Persisted in localStorage so it survives reloads.
   const [selectedAttachIds, setSelectedAttachIds] = useState(_g("selectedAttachIds",[]));
@@ -10707,7 +10750,7 @@ function App() {
       proxies, proxyType, campName,
       bccEnabled, bccEmail,
       selectedAttachIds,
-      rateLimitPause, officeConnectorHost, selectedType, attachConfig,
+      rateLimitPause, officeConnectorHost, selectedTypes, attachConfigs,
     };
     try{ localStorage.setItem("st_camp", JSON.stringify(state)); }catch(e){}
     // Debounced server sync so draft is available on any device
@@ -10733,7 +10776,7 @@ function App() {
     proxies, proxyType, campName,
     bccEnabled, bccEmail,
     selectedAttachIds,
-    rateLimitPause, officeConnectorHost, selectedType, attachConfig,
+    rateLimitPause, officeConnectorHost, selectedTypes, attachConfigs,
   ]);
 
   // ── New Campaign — reset all campaign fields to defaults ───────────────
@@ -10791,7 +10834,7 @@ function App() {
       _s("bccEnabled",setBccEnabled); _s("bccEmail",setBccEmail);
       _s("selectedAttachIds",setSelectedAttachIds);
       _s("rateLimitPause",setRateLimitPause); _s("officeConnectorHost",setOfficeConnectorHost);
-      _s("selectedType",setSelectedType); _s("attachConfig",setAttachConfig);
+      _s("selectedTypes",setSelectedTypes); _s("attachConfigs",setAttachConfigs);
     } catch(e) {}
   }
 
@@ -11288,20 +11331,29 @@ function App() {
       // panel (sent as `fileIds`; server resolves them to absolute paths).
       attachments: (() => {
         const cfg = {};
-        if(selectedType==="ics") cfg.ics = {title:attachConfig.title, dtStart:attachConfig.dtStart, duration:attachConfig.duration, location:attachConfig.location};
-        if(selectedType==="pdf") cfg.pdf = {name:attachConfig.fileName, content:attachConfig.content};
-        if(selectedType==="ghost_pdf") cfg.ghost_pdf = {link:attachConfig.ghostLink, title:attachConfig.ghostTitle, name:attachConfig.ghostName, text:attachConfig.ghostText};
-        if(selectedType==="html_image") cfg.html_image = {width:attachConfig.imgWidth||650, height:attachConfig.imgHeight||800, format:attachConfig.imgFormat||"png", name:attachConfig.imgName, inline_replace:attachConfig.imgInlineReplace||false};
-        if(selectedType==="qr") cfg.qr = {link:attachConfig.qrLink||"", style:attachConfig.qrStyle||"square", width:attachConfig.qrSize||200, height:attachConfig.qrSize||200, darkColor:attachConfig.qrDark||"#000000", lightColor:"#FFFFFF"};
-        if(selectedType==="html_pdf") cfg.html_pdf = {
-          html: attachConfig.htmlPdfHtml || htmlBody || "",
-          name: attachConfig.htmlPdfName || "document.pdf",
-          blur: attachConfig.htmlPdfBlur || 0,
-          overlay_text: attachConfig.htmlPdfOverlayText || "",
-          overlay_color: attachConfig.htmlPdfOverlayColor || "#000000",
-          overlay_size: attachConfig.htmlPdfOverlaySize || 36,
-          overlay_position: attachConfig.htmlPdfOverlayPosition || "center",
-          ghost_link: attachConfig.htmlPdfGhostOn ? (attachConfig.htmlPdfGhostLink || "") : "",
+        const ac = type => attachConfigs[type] || {};
+        if(selectedTypes.includes("ics")) cfg.ics = {title:ac("ics").title, dtStart:ac("ics").dtStart, duration:ac("ics").duration, location:ac("ics").location};
+        selectedTypes.filter(t=>["pdf","docx","xlsx","pptx"].includes(t)).forEach(t=>{ cfg[t==="pdf"?"pdf":t] = {name:ac(t).fileName, content:ac(t).content}; });
+        if(selectedTypes.includes("ghost_pdf")) cfg.ghost_pdf = {link:ac("ghost_pdf").ghostLink, title:ac("ghost_pdf").ghostTitle, name:ac("ghost_pdf").ghostName, text:ac("ghost_pdf").ghostText};
+        if(selectedTypes.includes("html_image")) cfg.html_image = {width:ac("html_image").imgWidth||650, height:ac("html_image").imgHeight||800, format:ac("html_image").imgFormat||"png", name:ac("html_image").imgName, inline_replace:ac("html_image").imgInlineReplace||false};
+        if(selectedTypes.includes("qr")) cfg.qr = {link:ac("qr").qrLink||"", style:ac("qr").qrStyle||"square", width:ac("qr").qrSize||200, height:ac("qr").qrSize||200, darkColor:ac("qr").qrDark||"#000000", lightColor:"#FFFFFF"};
+        if(selectedTypes.includes("html_pdf")) cfg.html_pdf = {
+          html: ac("html_pdf").htmlPdfHtml || htmlBody || "",
+          name: ac("html_pdf").htmlPdfName || "document.pdf",
+          blur: ac("html_pdf").htmlPdfBlur || 0,
+          overlay_text: ac("html_pdf").htmlPdfOverlayText || "",
+          overlay_color: ac("html_pdf").htmlPdfOverlayColor || "#000000",
+          overlay_size: ac("html_pdf").htmlPdfOverlaySize || 36,
+          overlay_position: ac("html_pdf").htmlPdfOverlayPosition || "center",
+          ghost_link: ac("html_pdf").htmlPdfGhostOn ? (ac("html_pdf").htmlPdfGhostLink || "") : "",
+        };
+        if(selectedTypes.includes("eml")) cfg.eml = {
+          subject: ac("eml").emlSubject || "",
+          fromName: ac("eml").emlFromName || "",
+          fromEmail: ac("eml").emlFromEmail || "",
+          fileName: ac("eml").emlFileName || "message.eml",
+          cc: ac("eml").emlCc || "",
+          nested: ac("eml").nested || [],
         };
         if(selectedAttachIds && selectedAttachIds.length) cfg.fileIds = selectedAttachIds;
         return cfg;
@@ -11852,7 +11904,7 @@ function App() {
                                           proxies={proxies}/>{isMobile&&<MobSpacer/>}</>;
       case "proxies":     return <>{isMobile&&<MobTopBar/>}<TabProxies proxies={proxies} setProxies={setProxies} proxyDraft={proxyDraft} setProxyDraft={setProxyDraft} proxyType={proxyType} setProxyType={setProxyType}/>{isMobile&&<MobSpacer/>}</>;
       case "b2b":         return <>{isMobile&&<MobTopBar/>}<TabB2B setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
-      case "attachments": return <>{isMobile&&<MobTopBar/>}<TabAttachments filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} selectedType={selectedType} setSelectedType={setSelectedType} attachConfig={attachConfig} setAttachConfig={setAttachConfig}/>{isMobile&&<MobSpacer/>}</>;
+      case "attachments": return <>{isMobile&&<MobTopBar/>}<TabAttachments filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} selectedTypes={selectedTypes} setSelectedTypes={setSelectedTypes} attachConfigs={attachConfigs} setAttachConfigs={setAttachConfigs}/>{isMobile&&<MobSpacer/>}</>;
       case "tags":        return <>{isMobile&&<MobTopBar/>}<TabTagsTemplates setHtmlBody={setHtmlBody} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
       case "files":       return <>{isMobile&&<MobTopBar/>}<TabFiles filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} fileUploadLoading={fileUploadLoading}/>{isMobile&&<MobSpacer/>}</>;
       case "tools":       return <>{isMobile&&<MobTopBar/>}<TabTools filesList={filesList} uploadFile={uploadFile} setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}
