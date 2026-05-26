@@ -880,9 +880,34 @@ def _check_for_update() -> dict:
     }
     Raises Exception on network / API error so caller can surface it.
     """
+    # Honor any active rate-limit backoff so the auto-pull loop and other
+    # internal callers don't keep poking GitHub after a 403.  When we have
+    # a cached result, hand it back; otherwise raise so the caller can
+    # surface "rate-limited" cleanly.
+    now = int(time.time())
+    reset_at = UPDATE_STATE.get("rate_limit_reset", 0)
+    if reset_at and now < reset_at:
+        cached = UPDATE_STATE.get("last_result")
+        if cached:
+            return cached
+        raise RuntimeError(f"GitHub rate-limited (retry in {reset_at - now}s)")
+
     current = _read_installed_sha()
-    branch_info = _gh_request(
-        f"repos/{GITHUB_OWNER}/{GITHUB_REPO}/branches/{GITHUB_BRANCH}")
+    try:
+        branch_info = _gh_request(
+            f"repos/{GITHUB_OWNER}/{GITHUB_REPO}/branches/{GITHUB_BRANCH}")
+    except HTTPError as he:
+        if he.code == 403:
+            backoff_until = now + 900
+            try:
+                hdrs = getattr(he, "headers", None) or {}
+                rl_reset = int(str(hdrs.get("X-RateLimit-Reset", "") or "0"))
+                if rl_reset > now:
+                    backoff_until = rl_reset
+            except (ValueError, TypeError):
+                pass
+            UPDATE_STATE["rate_limit_reset"] = backoff_until
+        raise
     latest = (branch_info.get("commit") or {}).get("sha", "")
     commit = (branch_info.get("commit") or {}).get("commit") or {}
     msg    = (commit.get("message") or "").splitlines()[0][:200]
@@ -900,6 +925,9 @@ def _check_for_update() -> dict:
             compare_url   = cmp.get("html_url", "")
         except Exception:
             files_changed = []
+
+    # Reaching here means GitHub responded — clear any prior backoff.
+    UPDATE_STATE["rate_limit_reset"] = 0
 
     return {
         "current_sha":    current,
@@ -2830,13 +2858,60 @@ if(code && window.opener){{
         # ── GitHub update: check for newer commit on tracked branch ───
         elif p == "/api/update/check":
             if not (sess := self._auth()): return
+            now = int(time.time())
+            cached = UPDATE_STATE.get("last_result")
+            reset_at = UPDATE_STATE.get("rate_limit_reset", 0)
+
+            # Rate-limit backoff: if GitHub told us when its window resets,
+            # don't even try until then — serve the last cached result.
+            if reset_at and now < reset_at:
+                if cached:
+                    self._json(200, {"ok": True, **cached,
+                                     "rate_limited_until": reset_at,
+                                     "cached": True,
+                                     "in_progress": UPDATE_STATE.get("in_progress", False)})
+                else:
+                    self._json(200, {"ok": False,
+                                     "error": f"GitHub rate-limited (retry in {reset_at - now}s)",
+                                     "rate_limited_until": reset_at})
+                return
+
+            # Soft cache: collapse repeated client polls into one real GitHub
+            # call every CHECK_CACHE_TTL seconds.  Frontend polls every 3 min,
+            # so 5-min cache means most polls hit cache → max ~12 GitHub
+            # API hits/hr per server even with many simultaneous users.
+            CHECK_CACHE_TTL = 300
+            if cached and (now - UPDATE_STATE.get("last_check", 0)) < CHECK_CACHE_TTL:
+                self._json(200, {"ok": True, **cached, "cached": True,
+                                 "in_progress": UPDATE_STATE.get("in_progress", False)})
+                return
+
             try:
                 info = _check_for_update()
-                UPDATE_STATE["last_check"]  = int(time.time())
-                UPDATE_STATE["last_result"] = info
+                UPDATE_STATE["last_check"]        = now
+                UPDATE_STATE["last_result"]       = info
+                UPDATE_STATE["rate_limit_reset"]  = 0   # clear on any success
                 self._json(200, {"ok": True, **info,
                                  "in_progress": UPDATE_STATE.get("in_progress", False)})
             except HTTPError as he:
+                # 403 = abuse / rate limit.  Capture X-RateLimit-Reset so
+                # we stop poking GitHub until the window opens again.
+                if he.code == 403:
+                    backoff_until = now + 900   # 15-min fallback
+                    try:
+                        hdrs = getattr(he, "headers", None) or {}
+                        rl_reset = int(str(hdrs.get("X-RateLimit-Reset", "") or "0"))
+                        if rl_reset > now:
+                            backoff_until = rl_reset
+                    except (ValueError, TypeError):
+                        pass
+                    UPDATE_STATE["rate_limit_reset"] = backoff_until
+                    if cached:
+                        self._json(200, {"ok": True, **cached,
+                                         "rate_limited_until": backoff_until,
+                                         "cached": True,
+                                         "in_progress": UPDATE_STATE.get("in_progress", False)})
+                        return
                 self._json(200, {"ok": False, "error": f"GitHub API {he.code}: {he.reason}"})
             except Exception as e:
                 self._json(200, {"ok": False, "error": str(e)[:200]})
