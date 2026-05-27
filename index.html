@@ -2265,6 +2265,69 @@ function TabCampaign({
     }
   };
 
+  /* ─── SENDING MODE PRESETS ─── */
+  // Preset profiles for the campaign-throttling knobs.  Each preset pre-fills
+  // delay / batch / concurrency / jitter / cooldown values that are known to
+  // work well together for a given throughput-vs-stealth tradeoff.  "Custom"
+  // leaves the user's current values untouched.
+  const SENDING_PRESETS = {
+    calm:     { delay:25, delayUnit:"seconds", batchSize:10,  concurrent:1,  jitter:true,  jitterSec:8, cooldownEvery:20,  cooldownSecs:60, batchPauseSecs:30 },
+    standard: { delay:5,  delayUnit:"seconds", batchSize:25,  concurrent:3,  jitter:true,  jitterSec:3, cooldownEvery:50,  cooldownSecs:30, batchPauseSecs:10 },
+    fast:     { delay:1,  delayUnit:"seconds", batchSize:50,  concurrent:8,  jitter:true,  jitterSec:1, cooldownEvery:100, cooldownSecs:15, batchPauseSecs:0  },
+    burst:    { delay:0,  delayUnit:"seconds", batchSize:100, concurrent:16, jitter:false, jitterSec:0, cooldownEvery:0,   cooldownSecs:0,  batchPauseSecs:0  },
+  };
+  const SENDING_MODE_ORDER = [
+    ["calm",     "🐢 Calm",     "Stealthy — 25s delay, 1× concurrency"],
+    ["standard", "📬 Standard", "Balanced — 5s delay, 3× concurrency"],
+    ["fast",     "⚡ Fast",      "Aggressive — 1s delay, 8× concurrency"],
+    ["burst",    "🚀 Burst",    "Max speed — no delay, 16× concurrency"],
+    ["custom",   "⚙ Custom",   "Your own values"],
+  ];
+  const [sendingMode, setSendingMode] = useState(
+    () => localStorage.getItem("st_sending_mode") || "custom"
+  );
+  // Ref set right before a preset is applied so the auto-revert-to-Custom
+  // effect below can ignore the resulting prop-change burst.  Without this,
+  // applying a preset would immediately flip mode back to "custom".
+  const presetApplyingRef = useRef(false);
+
+  function applySendingMode(mode) {
+    if(mode === "custom") {
+      setSendingMode("custom");
+      try { localStorage.setItem("st_sending_mode", "custom"); } catch(e) {}
+      return;
+    }
+    const p = SENDING_PRESETS[mode];
+    if(!p) return;
+    presetApplyingRef.current = true;
+    setDelay(p.delay);
+    setDelayUnit(p.delayUnit);
+    setBatchSize(p.batchSize);
+    setConcurrent(p.concurrent);
+    setJitter(p.jitter);
+    setJitterSec(p.jitterSec);
+    setCooldownEvery(p.cooldownEvery);
+    setCooldownSecs(p.cooldownSecs);
+    setBatchPauseSecs(p.batchPauseSecs);
+    setSendingMode(mode);
+    try { localStorage.setItem("st_sending_mode", mode); } catch(e) {}
+    // Clear the ref on next tick so subsequent *manual* edits trigger the
+    // revert effect below.
+    setTimeout(()=>{ presetApplyingRef.current = false; }, 0);
+  }
+
+  // Auto-switch to "Custom" whenever the user manually edits any knob that a
+  // preset would set.  Skips the change burst that the preset itself causes.
+  useEffect(()=>{
+    if(presetApplyingRef.current) return;
+    if(sendingMode === "custom") return;
+    setSendingMode("custom");
+    try { localStorage.setItem("st_sending_mode", "custom"); } catch(e) {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [delay, delayUnit, batchSize, concurrent, jitter, jitterSec,
+      cooldownEvery, cooldownSecs, batchPauseSecs]);
+  /* ─── /SENDING MODE PRESETS ─── */
+
   return (
     <div className="tab-campaign-inner mob-hide-ph">
       <div className="ph" style={{paddingBottom:8,marginBottom:8}}>
@@ -2365,6 +2428,30 @@ function TabCampaign({
             ✨ New Campaign
           </button>
         </div>
+
+        {/* ─── SENDING MODE PRESETS ─── */}
+        <div style={{marginBottom:16}}>
+          <div className="sh-t" style={{marginBottom:6}}>SENDING MODE</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6}}>
+            {SENDING_MODE_ORDER.map(([key,label,desc])=>(
+              <button
+                key={key}
+                type="button"
+                onClick={()=>applySendingMode(key)}
+                title={desc}
+                className={"btn btn-sm "+(sendingMode===key?"btn-p":"btn-g")}
+                style={{
+                  display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                  padding:"8px 6px",lineHeight:1.15,whiteSpace:"normal",height:"auto",minHeight:48,
+                }}>
+                <span style={{fontSize:13,fontWeight:700}}>{label}</span>
+                <span style={{fontSize:10,opacity:.75,marginTop:2,fontWeight:400}}>{desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {/* ─── /SENDING MODE PRESETS ─── */}
+
         <div className="g2 mb16">
           <div>
             <label className="lbl">Campaign Name</label>
