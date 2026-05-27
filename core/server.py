@@ -996,9 +996,15 @@ def _check_for_update() -> dict:
     }
 
 
-def _apply_update() -> dict:
+def _apply_update(force: bool = False) -> dict:
     """Download every tracked file from the configured branch, write to
     INSTALL_DIR / WEB_DIR atomically, and update the installed-SHA marker.
+
+    force=True bypasses the "installed_sha == latest_sha" short-circuit.
+    Useful when a previous apply got cached/stale content from
+    raw.githubusercontent.com and wrote files that don't actually match
+    the SHA marker on disk — without force, every subsequent apply
+    returns up_to_date:true and the broken files never get rewritten.
 
     Returns: {applied: [files], failed: [{file, error}], new_sha,
               restart_required: bool}
@@ -1014,7 +1020,7 @@ def _apply_update() -> dict:
             raise RuntimeError("Could not resolve latest commit SHA")
 
         cur = (check.get("current_sha") or "").strip()
-        if cur and latest == cur:
+        if not force and cur and latest == cur:
             return {
                 "ok": True,
                 "applied": [],
@@ -6164,8 +6170,9 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             except Exception:
                 req_data = {}
             do_restart = bool(req_data.get("restart", False))
+            do_force   = bool(req_data.get("force", False))
             try:
-                result = _apply_update()
+                result = _apply_update(force=do_force)
             except RuntimeError as _re_err:
                 # NB: do NOT name this 're' — Python makes 're' local to
                 # the whole function and shadows the module-level import.
