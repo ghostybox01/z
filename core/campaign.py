@@ -172,6 +172,134 @@ def _resolve_engine(email: str, default: str, rules: list) -> str:
     return default
 
 
+# ─── ENGINE FALLBACK ───
+# Conservative classifier for whether an engine-level failure should
+# trigger the next engine in opts.method_fallback.  Used by the loop
+# inside _send_one().  Be strict about NOT retrying user errors (bad
+# credentials, bad recipients, bad config) — those will fail the same
+# way on the next engine and just waste time.  Retry only on transient
+# transport-level issues that a different engine might dodge.
+_RETRYABLE_NEEDLES = (
+    # network / transport
+    "connection refused",
+    "connection timed out",
+    "timed out",
+    "timeout",
+    "network unreachable",
+    "no route to host",
+    "host unreachable",
+    "errno 110",      # ETIMEDOUT
+    "errno 111",      # ECONNREFUSED
+    "errno 113",      # EHOSTUNREACH
+    "errno 101",      # ENETUNREACH
+    # DNS
+    "nxdomain",
+    "could not resolve",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "dns error",
+    # parsed/normalised SynthTel error labels
+    "connection failed",
+    "mx send failed",
+    "all mx servers failed",
+    # TLS / SSL handshake (different engine may not even use TLS)
+    "ssl",
+    "tls",
+    "handshake",
+    "certificate",
+    "ssl/tls error",
+    # SMTP 4xx temporary failures
+    "greylist",
+    "greylisted",
+    "try again later",
+    "service busy",
+    "resources temporarily unavailable",
+    "temporarily deferred",
+    "4.2.0",
+    "4.7.0",
+    # rate limiting (transient at the engine level — different engine /
+    # path may have its own quota)
+    "rate limit",
+    "rate limited",
+    "throttl",
+    "too many connections",
+    "exceeded the rate",
+    "microsoft rate limit",
+    # proxy / SOCKS (transient transport)
+    "socks",
+    "proxy error",
+    "socks block",
+)
+
+_NON_RETRYABLE_NEEDLES = (
+    # explicit auth failures — creds are wrong, retrying won't help
+    "auth failed",
+    "auth failure",
+    "authentication failed",
+    "authentication failure",
+    "invalid credentials",
+    "wrong credentials",
+    "535",
+    "534",
+    # bad recipient
+    "user unknown",
+    "no such user",
+    "mailbox not found",
+    "mailbox does not exist",
+    "does not exist",
+    "invalid recipient",
+    "recipient rejected",
+    "invalid email",
+    "5.1.1",
+    "5.1.2",
+    "5.1.3",
+    "invalid recipient",
+    # config / import errors
+    "importerror",
+    "configerror",
+    "config error",
+    "not configured",
+    "unknown send method",
+    # SynthTel-normalised user-error labels
+    "auth fail",
+    "invalid recipient",
+    "mailbox full",
+    "policy block",
+    "content filter",
+    "ip blocked",
+    "spf",
+    "dkim",
+    "dmarc",
+)
+
+
+def _is_retryable(error_str: str) -> bool:
+    """
+    Decide whether a send failure should trigger the next engine in
+    opts.method_fallback.
+
+    Conservative: only known-transient transport-level errors are
+    retryable.  Explicit auth / bad-recipient / config errors are NOT,
+    because the next engine will hit the same wall.
+
+    Empty / missing error strings → NOT retryable (caller has no signal
+    to retry on).
+    """
+    if not error_str:
+        return False
+    err = str(error_str).lower()
+    # Non-retryable wins over retryable.  e.g. "SSL handshake failed:
+    # authentication failed" → not retryable (auth issue is the root).
+    for needle in _NON_RETRYABLE_NEEDLES:
+        if needle in err:
+            return False
+    for needle in _RETRYABLE_NEEDLES:
+        if needle in err:
+            return True
+    return False
+# ─── /ENGINE FALLBACK ───
+
+
 def _check_socks5(host: str, port: int, timeout: int = 5) -> tuple:
     import socket as _sock
     try:
@@ -507,6 +635,7 @@ class CampaignOptions:
         b2b_cfg:            dict  = None,
         connector_host:     str   = "",
         method_rules:       list  = None,
+        method_fallback:    list  = None,
     ):
         self.uid            = uid
         self.inbox_profile  = bool(inbox_profile)
@@ -514,6 +643,25 @@ class CampaignOptions:
         # Per-recipient routing — list of {"when": glob, "method": engine}.
         # Evaluated in order by _resolve_engine() inside _send_one().
         self.method_rules   = list(method_rules) if method_rules else []
+        # ─── ENGINE FALLBACK ───
+        # Ordered list of engines to try when the chosen engine fails
+        # with a retryable error.  Validated for shape at the HTTP layer
+        # (/api/send); here we just defensively coerce to lowercase
+        # strings and drop entries not in VALID_METHODS or naming the
+        # campaign-wide-only engines (b2b/office) which can't route per
+        # recipient.
+        _mf = []
+        if method_fallback:
+            for _m in method_fallback:
+                if not isinstance(_m, str):
+                    continue
+                _m2 = _m.strip().lower()
+                if _m2 == "isp":
+                    _m2 = "tunnel"
+                if _m2 in VALID_METHODS and _m2 not in ("b2b", "office"):
+                    _mf.append(_m2)
+        self.method_fallback = _mf
+        # ─── /ENGINE FALLBACK ───
         self.smtps          = smtps   or []
         self.apis           = apis    or []
         self.owas           = owas    or []
@@ -623,6 +771,19 @@ class CampaignOptions:
                 if not pat or not eng:
                     continue
                 method_rules.append({"when": pat, "method": eng})
+
+        # ─── ENGINE FALLBACK ───
+        # Optional ordered list of engines to try when the chosen
+        # engine fails with a retryable error.  Shape-validated at the
+        # HTTP layer; here we just coerce defensively.  Unknown / banned
+        # entries are dropped by CampaignOptions.__init__.
+        raw_fallback = data.get("methodFallback") or []
+        method_fallback = []
+        if isinstance(raw_fallback, list):
+            for _mf in raw_fallback:
+                if isinstance(_mf, str):
+                    method_fallback.append(_mf)
+        # ─── /ENGINE FALLBACK ───
 
         raw_smtps = data.get("smtps") or data.get("smtpServers", [])
         smtps = []
@@ -831,6 +992,7 @@ class CampaignOptions:
             b2b_cfg            = data.get("b2bConfig") or data.get("b2b") or {},
             connector_host     = data.get("connectorHost") or "",
             method_rules       = method_rules,
+            method_fallback    = method_fallback,
         )
 
 
@@ -1048,242 +1210,376 @@ def _send_one(
     # the matching pool (opts.smtps / opts.apis / etc.) because the
     # caller selected `server` based on opts.method.
     _lead_email = (lead.get("email", "") if isinstance(lead, dict) else "") or ""
-    method = _resolve_engine(_lead_email, opts.method, opts.method_rules)
-    if method != opts.method:
-        _pool_by_method = {
-            "smtp":   getattr(opts, "smtps", None) or [],
-            "api":    getattr(opts, "apis", None)  or [],
-            "owa":    getattr(opts, "owas", None)  or [],
-            "crm":    getattr(opts, "crms", None)  or [],
-            "tunnel": getattr(opts, "tunnels", None) or [],
-        }
-        # For office/mx the caller's `server` isn't from a pool — office
-        # uses opts.connector_host, mx builds proxy at runtime.  For the
-        # pooled engines, only override if the matching pool has entries;
-        # otherwise leave the original server in place and let the engine
-        # branch error out with a clear message.
-        _new_pool = _pool_by_method.get(method)
-        if _new_pool:
-            _alt = _pick(_new_pool, "random", i)
-            if _alt:
-                server = _alt
-        # For office/mx with no pool, the engine branch handles its own
-        # config (connector_host, proxy list) so the original server is
-        # unused — safe to leave it.
+    effective_method = _resolve_engine(_lead_email, opts.method, opts.method_rules)
 
     dlv    = opts.dlv
     hdrs   = opts.custom_headers
 
-    # Domain suffix appended to via labels so the operator can confirm
-    # which rule fired for which recipient (e.g. "smtp:gmail.com").
-    _dom = _lead_email.split("@", 1)[1].lower() if "@" in _lead_email else ""
-    _via_suffix = f"{method}:{_dom}" if _dom else method
+    # ─── ENGINE FALLBACK ───
+    # All pools used by the per-engine server re-pick (both for the
+    # methodRules-resolved initial engine and for each fallback engine).
+    # Kept as a closure-visible dict so _attempt() can pick the right
+    # server when the loop advances to the next engine.
+    _pool_by_method = {
+        "smtp":   getattr(opts, "smtps", None) or [],
+        "api":    getattr(opts, "apis", None)  or [],
+        "owa":    getattr(opts, "owas", None)  or [],
+        "crm":    getattr(opts, "crms", None)  or [],
+        "tunnel": getattr(opts, "tunnels", None) or [],
+    }
+    # ─── /ENGINE FALLBACK ───
 
-    # Default via label — overridden below per method
-    via = server.get("label", server.get("provider",
-                     server.get("host", method))) if isinstance(server, dict) else method
-    via = f"{via} [{_via_suffix}]"
+    def _pick_server_for(_m: str):
+        """
+        Re-pick a server config for engine ``_m``.  Returns the caller's
+        original ``server`` when ``_m`` matches the campaign's primary
+        engine (``opts.method``) — that preserves the parent thread's
+        rotation / pairing decision for the initial attempt.  For any
+        other engine we draw a fresh entry from its pool.  ``office``
+        and ``mx`` have no pool — their engine branches build their own
+        config (connector_host / proxy list), so the original ``server``
+        is harmless to pass through.
+        """
+        if _m == opts.method:
+            return server
+        _new_pool = _pool_by_method.get(_m)
+        if _new_pool:
+            _alt = _pick(_new_pool, "random", i)
+            if _alt:
+                return _alt
+        return server
 
-    # ─── OFFICE / M365 INBOUND CONNECTOR ────────────────────
-    # Sends via port 25 to the O365 smart host. The VPS IP must already
-    # be whitelisted in an Exchange Online inbound connector (no auth needed).
-    if method == "office":
-        connector_host = getattr(opts, "connector_host", "").strip()
-        if not connector_host:
-            return False, "Office Admin: connector hostname not set — configure it in Method → Office Admin tab", via
-        office_smtp = {
-            "host":       connector_host,
-            "port":       25,
-            "username":   "",
-            "password":   "",
-            "encryption": "NONE",
-        }
-        try:
-            send_smtp(
-                smtp_cfg       = office_smtp,
-                sender         = sender,
-                lead           = lead,
-                resolved_html  = html,
-                resolved_plain = plain,
-                resolved_subj  = subject,
-                dlv            = dlv,
-                custom_headers = hdrs,
-                pool           = None,
-                attachments    = opts.attachments or {},
-            )
-            return True, "", f"office/{connector_host}:25 [{_via_suffix}]"
-        except Exception as exc:
-            return False, _parse_smtp_error(exc, lead.get("email", "")), via
+    def _attempt(method: str, server: dict) -> tuple:
+        """
+        One-shot dispatch through the engine named ``method``.  Returns
+        a 3-tuple ``(ok, err_str, via_label)`` — identical contract to
+        the historical (pre-fallback) ``_send_one`` return value.
 
-    # ─── SMTP ────────────────────────────────────────────────
-    if method == "smtp":
-        proxy_cfg = None
-        if override_proxy:
-            proxy_cfg = override_proxy
-            via += f" via {proxy_cfg.get('type','socks5')}:{proxy_cfg.get('host','')}"
-        elif opts.proxy:
-            pl  = opts.proxy.get("list", [])
-            rot = opts.proxy.get("rotation", "random")
-            if pl:
-                _live_pl = [p for p in pl if (p.get("host","") if isinstance(p,dict) else str(p)) not in (dead_proxies or set())]
-                proxy_cfg = _pick(_live_pl or pl, rot, i)
-                if proxy_cfg:
-                    via += f" via {proxy_cfg.get('type','proxy')}:{proxy_cfg.get('host','')}"
-        # Note: SSL (port 465) connections through SOCKS5 are auto-downgraded to STARTTLS/587
-        # in smtp_sender._open_connection — so proxy works transparently with all encryption modes.
-        try:
-            via_used = send_smtp(
-                smtp_cfg        = server,
-                sender          = sender,
-                lead            = lead,
-                resolved_html   = html,
-                resolved_plain  = plain,
-                resolved_subj   = subject,
-                dlv             = dlv,
-                custom_headers  = hdrs,
-                proxy_cfg       = proxy_cfg,
-                pool            = pool,
-                attachments     = opts.attachments or {},
-                envelope_from   = server.get("envelope_from", ""),
-                smtp_auth_email = server.get("smtp_auth_email", ""),
-            )
-            # via_used is a _ViaResult (str subclass with .message_id) on
-            # success — return it as-is so the runner can preserve the
-            # Message-ID for IMAP delete-sent.  Falls back to the locally
-            # constructed via (which already includes [_via_suffix]).
-            return True, "", (via_used or via)
-        except Exception as exc:
-            return False, _parse_smtp_error(exc, lead.get("email", "")), via
+        Every ``return`` below is preserved verbatim from the original
+        dispatch; only the enclosing function changed.  ``opts``,
+        ``lead``, ``sender``, ``subject``, ``html``, ``plain``, ``pool``,
+        ``mx_ctx``, ``override_proxy``, ``dead_proxies``, ``dlv``,
+        ``hdrs``, and ``i`` are captured via closure.
+        """
+        # Domain suffix appended to via labels so the operator can confirm
+        # which rule fired for which recipient (e.g. "smtp:gmail.com").
+        _dom = _lead_email.split("@", 1)[1].lower() if "@" in _lead_email else ""
+        _via_suffix = f"{method}:{_dom}" if _dom else method
 
-    # ─── TUNNEL ─────────────────────────────────────────────
-    elif method == "tunnel":
-        tun = server     # server IS the tunnel config in tunnel method
-        tt  = tun.get("tunnelType", "ssh")
+        # Default via label — overridden below per method
+        via = server.get("label", server.get("provider",
+                         server.get("host", method))) if isinstance(server, dict) else method
+        via = f"{via} [{_via_suffix}]"
 
-        if tt == "isp":
-            # Use niceproxy.io (ISP proxy) directly as SOCKS5 if credentials present
-            # Fall back to RDP's 3proxy if no direct proxy credentials
-            proxy_host = tun.get("proxyHost", "")
-            proxy_port = int(tun.get("proxyPort", 17521))
-            proxy_user = tun.get("proxyUser") or None
-            proxy_pass = tun.get("proxyPass") or None
-
-            if proxy_host:
-                # Direct mode: VPS → niceproxy.io (SOCKS5) → smtp.shaw.ca:25
-                if dead_proxies and proxy_host in dead_proxies:
-                    return False, f"IP BLOCKED — proxy {proxy_host} is blacklisted (skipping)", f"ISP {proxy_host}"
-                sock_ok, sock_msg = _check_socks5(proxy_host, proxy_port, timeout=8)
-                if not sock_ok:
-                    return False, f"ISP proxy {proxy_host}:{proxy_port} unreachable — {sock_msg}. Check proxy credentials.", f"ISP {proxy_host}"
-                proxy = {
-                    "type":     "socks5",
-                    "host":     proxy_host,
-                    "port":     str(proxy_port),
-                    "username": proxy_user,
-                    "password": proxy_pass,
-                }
-                proxy_label = f"ISP {tun.get('label', proxy_host)} via {proxy_host}"
-            else:
-                # Legacy mode: VPS → RDP:1080 (3proxy) → ISP → smtp
-                socks_host = tun.get("socksHost") or tun.get("sshHost", "")
-                socks_port = int(tun.get("socksPort", 1080))
-                sock_ok, sock_msg = _check_socks5(socks_host, socks_port, timeout=5)
-                if not sock_ok:
-                    ssh_pass   = tun.get("sshPass") or tun.get("rdpPass", "")
-                    ssh_user   = tun.get("sshUser") or tun.get("rdpUser", "Administrator")
-                    ssh_port_n = int(tun.get("rdpSshPort", 22))
-                    if ssh_pass:
-                        _restart_3proxy_via_ssh(socks_host, ssh_user, ssh_pass, ssh_port_n)
-                        import time as _t; _t.sleep(4)
-                        sock_ok, sock_msg = _check_socks5(socks_host, socks_port, timeout=5)
-                    if not sock_ok:
-                        return False, f"SOCKS5 {socks_host}:{socks_port} unreachable — {sock_msg}. 3proxy may be down.", f"ISP {socks_host}"
-                proxy = {
-                    "type":     "socks5",
-                    "host":     socks_host,
-                    "port":     str(socks_port),
-                    "username": None,
-                    "password": None,
-                }
-                proxy_label = f"ISP {tun.get('label', socks_host)}"
-        else:
-            lp = _safe_int(tun.get("localPort", 1080), 1080)
-            proxy = {
-                "type": "socks5",
-                "host": "127.0.0.1",
-                "port": str(lp),
+        # ─── OFFICE / M365 INBOUND CONNECTOR ────────────────────
+        # Sends via port 25 to the O365 smart host. The VPS IP must already
+        # be whitelisted in an Exchange Online inbound connector (no auth needed).
+        if method == "office":
+            connector_host = getattr(opts, "connector_host", "").strip()
+            if not connector_host:
+                return False, "Office Admin: connector hostname not set — configure it in Method → Office Admin tab", via
+            office_smtp = {
+                "host":       connector_host,
+                "port":       25,
+                "username":   "",
+                "password":   "",
+                "encryption": "NONE",
             }
-            proxy_label = f"SSH {tun.get('label', '')} ({tun.get('sshHost', '')})"
+            try:
+                send_smtp(
+                    smtp_cfg       = office_smtp,
+                    sender         = sender,
+                    lead           = lead,
+                    resolved_html  = html,
+                    resolved_plain = plain,
+                    resolved_subj  = subject,
+                    dlv            = dlv,
+                    custom_headers = hdrs,
+                    pool           = None,
+                    attachments    = opts.attachments or {},
+                )
+                return True, "", f"office/{connector_host}:25 [{_via_suffix}]"
+            except Exception as exc:
+                return False, _parse_smtp_error(exc, lead.get("email", "")), via
 
-        # Primary: route SMTP relay through tunnel
-        # For ISP tunnels: build smtp config from tunnel's ISP SMTP settings
-        smtp_pool = opts.smtps
-
-        # ISP-specific: EHLO domain should be the ISP domain (e.g. shaw.ca), not the From domain.
-        # fromDomain is auto-filled by the SMTP probe (e.g. "shaw.ca" from "smtp.shaw.ca").
-        _isp_ehlo   = tun.get("fromDomain") or tun.get("ehloDomain") or ""
-        # smtpFromEmail: a shaw.ca account to use as the MAIL FROM envelope sender.
-        # When set, overrides the campaign From for the envelope (fixes SPF).
-        _isp_auth_email = tun.get("smtpFromEmail") or tun.get("smtpUser") or ""
-
-        if not smtp_pool and tt == "isp" and tun.get("ispSmtpHost"):
-            smtp_pool = [{
-                "host":            tun["ispSmtpHost"],
-                "port":            int(tun.get("ispSmtpPort", 25)),
-                "username":        tun.get("smtpUser", ""),
-                "password":        tun.get("smtpPass", ""),
-                "encryption":      "NONE",
-                "label":           f"ISP SMTP ({tun['ispSmtpHost']})",
-                "smtp_auth_email": _isp_auth_email,
-                "ehlo_override":   _isp_ehlo,
-                # envelope_from: if set, overrides MAIL FROM to match ISP-authorized address
-                "envelope_from":   _isp_auth_email,
-            }]
-        if smtp_pool:
-            rot      = opts.rotation.get("smtp", "random")
-            smtp_srv = _pick(smtp_pool, rot, i)
-            srv_lbl  = smtp_srv.get("label", smtp_srv.get("host", "SMTP"))
-            import logging as _sl
-            _sl.getLogger("synthtel").info(
-                "[ISP SEND] SOCKS5=%s:%s (user=%s) → SMTP=%s:%s enc=%s",
-                proxy["host"], proxy["port"], proxy.get("username","none"),
-                smtp_srv.get("host"), smtp_srv.get("port"), smtp_srv.get("encryption")
-            )
+        # ─── SMTP ────────────────────────────────────────────────
+        if method == "smtp":
+            proxy_cfg = None
+            if override_proxy:
+                proxy_cfg = override_proxy
+                via += f" via {proxy_cfg.get('type','socks5')}:{proxy_cfg.get('host','')}"
+            elif opts.proxy:
+                pl  = opts.proxy.get("list", [])
+                rot = opts.proxy.get("rotation", "random")
+                if pl:
+                    _live_pl = [p for p in pl if (p.get("host","") if isinstance(p,dict) else str(p)) not in (dead_proxies or set())]
+                    proxy_cfg = _pick(_live_pl or pl, rot, i)
+                    if proxy_cfg:
+                        via += f" via {proxy_cfg.get('type','proxy')}:{proxy_cfg.get('host','')}"
+            # Note: SSL (port 465) connections through SOCKS5 are auto-downgraded to STARTTLS/587
+            # in smtp_sender._open_connection — so proxy works transparently with all encryption modes.
             try:
                 via_used = send_smtp(
-                    smtp_cfg        = smtp_srv,
+                    smtp_cfg        = server,
                     sender          = sender,
                     lead            = lead,
                     resolved_html   = html,
                     resolved_plain  = plain,
-                    smtp_auth_email = smtp_srv.get("smtp_auth_email", ""),
-                    ehlo_domain     = smtp_srv.get("ehlo_override", ""),
-                    envelope_from   = smtp_srv.get("envelope_from", ""),
-                    resolved_subj  = subject,
-                    dlv            = dlv,
-                    custom_headers = hdrs,
-                    proxy_cfg      = proxy,
-                    pool           = pool,
-                    attachments    = opts.attachments or {},
+                    resolved_subj   = subject,
+                    dlv             = dlv,
+                    custom_headers  = hdrs,
+                    proxy_cfg       = proxy_cfg,
+                    pool            = pool,
+                    attachments     = opts.attachments or {},
+                    envelope_from   = server.get("envelope_from", ""),
+                    smtp_auth_email = server.get("smtp_auth_email", ""),
                 )
-                return True, "", f"{srv_lbl} via {proxy_label} [{_via_suffix}]"
+                # via_used is a _ViaResult (str subclass with .message_id) on
+                # success — return it as-is so the runner can preserve the
+                # Message-ID for IMAP delete-sent.  Falls back to the locally
+                # constructed via (which already includes [_via_suffix]).
+                return True, "", (via_used or via)
             except Exception as exc:
-                return False, _parse_smtp_error(exc, lead.get("email", "")), f"{srv_lbl} via {proxy_label} [{_via_suffix}]"
+                return False, _parse_smtp_error(exc, lead.get("email", "")), via
 
-        # Fallback: direct-to-MX through tunnel (needs port 25)
-        else:
-            from_email  = sender.get("fromEmail", "")
-            ehlo_domain = (
-                tun.get("ehloDomain", "")
-                or (from_email.split("@")[-1] if "@" in from_email else "")
-                or "mail.local"
-            )
-            socks_cfg = {
-                "host":     proxy["host"],
-                "port":     proxy["port"],
-                "username": proxy.get("username"),
-                "password": proxy.get("password"),
-            }
+        # ─── TUNNEL ─────────────────────────────────────────────
+        elif method == "tunnel":
+            tun = server     # server IS the tunnel config in tunnel method
+            tt  = tun.get("tunnelType", "ssh")
+
+            if tt == "isp":
+                # Use niceproxy.io (ISP proxy) directly as SOCKS5 if credentials present
+                # Fall back to RDP's 3proxy if no direct proxy credentials
+                proxy_host = tun.get("proxyHost", "")
+                proxy_port = int(tun.get("proxyPort", 17521))
+                proxy_user = tun.get("proxyUser") or None
+                proxy_pass = tun.get("proxyPass") or None
+
+                if proxy_host:
+                    # Direct mode: VPS → niceproxy.io (SOCKS5) → smtp.shaw.ca:25
+                    if dead_proxies and proxy_host in dead_proxies:
+                        return False, f"IP BLOCKED — proxy {proxy_host} is blacklisted (skipping)", f"ISP {proxy_host}"
+                    sock_ok, sock_msg = _check_socks5(proxy_host, proxy_port, timeout=8)
+                    if not sock_ok:
+                        return False, f"ISP proxy {proxy_host}:{proxy_port} unreachable — {sock_msg}. Check proxy credentials.", f"ISP {proxy_host}"
+                    proxy = {
+                        "type":     "socks5",
+                        "host":     proxy_host,
+                        "port":     str(proxy_port),
+                        "username": proxy_user,
+                        "password": proxy_pass,
+                    }
+                    proxy_label = f"ISP {tun.get('label', proxy_host)} via {proxy_host}"
+                else:
+                    # Legacy mode: VPS → RDP:1080 (3proxy) → ISP → smtp
+                    socks_host = tun.get("socksHost") or tun.get("sshHost", "")
+                    socks_port = int(tun.get("socksPort", 1080))
+                    sock_ok, sock_msg = _check_socks5(socks_host, socks_port, timeout=5)
+                    if not sock_ok:
+                        ssh_pass   = tun.get("sshPass") or tun.get("rdpPass", "")
+                        ssh_user   = tun.get("sshUser") or tun.get("rdpUser", "Administrator")
+                        ssh_port_n = int(tun.get("rdpSshPort", 22))
+                        if ssh_pass:
+                            _restart_3proxy_via_ssh(socks_host, ssh_user, ssh_pass, ssh_port_n)
+                            import time as _t; _t.sleep(4)
+                            sock_ok, sock_msg = _check_socks5(socks_host, socks_port, timeout=5)
+                        if not sock_ok:
+                            return False, f"SOCKS5 {socks_host}:{socks_port} unreachable — {sock_msg}. 3proxy may be down.", f"ISP {socks_host}"
+                    proxy = {
+                        "type":     "socks5",
+                        "host":     socks_host,
+                        "port":     str(socks_port),
+                        "username": None,
+                        "password": None,
+                    }
+                    proxy_label = f"ISP {tun.get('label', socks_host)}"
+            else:
+                lp = _safe_int(tun.get("localPort", 1080), 1080)
+                proxy = {
+                    "type": "socks5",
+                    "host": "127.0.0.1",
+                    "port": str(lp),
+                }
+                proxy_label = f"SSH {tun.get('label', '')} ({tun.get('sshHost', '')})"
+
+            # Primary: route SMTP relay through tunnel
+            # For ISP tunnels: build smtp config from tunnel's ISP SMTP settings
+            smtp_pool = opts.smtps
+
+            # ISP-specific: EHLO domain should be the ISP domain (e.g. shaw.ca), not the From domain.
+            # fromDomain is auto-filled by the SMTP probe (e.g. "shaw.ca" from "smtp.shaw.ca").
+            _isp_ehlo   = tun.get("fromDomain") or tun.get("ehloDomain") or ""
+            # smtpFromEmail: a shaw.ca account to use as the MAIL FROM envelope sender.
+            # When set, overrides the campaign From for the envelope (fixes SPF).
+            _isp_auth_email = tun.get("smtpFromEmail") or tun.get("smtpUser") or ""
+
+            if not smtp_pool and tt == "isp" and tun.get("ispSmtpHost"):
+                smtp_pool = [{
+                    "host":            tun["ispSmtpHost"],
+                    "port":            int(tun.get("ispSmtpPort", 25)),
+                    "username":        tun.get("smtpUser", ""),
+                    "password":        tun.get("smtpPass", ""),
+                    "encryption":      "NONE",
+                    "label":           f"ISP SMTP ({tun['ispSmtpHost']})",
+                    "smtp_auth_email": _isp_auth_email,
+                    "ehlo_override":   _isp_ehlo,
+                    # envelope_from: if set, overrides MAIL FROM to match ISP-authorized address
+                    "envelope_from":   _isp_auth_email,
+                }]
+            if smtp_pool:
+                rot      = opts.rotation.get("smtp", "random")
+                smtp_srv = _pick(smtp_pool, rot, i)
+                srv_lbl  = smtp_srv.get("label", smtp_srv.get("host", "SMTP"))
+                import logging as _sl
+                _sl.getLogger("synthtel").info(
+                    "[ISP SEND] SOCKS5=%s:%s (user=%s) → SMTP=%s:%s enc=%s",
+                    proxy["host"], proxy["port"], proxy.get("username","none"),
+                    smtp_srv.get("host"), smtp_srv.get("port"), smtp_srv.get("encryption")
+                )
+                try:
+                    via_used = send_smtp(
+                        smtp_cfg        = smtp_srv,
+                        sender          = sender,
+                        lead            = lead,
+                        resolved_html   = html,
+                        resolved_plain  = plain,
+                        smtp_auth_email = smtp_srv.get("smtp_auth_email", ""),
+                        ehlo_domain     = smtp_srv.get("ehlo_override", ""),
+                        envelope_from   = smtp_srv.get("envelope_from", ""),
+                        resolved_subj  = subject,
+                        dlv            = dlv,
+                        custom_headers = hdrs,
+                        proxy_cfg      = proxy,
+                        pool           = pool,
+                        attachments    = opts.attachments or {},
+                    )
+                    return True, "", f"{srv_lbl} via {proxy_label} [{_via_suffix}]"
+                except Exception as exc:
+                    return False, _parse_smtp_error(exc, lead.get("email", "")), f"{srv_lbl} via {proxy_label} [{_via_suffix}]"
+
+            # Fallback: direct-to-MX through tunnel (needs port 25)
+            else:
+                from_email  = sender.get("fromEmail", "")
+                ehlo_domain = (
+                    tun.get("ehloDomain", "")
+                    or (from_email.split("@")[-1] if "@" in from_email else "")
+                    or "mail.local"
+                )
+                socks_cfg = {
+                    "host":     proxy["host"],
+                    "port":     proxy["port"],
+                    "username": proxy.get("username"),
+                    "password": proxy.get("password"),
+                }
+                try:
+                    msg, _ = build_message(
+                        lead        = lead,
+                        sender      = sender,
+                        subject     = subject,
+                        html        = html,
+                        plain       = plain,
+                        dlv         = dlv,
+                        custom_hdrs = hdrs,
+                        ehlo_domain = ehlo_domain,
+                        preheader   = (dlv or {}).get("preheader", ""),
+                        attachments = opts.attachments or {},
+                    )
+                    mx_host = send_direct_mx(
+                        lead_email  = lead["email"],
+                        sender      = sender,
+                        msg         = msg,
+                        ehlo_domain = ehlo_domain,
+                        socks_proxy = socks_cfg,
+                        ctx         = mx_ctx,
+                    )
+                    return True, "", f"{proxy_label} → MX:{mx_host} [{_via_suffix}]"
+                except Exception as exc:
+                    return False, _parse_smtp_error(exc, lead.get("email", "")), f"{proxy_label} → MX [{_via_suffix}]"
+
+        # ─── API ────────────────────────────────────────────────
+        elif method == "api":
+            try:
+                extra_h = build_api_headers(
+                    dlv            = dlv,
+                    lead           = lead,
+                    custom_headers = hdrs,
+                    sender         = sender,
+                )
+                send_api(
+                    api_cfg          = server,
+                    sender           = sender,
+                    lead             = lead,
+                    resolved_html    = html,
+                    resolved_subject = subject,
+                    extra_headers    = extra_h,
+                    resolved_plain   = plain,
+                    uid              = getattr(opts, "uid", None),
+                    attachments      = opts.attachments or {},
+                )
+                return True, "", f"{server.get('label', server.get('provider', 'API'))} [{_via_suffix}]"
+            except Exception as exc:
+                return False, _parse_smtp_error(exc, lead.get("email", "")), via
+
+        # ─── OWA ─────────────────────────────────────────────────
+        elif method == "owa":
+            try:
+                send_owa(
+                    owa_cfg          = server,
+                    sender           = sender,
+                    lead             = lead,
+                    resolved_html    = html,
+                    resolved_plain   = plain,
+                    resolved_subject = subject,
+                    dlv              = dlv,
+                    custom_headers   = hdrs,
+                )
+                return True, "", f"{server.get('label', server.get('email', 'OWA'))} [{_via_suffix}]"
+            except Exception as exc:
+                return False, _parse_smtp_error(exc, lead.get("email", "")), via
+
+        # ─── CRM ─────────────────────────────────────────────────
+        elif method == "crm":
+            try:
+                send_crm(
+                    crm_cfg          = server,
+                    sender           = sender,
+                    lead             = lead,
+                    resolved_html    = html,
+                    resolved_subject = subject,
+                    i                = i,
+                    resolved_plain   = plain,
+                )
+                return True, "", f"{server.get('label', server.get('provider', 'CRM'))} [{_via_suffix}]"
+            except Exception as exc:
+                return False, _parse_smtp_error(exc, lead.get("email", "")), via
+
+        # ─── ENGINE FALLBACK ───
+        # ─── MX (direct-to-MX on port 25 via the campaign proxy pool) ──
+        # Added so that methodFallback=[..., "mx", ...] can actually
+        # attempt an MX send from inside the fallback loop.  Mirrors the
+        # MX branch in run_campaign() for "mx" campaigns: picks a proxy
+        # from opts.proxy.list (or sends direct from the VPS when no
+        # proxies are configured) and posts the built MIME message via
+        # send_direct_mx().  Does NOT mutate any rotation state outside
+        # _send_one.
+        if method == "mx":
+            from_email  = sender.get("fromEmail", "") if isinstance(sender, dict) else ""
+            ehlo_domain = from_email.split("@")[-1] if "@" in from_email else "mail.local"
+            proxy_list  = (opts.proxy or {}).get("list", []) if opts.proxy else []
+            proxy_rot   = (opts.proxy or {}).get("rotation", "random") if opts.proxy else "random"
+            socks_cfg   = None
+            proxy_label = "direct"
+            if proxy_list:
+                _live = [p for p in proxy_list if (p.get("host") if isinstance(p, dict) else "") not in (dead_proxies or set())]
+                _p = _pick(_live or proxy_list, proxy_rot, i)
+                if isinstance(_p, dict):
+                    socks_cfg = {
+                        "host":     _p.get("host"),
+                        "port":     _p.get("port"),
+                        "username": _p.get("username") or _p.get("user"),
+                        "password": _p.get("password") or _p.get("pass"),
+                    }
+                    proxy_label = f"{_p.get('host')}:{_p.get('port')}"
             try:
                 msg, _ = build_message(
                     lead        = lead,
@@ -1298,7 +1594,7 @@ def _send_one(
                     attachments = opts.attachments or {},
                 )
                 mx_host = send_direct_mx(
-                    lead_email  = lead["email"],
+                    lead_email  = lead.get("email", "") if isinstance(lead, dict) else "",
                     sender      = sender,
                     msg         = msg,
                     ehlo_domain = ehlo_domain,
@@ -1308,68 +1604,52 @@ def _send_one(
                 return True, "", f"{proxy_label} → MX:{mx_host} [{_via_suffix}]"
             except Exception as exc:
                 return False, _parse_smtp_error(exc, lead.get("email", "")), f"{proxy_label} → MX [{_via_suffix}]"
+        # ─── /ENGINE FALLBACK ───
 
-    # ─── API ────────────────────────────────────────────────
-    elif method == "api":
-        try:
-            extra_h = build_api_headers(
-                dlv            = dlv,
-                lead           = lead,
-                custom_headers = hdrs,
-                sender         = sender,
-            )
-            send_api(
-                api_cfg          = server,
-                sender           = sender,
-                lead             = lead,
-                resolved_html    = html,
-                resolved_subject = subject,
-                extra_headers    = extra_h,
-                resolved_plain   = plain,
-                uid              = getattr(opts, "uid", None),
-                attachments      = opts.attachments or {},
-            )
-            return True, "", f"{server.get('label', server.get('provider', 'API'))} [{_via_suffix}]"
-        except Exception as exc:
-            return False, _parse_smtp_error(exc, lead.get("email", "")), via
+        # ─── B2B ─────────────────────────────────────────────────
+        # B2B is handled in run_campaign directly via B2BSender.
+        # _send_one is not called for b2b — the generator handles it.
+        return False, f"Unknown send method: {method}", via
 
-    # ─── OWA ─────────────────────────────────────────────────
-    elif method == "owa":
-        try:
-            send_owa(
-                owa_cfg          = server,
-                sender           = sender,
-                lead             = lead,
-                resolved_html    = html,
-                resolved_plain   = plain,
-                resolved_subject = subject,
-                dlv              = dlv,
-                custom_headers   = hdrs,
-            )
-            return True, "", f"{server.get('label', server.get('email', 'OWA'))} [{_via_suffix}]"
-        except Exception as exc:
-            return False, _parse_smtp_error(exc, lead.get("email", "")), via
+    # ─── ENGINE FALLBACK ───
+    # Build the ordered chain of engines to try.  Always starts with
+    # the methodRules-resolved engine (`effective_method`).  Then each
+    # entry in opts.method_fallback is appended, skipping any engine we
+    # have already queued.  Total attempts capped at
+    # len(opts.method_fallback) + 1 per spec.  Empty / missing fallback
+    # → behaviour is exactly as before (single attempt).
+    fallback = list(getattr(opts, "method_fallback", []) or [])
+    cap = len(fallback) + 1
+    tried_engines: set = set()
+    chain = [effective_method]
+    for _m in fallback:
+        if _m and _m not in chain:
+            chain.append(_m)
+    chain = chain[:cap]
 
-    # ─── CRM ─────────────────────────────────────────────────
-    elif method == "crm":
-        try:
-            send_crm(
-                crm_cfg          = server,
-                sender           = sender,
-                lead             = lead,
-                resolved_html    = html,
-                resolved_subject = subject,
-                i                = i,
-                resolved_plain   = plain,
-            )
-            return True, "", f"{server.get('label', server.get('provider', 'CRM'))} [{_via_suffix}]"
-        except Exception as exc:
-            return False, _parse_smtp_error(exc, lead.get("email", "")), via
-
-    # ─── B2B ─────────────────────────────────────────────────
-    # B2B is handled in run_campaign directly via B2BSender.
-    # _send_one is not called for b2b — the generator handles it.
-    return False, f"Unknown send method: {method}", via
+    last_result = (False, "no engine attempted", "")
+    for _idx, _m in enumerate(chain):
+        if _m in tried_engines:
+            continue
+        tried_engines.add(_m)
+        _srv  = _pick_server_for(_m)
+        _ok, _err, _via = _attempt(_m, _srv)
+        if _ok:
+            if _idx > 0:
+                # Tag success-after-fallback with the engine that
+                # previously failed, so the campaign log makes the
+                # routing decision auditable.
+                _prev = chain[_idx - 1]
+                _via  = f"{_via} (after {_prev} failed)"
+            return True, _err, _via
+        last_result = (_ok, _err, _via)
+        if not _is_retryable(_err):
+            # User error (auth, bad recipient, config) — bail; the next
+            # engine will hit the same wall.
+            return last_result
+        # Retryable transport-level failure — try the next engine.
+    return last_result
+    # ─── /ENGINE FALLBACK ───
 
 
 # ═══════════════════════════════════════════════════════════════

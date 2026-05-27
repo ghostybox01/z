@@ -3235,6 +3235,39 @@ if(code && window.opener){{
                             "error": f"methodRules[{_idx}] requires string 'when' and 'method' fields"
                         }); return
 
+            # ─── ENGINE FALLBACK ───
+            # methodFallback (when present) must be a list of engine name
+            # strings.  Each entry must be in VALID_METHODS.  b2b and
+            # office are rejected here because they're campaign-wide
+            # engines that don't route per recipient (separate bug being
+            # fixed in parallel).  Empty list = no fallback (same as
+            # absent).  Anything else → HTTP 400.
+            _mf = data.get("methodFallback")
+            if _mf is not None:
+                _VALID_FALLBACK = {"smtp", "api", "owa", "crm", "tunnel", "mx"}
+                if not isinstance(_mf, list):
+                    self._json(400, {"error": "methodFallback must be a list"}); return
+                for _idx, _item in enumerate(_mf):
+                    if not isinstance(_item, str):
+                        self._json(400, {
+                            "error": f"methodFallback[{_idx}] must be a string"
+                        }); return
+                    _norm = _item.strip().lower()
+                    if _norm == "isp":
+                        _norm = "tunnel"
+                    if _norm in ("b2b", "office"):
+                        self._json(400, {
+                            "error": f"methodFallback[{_idx}]={_item!r} not allowed — "
+                                     f"'b2b' and 'office' are campaign-wide engines and "
+                                     f"cannot be used as per-recipient fallbacks"
+                        }); return
+                    if _norm not in _VALID_FALLBACK:
+                        self._json(400, {
+                            "error": f"methodFallback[{_idx}]={_item!r} is not a valid engine "
+                                     f"(allowed: {sorted(_VALID_FALLBACK)})"
+                        }); return
+            # ─── /ENGINE FALLBACK ───
+
             uid = sess["user_id"]
             total_count = len(data.get("leads", []))
             camp_name = data.get("campaignName", "Campaign")
