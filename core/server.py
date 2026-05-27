@@ -2948,8 +2948,14 @@ if(code && window.opener){{
             # call every CHECK_CACHE_TTL seconds.  Frontend polls every 3 min,
             # so 5-min cache means most polls hit cache → max ~12 GitHub
             # API hits/hr per server even with many simultaneous users.
+            #
+            # ?fresh=1 (or ?fresh=true) bypasses the cache — used by the
+            # UI's manual "Check now" button so users never get a stale
+            # "up to date" answer right after pushing a new commit.
+            from urllib.parse import parse_qs as _pqs, urlparse as _up
+            _fresh = (_pqs(_up(p).query).get("fresh", ["0"])[0] or "").lower() in ("1", "true", "yes", "on")
             CHECK_CACHE_TTL = 300
-            if cached and (now - UPDATE_STATE.get("last_check", 0)) < CHECK_CACHE_TTL:
+            if not _fresh and cached and (now - UPDATE_STATE.get("last_check", 0)) < CHECK_CACHE_TTL:
                 self._json(200, {"ok": True, **cached, "cached": True,
                                  "in_progress": UPDATE_STATE.get("in_progress", False)})
                 return
@@ -3233,6 +3239,20 @@ if(code && window.opener){{
                     if not isinstance(_w, str) or not isinstance(_m, str):
                         self._json(400, {
                             "error": f"methodRules[{_idx}] requires string 'when' and 'method' fields"
+                        }); return
+                    _mn = _m.strip().lower()
+                    if _mn == "isp":
+                        _mn = "tunnel"
+                    if _mn in ("b2b", "office"):
+                        # b2b and office are campaign-wide engines —
+                        # the runner dispatches them outside _send_one,
+                        # so they can't be selected per-recipient.
+                        self._json(400, {
+                            "error": f"methodRules[{_idx}].method={_m!r} not allowed — "
+                                     f"'b2b' and 'office' are campaign-wide engines "
+                                     f"and cannot be used in per-recipient rules. "
+                                     f"To send via b2b/office, set the top-level "
+                                     f"'method' field instead."
                         }); return
 
             # ─── ENGINE FALLBACK ───

@@ -11518,7 +11518,12 @@ function App() {
     opts = opts || {};
     setUpdateCheckLoading(true);
     try {
-      const r = await apiCall("/api/update/check");
+      // Manual checks (forcePopup OR showError, i.e. user clicked "Check now")
+      // bypass the 5-min server-side cache so they never see a stale
+      // "up to date" answer right after a push.  Background polling still
+      // hits the cached path to stay polite to the GitHub API.
+      const _fresh = !!(opts.forcePopup || opts.showError);
+      const r = await apiCall("/api/update/check" + (_fresh ? "?fresh=1" : ""));
       let d = null;
       try { d = await r.json(); } catch (e) { d = null; }
 
@@ -11631,8 +11636,15 @@ function App() {
     setUpdateApplying(true);
     addLog("🔄 Applying update from GitHub…","inf");
     try {
+      // Always pass force:true.  If the previous apply hit a stale
+      // raw.githubusercontent.com CDN response, the .installed_sha
+      // marker on disk can match HEAD even though the actual files
+      // on disk are old.  Without force, the apply short-circuits
+      // with up_to_date:true and the broken files never get rewritten.
+      // force:true re-downloads unconditionally, costing a few seconds
+      // on the no-op case but guaranteeing the button always works.
       const r = await apiCall("/api/update/apply", {
-        method:"POST", body: JSON.stringify({restart: true})
+        method:"POST", body: JSON.stringify({restart: true, force: true})
       });
       const d = await r.json();
       if(!r.ok || d.ok === false) {
