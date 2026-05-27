@@ -7688,7 +7688,7 @@ function TabRedirects({setHtmlBody, setTab, addLog, showPopup}) {
   );
 }
 
-function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
+function TabTools({filesList, uploadFile, leadsRaw, setLeadsRaw, setLeads, setTab,
                    setSubject, setHtmlBody, setPlainBody,
                    showPopup, addLog}) {
   const [tTool, setTTool] = useState(()=>{
@@ -8023,6 +8023,27 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
     } catch(e){setValResult({error:e.message});}
     setValLoading(false);
   }
+
+  /* ─── REMOVE-INVALID BUTTON ─── */
+  // Strip every email flagged sendable:false from the in-memory leadsRaw textarea.
+  // Preserves order and any non-email lines (notes/headers the user pasted).
+  function removeInvalidFromLeads() {
+    const bad = new Set(((valResult&&valResult.results)||[])
+      .filter(r=>!r.sendable)
+      .map(r=>String(r.email||"").trim().toLowerCase())
+      .filter(Boolean));
+    if (!bad.size) { showToast("i","No invalid emails to remove"); return; }
+    const lines = (leadsRaw||"").split(/\r?\n/);
+    const kept = lines.filter(l => !bad.has(l.trim().toLowerCase()));
+    const removed = lines.length - kept.length;
+    if (!removed) { showToast("i","No invalid emails to remove"); return; }
+    const newRaw = kept.join("\n");
+    setLeadsRaw(newRaw);
+    setLeads(parseLeads(newRaw));
+    setValResult(prev => prev ? {...prev, results:(prev.results||[]).filter(r=>r.sendable), total:(prev.results||[]).filter(r=>r.sendable).length} : prev);
+    showToast("ok",`✓ Removed ${removed} invalid email${removed>1?"s":""}`);
+  }
+  /* ─── /REMOVE-INVALID BUTTON ─── */
 
   async function runSort() {
     setSortLoading(true); setSortResult(null);
@@ -8461,6 +8482,13 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
                         {failed.length>0&&<Bdg t="e">{failed.length} failed</Bdg>}
                         {usable.length>0&&<button className="btn btn-ok btn-sm" onClick={()=>copyEmails(usable)}>📋 Copy valid ({usable.length}){randomise?" (randomised)":""}</button>}
                         {failed.length>0&&<button className="btn btn-g btn-sm" onClick={()=>copyEmails(failed)}>📋 Copy bad ({failed.length})</button>}
+                        {/* ─── REMOVE-INVALID BUTTON ─── */}
+                        {(()=>{
+                          const badSet = new Set(failed.map(r=>String(r.email||"").trim().toLowerCase()));
+                          const removable = badSet.size ? (leadsRaw||"").split(/\r?\n/).filter(l=>badSet.has(l.trim().toLowerCase())).length : 0;
+                          return <button className="btn btn-d btn-sm" onClick={removeInvalidFromLeads} disabled={removable===0} title={removable===0?"No matching invalid emails in your leads list":"Strip these from the Leads tab"}>🗑 Remove invalid{removable>0?` (${removable})`:""}</button>;
+                        })()}
+                        {/* ─── /REMOVE-INVALID BUTTON ─── */}
                       </div>);
                     })()}
                     <div className="tw">
@@ -11879,7 +11907,7 @@ function App() {
       case "attachments": return <>{isMobile&&<MobTopBar/>}<TabAttachments filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} selectedTypes={selectedTypes} setSelectedTypes={setSelectedTypes} attachConfig={attachConfig} setAttachConfig={setAttachConfig}/>{isMobile&&<MobSpacer/>}</>;
       case "tags":        return <>{isMobile&&<MobTopBar/>}<TabTagsTemplates setHtmlBody={setHtmlBody} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
       case "files":       return <>{isMobile&&<MobTopBar/>}<TabFiles filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} fileUploadLoading={fileUploadLoading}/>{isMobile&&<MobSpacer/>}</>;
-      case "tools":       return <>{isMobile&&<MobTopBar/>}<TabTools filesList={filesList} uploadFile={uploadFile} setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}
+      case "tools":       return <>{isMobile&&<MobTopBar/>}<TabTools filesList={filesList} uploadFile={uploadFile} leadsRaw={leadsRaw} setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}
                                           setSubject={setSubject} setHtmlBody={setHtmlBody} setPlainBody={setPlainBody}
                                           showPopup={showPopup} addLog={addLog}/>{isMobile&&<MobSpacer/>}</>;
       case "redirects":   return <>{isMobile&&<MobTopBar/>}<TabRedirects setHtmlBody={setHtmlBody} setTab={setTab} addLog={addLog} showPopup={showPopup}/>{isMobile&&<MobSpacer/>}</>;
