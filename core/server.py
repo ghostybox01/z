@@ -1693,6 +1693,16 @@ def init_db():
                 config TEXT NOT NULL DEFAULT '{}',
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )""",
+            # ─── EMAIL CHECK CACHE ───
+            # 24h TTL cache for /api/tools/validate-fromemail MX/SPF/DMARC/DBL results.
+            # Keyed by the literal email string the handler computed results for
+            # (so bare-domain → "#RANDOMSTR@domain" lookups round-trip correctly).
+            """CREATE TABLE IF NOT EXISTS email_check_cache (
+                email      TEXT PRIMARY KEY,
+                result_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )""",
+            # ─── END EMAIL CHECK CACHE ───
         ]:
             try:
                 conn.execute(migration)
@@ -6849,79 +6859,153 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                     info["valid"]    = bool(info["mx"])
                     return info
 
-                # ── Build domain map — accept bare domains AND full emails ──
-                domain_map = {}
+                # ── Build per-email display list AND domain → display map ───
+                # display_emails preserves request order; each entry is the
+                # exact string we'll use as both the cache key and the result's
+                # "email" field. Bare-domain inputs become "#RANDOMSTR@domain".
+                display_emails = []
+                domain_to_displays = {}
                 for email in emails:
                     email = email.strip()
                     if not email:
                         continue
                     if "@" in email:
-                        domain_map.setdefault(email.split("@")[-1].lower(), []).append(email)
+                        dom = email.split("@")[-1].lower()
+                        disp = email
                     else:
-                        # Bare domain input e.g. "dktinc.com" → treat as #RANDOMSTR@domain
-                        domain = email.lower()
-                        domain_map.setdefault(domain, []).append(f"#RANDOMSTR@{domain}")
+                        dom = email.lower()
+                        disp = f"#RANDOMSTR@{dom}"
+                    display_emails.append((disp, dom))
+                    domain_to_displays.setdefault(dom, []).append(disp)
 
-                if not domain_map:
-                    self._json(200, {"results":[],"total":0,"pass_count":0,"warn_count":0,"fail_count":0})
+                if not display_emails:
+                    self._json(200, {"results":[],"total":0,"pass_count":0,"warn_count":0,"fail_count":0,"cached_count":0})
                     return
 
-                # ── Run checks concurrently ──────────────────────────────────
+                # ─── EMAIL CHECK CACHE ─── read pass
+                # For every distinct display-string, see if a fresh (<24h) cache
+                # row exists. Anything found here is skipped during the live
+                # DNS/Spamhaus pass below. Uses db_lock since we don't run WAL.
+                _now_ts = int(time.time())
+                _TTL    = 86400  # 24h, per spec — do NOT make configurable
+                cached_results_by_email = {}
+                unique_displays = list({d for d, _ in display_emails})
+                try:
+                    with db_lock:
+                        _cc_conn = sqlite3.connect(DB_PATH)
+                        _qmarks = ",".join("?" * len(unique_displays))
+                        _rows = _cc_conn.execute(
+                            f"SELECT email, result_json, created_at FROM email_check_cache "
+                            f"WHERE email IN ({_qmarks})",
+                            unique_displays,
+                        ).fetchall()
+                        _cc_conn.close()
+                    for _em, _rj, _cat in _rows:
+                        if _now_ts - int(_cat) < _TTL:
+                            try:
+                                cached_results_by_email[_em] = json.loads(_rj)
+                            except Exception:
+                                pass  # corrupt row — treat as miss, will be overwritten
+                except Exception:
+                    cached_results_by_email = {}  # cache read failure → degrade to live lookup
+                # ─── END EMAIL CHECK CACHE ─── read pass
+
+                # ── Run live checks only for domains whose displays AREN'T all cached ──
+                # A domain only needs a live check if at least one of its
+                # display-strings isn't sitting in a fresh cache row.
+                domains_needing_check = {
+                    dom for dom, displays in domain_to_displays.items()
+                    if any(d not in cached_results_by_email for d in displays)
+                }
                 cache = {}
-                _n_workers = max(1, min(len(domain_map), 25))
-                with _cf.ThreadPoolExecutor(max_workers=_n_workers) as ex:
-                    fut_map = {ex.submit(_check_domain, dom): dom for dom in domain_map}
-                    try:
-                        _iter = _cf.as_completed(fut_map, timeout=90)
-                    except Exception:
-                        _iter = fut_map.keys()
-                    for fut in _iter:
-                        dom = fut_map[fut]
+                if domains_needing_check:
+                    _n_workers = max(1, min(len(domains_needing_check), 25))
+                    with _cf.ThreadPoolExecutor(max_workers=_n_workers) as ex:
+                        fut_map = {ex.submit(_check_domain, dom): dom for dom in domains_needing_check}
                         try:
-                            cache[dom] = fut.result(timeout=0)
-                        except Exception as _fe:
-                            cache[dom] = {"mx":"","mx_method":"","spf":"","spf_status":"error",
-                                          "dmarc":"","dmarc_status":"error","blacklisted":False,
-                                          "blacklists":[],"score":0,"sendable":False,"valid":False,
-                                          "issues":[str(_fe)[:120]],"warnings":[]}
-                    for _rem_fut, _rem_dom in fut_map.items():
-                        if _rem_dom not in cache:
-                            cache[_rem_dom] = {"mx":"","mx_method":"","spf":"","spf_status":"timeout",
-                                               "dmarc":"","dmarc_status":"timeout","blacklisted":False,
-                                               "blacklists":[],"score":0,"sendable":False,"valid":False,
-                                               "issues":["DNS timeout"],"warnings":[]}
+                            _iter = _cf.as_completed(fut_map, timeout=90)
+                        except Exception:
+                            _iter = fut_map.keys()
+                        for fut in _iter:
+                            dom = fut_map[fut]
+                            try:
+                                cache[dom] = fut.result(timeout=0)
+                            except Exception as _fe:
+                                cache[dom] = {"mx":"","mx_method":"","spf":"","spf_status":"error",
+                                              "dmarc":"","dmarc_status":"error","blacklisted":False,
+                                              "blacklists":[],"score":0,"sendable":False,"valid":False,
+                                              "issues":[str(_fe)[:120]],"warnings":[]}
+                        for _rem_fut, _rem_dom in fut_map.items():
+                            if _rem_dom not in cache:
+                                cache[_rem_dom] = {"mx":"","mx_method":"","spf":"","spf_status":"timeout",
+                                                   "dmarc":"","dmarc_status":"timeout","blacklisted":False,
+                                                   "blacklists":[],"score":0,"sendable":False,"valid":False,
+                                                   "issues":["DNS timeout"],"warnings":[]}
 
                 # ── Build results list ───────────────────────────────────────
+                # Preference order per display: fresh cache hit > fresh live result.
                 results = []
-                for email in emails:
-                    email = email.strip()
-                    if not email:
-                        continue
-                    if "@" not in email:
-                        dom     = email.lower()
-                        info    = cache.get(dom, {"valid":False,"sendable":False,"score":0,"issues":["Lookup failed"],"warnings":[]})
-                        display = f"#RANDOMSTR@{dom}"
-                        results.append({**info, "email": display})
+                cached_count = 0
+                fresh_to_write = []  # (display_email, info_dict) — write at end
+                for disp, dom in display_emails:
+                    if disp in cached_results_by_email:
+                        info = cached_results_by_email[disp]
+                        results.append({**info, "email": disp})
+                        cached_count += 1
                     else:
-                        dom  = email.split("@")[-1].lower()
                         info = cache.get(dom, {"valid":False,"sendable":False,"score":0,"issues":["Lookup failed"],"warnings":[]})
-                        results.append({**info, "email": email})
+                        results.append({**info, "email": disp})
+                        fresh_to_write.append((disp, info))
+
+                # ─── EMAIL CHECK CACHE ─── write pass
+                # Persist every fresh result we just computed. INSERT OR REPLACE
+                # so an expired row gets a new created_at. Failure here is
+                # non-fatal — the response has already been built.
+                if fresh_to_write:
+                    try:
+                        with db_lock:
+                            _wc = sqlite3.connect(DB_PATH)
+                            _wc.executemany(
+                                "INSERT OR REPLACE INTO email_check_cache (email, result_json, created_at) VALUES (?,?,?)",
+                                [(_e, json.dumps(_i), _now_ts) for _e, _i in fresh_to_write],
+                            )
+                            _wc.commit(); _wc.close()
+                    except Exception:
+                        pass  # cache write failure must not break the API response
+                # ─── END EMAIL CHECK CACHE ─── write pass
 
                 _pass = [r for r in results if r.get("sendable") and r.get("score",0) >= 60 and not r.get("blacklisted")]
                 _warn = [r for r in results if r.get("sendable") and (r.get("score",0) < 60 or r.get("warnings")) and not r.get("blacklisted")]
                 _fail = [r for r in results if not r.get("sendable")]
                 self._json(200, {
-                    "results":    results,
-                    "total":      len(results),
-                    "pass_count": len(_pass),
-                    "warn_count": len(_warn),
-                    "fail_count": len(_fail),
+                    "results":      results,
+                    "total":        len(results),
+                    "pass_count":   len(_pass),
+                    "warn_count":   len(_warn),
+                    "fail_count":   len(_fail),
+                    "cached_count": cached_count,
                 })
             except Exception as e:
                 try:
                     self._json(200, {"error": str(e)[:300]})
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     pass
+
+        # ─── EMAIL CHECK CACHE ─── admin clear endpoint
+        # Truncates the email_check_cache table so the next run of
+        # /api/tools/validate-fromemail will re-fetch every domain live.
+        elif p == "/api/admin/cache/email-check/clear":
+            if not (sess := self._admin()): return
+            try:
+                with db_lock:
+                    _cc = sqlite3.connect(DB_PATH)
+                    _deleted = _cc.execute("SELECT COUNT(*) FROM email_check_cache").fetchone()[0]
+                    _cc.execute("DELETE FROM email_check_cache")
+                    _cc.commit(); _cc.close()
+                self._json(200, {"ok": True, "deleted": int(_deleted)})
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)[:300]})
+        # ─── END EMAIL CHECK CACHE ───
 
         # ── AWS region auto-detect ─────────────────────────────────
         # Given an IAM access key + secret, probe SES GetSendQuota in every
