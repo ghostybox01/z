@@ -3008,8 +3008,9 @@ if(code && window.opener){{
             if not (sess := self._auth()): return
             import socket as _p25_sock
             from urllib.request import urlopen as _uo
+            from concurrent.futures import ThreadPoolExecutor as _Pool25
             try:
-                public_ip = _uo("https://api.ipify.org", timeout=5).read().decode().strip()
+                public_ip = _uo("https://api.ipify.org", timeout=4).read().decode().strip()
             except Exception:
                 public_ip = ""
             probes = [
@@ -3018,21 +3019,32 @@ if(code && window.opener){{
                 ("outlook-com.olc.protection.outlook.com", 25),
                 ("mx0a-002066b1.pphosted.com", 25),
             ]
-            results = []
-            any_open = False
-            for host, port in probes:
+            def _probe25(hp):
+                host, port = hp
                 try:
-                    with _p25_sock.create_connection((host, port), timeout=5) as s:
-                        # Read the SMTP banner to confirm a real mail server,
-                        # not just an open TCP port.
+                    with _p25_sock.create_connection((host, port), timeout=4) as s:
                         try:
                             banner = s.recv(256).decode("ascii", errors="ignore").strip()
                         except Exception:
                             banner = ""
-                    results.append({"host": host, "port": port, "ok": True, "banner": banner[:120]})
-                    any_open = True
+                    return {"host": host, "port": port, "ok": True, "banner": banner[:120]}
                 except Exception as e:
-                    results.append({"host": host, "port": port, "ok": False, "error": str(e)[:80]})
+                    return {"host": host, "port": port, "ok": False, "error": str(e)[:80]}
+            # Parallel probes so a blocked port 25 doesn't add up sequentially
+            # (was ~20s before; now bounded to one timeout window).
+            results = []
+            pool = _Pool25(max_workers=len(probes))
+            try:
+                futs = {pool.submit(_probe25, hp): hp for hp in probes}
+                for f, hp in futs.items():
+                    try:
+                        results.append(f.result(timeout=6))
+                    except Exception as e:
+                        host, port = hp
+                        results.append({"host": host, "port": port, "ok": False, "error": str(e)[:80] or "timeout"})
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
+            any_open = any(r.get("ok") for r in results)
             # Office 365 inbound-connector recommendation
             connector = {
                 "name":               "SynthTel-Sender",
@@ -3649,7 +3661,13 @@ if(code && window.opener){{
             if not api_key:
                 self._json(400, {"error": "API key required"}); return
             try:
-                from urllib.request import urlopen, Request as _Req
+                # NOTE: do NOT re-import `urlopen` locally here. A local
+                # `from urllib.request import urlopen` anywhere in do_POST
+                # makes `urlopen` a function-scoped local for the *entire*
+                # method, which then breaks unrelated branches (e.g. test-crm)
+                # that rely on the module-level `urlopen` import at the top
+                # of this file. Module-level `urlopen` is in scope here.
+                from urllib.request import Request as _Req
                 from urllib.parse import urlencode
                 params = {
                     "key": api_key,
@@ -6948,6 +6966,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 return
 
             from concurrent.futures import ThreadPoolExecutor, as_completed
+            from concurrent.futures import TimeoutError as _FuturesTimeout
             _cfg = _BotoCfg(connect_timeout=4, read_timeout=4, retries={"max_attempts": 1})
 
             def _probe(region):
@@ -6980,12 +6999,22 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 except Exception as e:
                     return {"region": region, "ok": False, "error": str(e)[:120]}
 
+            # We explicitly manage the executor (not `with`) so we can call
+            # shutdown(cancel_futures=True) when as_completed times out —
+            # otherwise context-exit blocks on the slowest hanging future.
             results = []
-            with ThreadPoolExecutor(max_workers=8) as ex:
+            ex = ThreadPoolExecutor(max_workers=8)
+            try:
                 futures = {ex.submit(_probe, r): r for r in SES_REGIONS}
-                for fut in as_completed(futures, timeout=20):
-                    try: results.append(fut.result())
-                    except Exception: pass
+                try:
+                    for fut in as_completed(futures, timeout=20):
+                        try: results.append(fut.result())
+                        except Exception: pass
+                except _FuturesTimeout:
+                    # Slow regions get dropped — return whatever's done.
+                    pass
+            finally:
+                ex.shutdown(wait=False, cancel_futures=True)
             ok_regions = [r for r in results if r.get("ok")]
             self._json(200, {
                 "ok":          True,
@@ -7312,17 +7341,18 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             if not api_key or not domain:
                 self._json(400, {"error": "API key and domain are required"}); return
             try:
-                import sys as _sys, os as _os
-                _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "core"))
-                import importlib as _il
-                if "email_checker" in _sys.modules:
-                    _il.reload(_sys.modules["email_checker"])
-                from email_checker import create_provider
-                provider = create_provider(api_key, secret, region, domain)
-                if not provider:
-                    self._json(200, {"error": "Could not create provider for given credentials"}); return
-                result = provider.add_domain(domain)
-                self._json(200, {"ok": True, "domain_id": result.get("domain_id", ""), "dns_records": result.get("dns_records", [])})
+                from email_checker import add_domain as _add_domain
+                result = _add_domain(api_key, domain, secret=secret, region=region) or {}
+                if result.get("error") and not result.get("dns_records"):
+                    self._json(200, {"error": result["error"]}); return
+                self._json(200, {
+                    "ok":          True,
+                    "provider":    result.get("provider", ""),
+                    "domain":      result.get("domain", domain),
+                    "domain_id":   result.get("domain_id", ""),
+                    "dns_records": result.get("dns_records", []),
+                    "note":        result.get("note", ""),
+                })
             except ImportError as e:
                 self._json(200, {"error": f"email_checker.py not found in core/ — {e}"})
             except Exception as e:
@@ -7346,17 +7376,18 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             if not api_key or not domain:
                 self._json(400, {"error": "API key and domain are required"}); return
             try:
-                import sys as _sys, os as _os
-                _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "core"))
-                import importlib as _il
-                if "email_checker" in _sys.modules:
-                    _il.reload(_sys.modules["email_checker"])
-                from email_checker import create_provider
-                provider = create_provider(api_key, secret, region, domain)
-                if not provider:
-                    self._json(200, {"error": "Could not create provider for given credentials"}); return
-                result = provider.verify_domain(domain, domain_id)
-                self._json(200, {"ok": True, "status": result.get("status", "pending"), "records": result.get("records", [])})
+                from email_checker import verify_domain as _verify_domain
+                result = _verify_domain(api_key, domain, domain_id, secret=secret, region=region) or {}
+                if result.get("error"):
+                    self._json(200, {"error": result["error"]}); return
+                self._json(200, {
+                    "ok":       True,
+                    "provider": result.get("provider", ""),
+                    "domain":   result.get("domain", domain),
+                    "verified": result.get("verified", False),
+                    "records":  result.get("records", []),
+                    "message":  result.get("message", ""),
+                })
             except ImportError as e:
                 self._json(200, {"error": f"email_checker.py not found in core/ — {e}"})
             except Exception as e:
