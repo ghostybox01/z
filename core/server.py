@@ -3210,6 +3210,25 @@ if(code && window.opener){{
                 data = self._read_body()
             except Exception:
                 self._json(400, {"error": "Invalid JSON"}); return
+
+            # ── Validate optional methodRules shape ─────────────
+            # methodRules (when present) must be a list of dicts each with
+            # string `when` (glob pattern) and string `method` (engine).
+            # Empty list = no rules (same as absent).  Anything else → 400.
+            _mr = data.get("methodRules")
+            if _mr is not None:
+                if not isinstance(_mr, list):
+                    self._json(400, {"error": "methodRules must be a list"}); return
+                for _idx, _rule in enumerate(_mr):
+                    if not isinstance(_rule, dict):
+                        self._json(400, {"error": f"methodRules[{_idx}] must be an object"}); return
+                    _w = _rule.get("when")
+                    _m = _rule.get("method")
+                    if not isinstance(_w, str) or not isinstance(_m, str):
+                        self._json(400, {
+                            "error": f"methodRules[{_idx}] requires string 'when' and 'method' fields"
+                        }); return
+
             uid = sess["user_id"]
             total_count = len(data.get("leads", []))
             camp_name = data.get("campaignName", "Campaign")

@@ -51,6 +51,7 @@ import time
 import threading
 import html as html_lib
 import re
+import fnmatch
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue as _Queue, Empty as _QueueEmpty
 from datetime import datetime, timedelta
@@ -128,6 +129,47 @@ MS_RATE_DOMAINS = frozenset({
 })
 
 VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b", "office", "mx"})
+
+
+def _resolve_engine(email: str, default: str, rules: list) -> str:
+    """
+    Resolve which sending engine to use for a single recipient.
+
+    Evaluates ``rules`` (list of {"when": glob, "method": engine}) in order.
+    First glob (fnmatch syntax, case-insensitive) that matches the recipient
+    email returns its engine.  Falls back to ``default`` if no rule matches
+    or the matched rule names an engine not in ``VALID_METHODS`` (with a
+    warning logged).
+    """
+    if not rules or not email:
+        return default
+    addr = email.strip().lower()
+    if not addr:
+        return default
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        pat = rule.get("when")
+        eng = rule.get("method")
+        if not isinstance(pat, str) or not isinstance(eng, str):
+            continue
+        pat = pat.strip().lower()
+        eng = eng.strip().lower()
+        if not pat or not eng:
+            continue
+        try:
+            matched = fnmatch.fnmatchcase(addr, pat)
+        except Exception:
+            matched = False
+        if matched:
+            if eng not in VALID_METHODS:
+                log.warning(
+                    "_resolve_engine: rule %r selects invalid engine %r — skipping",
+                    pat, eng,
+                )
+                continue
+            return eng
+    return default
 
 
 def _check_socks5(host: str, port: int, timeout: int = 5) -> tuple:
@@ -464,10 +506,14 @@ class CampaignOptions:
         link_method:        int   = 0,
         b2b_cfg:            dict  = None,
         connector_host:     str   = "",
+        method_rules:       list  = None,
     ):
         self.uid            = uid
         self.inbox_profile  = bool(inbox_profile)
         self.method         = method if method in VALID_METHODS else "smtp"
+        # Per-recipient routing — list of {"when": glob, "method": engine}.
+        # Evaluated in order by _resolve_engine() inside _send_one().
+        self.method_rules   = list(method_rules) if method_rules else []
         self.smtps          = smtps   or []
         self.apis           = apis    or []
         self.owas           = owas    or []
@@ -556,6 +602,27 @@ class CampaignOptions:
         method = data.get("method", "smtp")
         if method == "isp":
             method = "tunnel"
+
+        # Per-recipient routing rules (optional).  Validated for shape at the
+        # HTTP layer (/api/send); here we just defensively coerce.  Rules with
+        # an unknown engine are dropped later by _resolve_engine() with a warn.
+        raw_rules = data.get("methodRules") or []
+        method_rules = []
+        if isinstance(raw_rules, list):
+            for r in raw_rules:
+                if not isinstance(r, dict):
+                    continue
+                pat = r.get("when")
+                eng = r.get("method")
+                if not isinstance(pat, str) or not isinstance(eng, str):
+                    continue
+                pat = pat.strip()
+                eng = eng.strip().lower()
+                if eng == "isp":
+                    eng = "tunnel"
+                if not pat or not eng:
+                    continue
+                method_rules.append({"when": pat, "method": eng})
 
         raw_smtps = data.get("smtps") or data.get("smtpServers", [])
         smtps = []
@@ -763,6 +830,7 @@ class CampaignOptions:
             link_method        = int(data.get("linkMethod", 0)),
             b2b_cfg            = data.get("b2bConfig") or data.get("b2b") or {},
             connector_host     = data.get("connectorHost") or "",
+            method_rules       = method_rules,
         )
 
 
@@ -973,13 +1041,48 @@ def _send_one(
         (True,  "", via_label)  on success
         (False, error_msg, via_label) on failure
     """
-    method = opts.method
+    # ── Per-recipient engine routing (methodRules) ──────────────
+    # _resolve_engine() picks an engine for this recipient based on the
+    # rule list; falls back to opts.method if no rule matches.  When the
+    # resolved engine differs from opts.method we re-pick `server` from
+    # the matching pool (opts.smtps / opts.apis / etc.) because the
+    # caller selected `server` based on opts.method.
+    _lead_email = (lead.get("email", "") if isinstance(lead, dict) else "") or ""
+    method = _resolve_engine(_lead_email, opts.method, opts.method_rules)
+    if method != opts.method:
+        _pool_by_method = {
+            "smtp":   getattr(opts, "smtps", None) or [],
+            "api":    getattr(opts, "apis", None)  or [],
+            "owa":    getattr(opts, "owas", None)  or [],
+            "crm":    getattr(opts, "crms", None)  or [],
+            "tunnel": getattr(opts, "tunnels", None) or [],
+        }
+        # For office/mx the caller's `server` isn't from a pool — office
+        # uses opts.connector_host, mx builds proxy at runtime.  For the
+        # pooled engines, only override if the matching pool has entries;
+        # otherwise leave the original server in place and let the engine
+        # branch error out with a clear message.
+        _new_pool = _pool_by_method.get(method)
+        if _new_pool:
+            _alt = _pick(_new_pool, "random", i)
+            if _alt:
+                server = _alt
+        # For office/mx with no pool, the engine branch handles its own
+        # config (connector_host, proxy list) so the original server is
+        # unused — safe to leave it.
+
     dlv    = opts.dlv
     hdrs   = opts.custom_headers
 
+    # Domain suffix appended to via labels so the operator can confirm
+    # which rule fired for which recipient (e.g. "smtp:gmail.com").
+    _dom = _lead_email.split("@", 1)[1].lower() if "@" in _lead_email else ""
+    _via_suffix = f"{method}:{_dom}" if _dom else method
+
     # Default via label — overridden below per method
     via = server.get("label", server.get("provider",
-                     server.get("host", method)))
+                     server.get("host", method))) if isinstance(server, dict) else method
+    via = f"{via} [{_via_suffix}]"
 
     # ─── OFFICE / M365 INBOUND CONNECTOR ────────────────────
     # Sends via port 25 to the O365 smart host. The VPS IP must already
@@ -1008,7 +1111,7 @@ def _send_one(
                 pool           = None,
                 attachments    = opts.attachments or {},
             )
-            return True, "", f"office/{connector_host}:25"
+            return True, "", f"office/{connector_host}:25 [{_via_suffix}]"
         except Exception as exc:
             return False, _parse_smtp_error(exc, lead.get("email", "")), via
 
@@ -1044,7 +1147,11 @@ def _send_one(
                 envelope_from   = server.get("envelope_from", ""),
                 smtp_auth_email = server.get("smtp_auth_email", ""),
             )
-            return True, "", via_used or via
+            # via_used is a _ViaResult (str subclass with .message_id) on
+            # success — return it as-is so the runner can preserve the
+            # Message-ID for IMAP delete-sent.  Falls back to the locally
+            # constructed via (which already includes [_via_suffix]).
+            return True, "", (via_used or via)
         except Exception as exc:
             return False, _parse_smtp_error(exc, lead.get("email", "")), via
 
@@ -1159,9 +1266,9 @@ def _send_one(
                     pool           = pool,
                     attachments    = opts.attachments or {},
                 )
-                return True, "", f"{srv_lbl} via {proxy_label}"
+                return True, "", f"{srv_lbl} via {proxy_label} [{_via_suffix}]"
             except Exception as exc:
-                return False, _parse_smtp_error(exc, lead.get("email", "")), f"{srv_lbl} via {proxy_label}"
+                return False, _parse_smtp_error(exc, lead.get("email", "")), f"{srv_lbl} via {proxy_label} [{_via_suffix}]"
 
         # Fallback: direct-to-MX through tunnel (needs port 25)
         else:
@@ -1198,9 +1305,9 @@ def _send_one(
                     socks_proxy = socks_cfg,
                     ctx         = mx_ctx,
                 )
-                return True, "", f"{proxy_label} → MX:{mx_host}"
+                return True, "", f"{proxy_label} → MX:{mx_host} [{_via_suffix}]"
             except Exception as exc:
-                return False, _parse_smtp_error(exc, lead.get("email", "")), f"{proxy_label} → MX"
+                return False, _parse_smtp_error(exc, lead.get("email", "")), f"{proxy_label} → MX [{_via_suffix}]"
 
     # ─── API ────────────────────────────────────────────────
     elif method == "api":
@@ -1222,7 +1329,7 @@ def _send_one(
                 uid              = getattr(opts, "uid", None),
                 attachments      = opts.attachments or {},
             )
-            return True, "", server.get("label", server.get("provider", "API"))
+            return True, "", f"{server.get('label', server.get('provider', 'API'))} [{_via_suffix}]"
         except Exception as exc:
             return False, _parse_smtp_error(exc, lead.get("email", "")), via
 
@@ -1239,7 +1346,7 @@ def _send_one(
                 dlv              = dlv,
                 custom_headers   = hdrs,
             )
-            return True, "", server.get("label", server.get("email", "OWA"))
+            return True, "", f"{server.get('label', server.get('email', 'OWA'))} [{_via_suffix}]"
         except Exception as exc:
             return False, _parse_smtp_error(exc, lead.get("email", "")), via
 
@@ -1255,7 +1362,7 @@ def _send_one(
                 i                = i,
                 resolved_plain   = plain,
             )
-            return True, "", server.get("label", server.get("provider", "CRM"))
+            return True, "", f"{server.get('label', server.get('provider', 'CRM'))} [{_via_suffix}]"
         except Exception as exc:
             return False, _parse_smtp_error(exc, lead.get("email", "")), via
 

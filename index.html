@@ -2210,6 +2210,7 @@ function TabCampaign({
   listUnsub, setListUnsub, unsubEmail, setUnsubEmail, unsubUrl, setUnsubUrl,
   oneClick, setOneClick, autoInject, setAutoInject, autoPlain, setAutoPlain, spamFilter, setSpamFilter,
   activeMethod, setActiveMethod, showDeliv, setShowDeliv,
+  methodRulesDraft, setMethodRulesDraft,
   cooldownEvery, setCooldownEvery, cooldownSecs, setCooldownSecs,
   batchPauseSecs, setBatchPauseSecs,
   testEmail, setTestEmail, testEveryN, setTestEveryN,
@@ -2383,6 +2384,75 @@ function TabCampaign({
             </div>
           </div>
         </div>
+
+        {/* ─── PER-RECIPIENT METHOD RULES ─── */}
+        {/* Mix-and-match engines: each rule's glob (fnmatch) is matched
+            against the recipient address; first match wins.  Falls back to
+            the Active Send Method above if no rule matches.  Sent as
+            `methodRules` in the /api/send payload — backend resolves per
+            recipient inside _send_one(). */}
+        <div className="mb16" style={{padding:"10px 12px",background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)"}}>
+          <div className="row jb ac-center mb8">
+            <div>
+              <div className="sh-t" style={{marginBottom:2}}>PER-RECIPIENT RULES</div>
+              <div className="dim sm">Route specific recipients through different engines. First matching glob wins; unmatched recipients use the Active Send Method above.</div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-g btn-xs"
+              onClick={()=>setMethodRulesDraft([...(methodRulesDraft||[]), {when:"", method:"smtp"}])}
+              title="Add a new rule">➕ Add rule</button>
+          </div>
+          {(methodRulesDraft||[]).length === 0 ? (
+            <div className="dim sm" style={{padding:"6px 2px",fontStyle:"italic"}}>No per-recipient rules — all recipients use the Active Send Method.</div>
+          ) : (
+            <div className="col g6">
+              {(methodRulesDraft||[]).map((rule, idx) => (
+                <div key={idx} className="row g6 ac-center">
+                  <input
+                    type="text"
+                    value={rule.when||""}
+                    placeholder="*@gmail.com"
+                    onChange={e=>{
+                      const next = [...methodRulesDraft];
+                      next[idx] = {...next[idx], when: e.target.value};
+                      setMethodRulesDraft(next);
+                    }}
+                    style={{flex:2,fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)"}}
+                    title="fnmatch glob (e.g. *@gmail.com, *@*.de). Case-insensitive."
+                  />
+                  <select
+                    value={rule.method||"smtp"}
+                    onChange={e=>{
+                      const next = [...methodRulesDraft];
+                      next[idx] = {...next[idx], method: e.target.value};
+                      setMethodRulesDraft(next);
+                    }}
+                    style={{flex:1,fontSize:13,padding:"8px 10px"}}>
+                    <option value="smtp">smtp</option>
+                    <option value="mx">mx</option>
+                    <option value="api">api</option>
+                    <option value="owa">owa</option>
+                    <option value="crm">crm</option>
+                    <option value="tunnel">tunnel</option>
+                    <option value="b2b">b2b</option>
+                    <option value="office">office</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-d btn-xs"
+                    onClick={()=>{
+                      const next = methodRulesDraft.filter((_,k)=>k!==idx);
+                      setMethodRulesDraft(next);
+                    }}
+                    title="Delete this rule"
+                    style={{padding:"6px 10px"}}>🗑</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* ─── /PER-RECIPIENT METHOD RULES ─── */}
 
         {/* Deliverability toggle */}
         <div className="row ac-center jb mb12">
@@ -10641,6 +10711,10 @@ function App() {
   const [crmConfig, setCrmConfig]     = useState(_g("crmConfig",{provider:"salesforce",url:"",username:"",password:"",token:""}));
   const [tunnelList, setTunnelList]   = useState(_g("tunnelList",[]));
   const [tunnelDraft, setTunnelDraft] = useState({sshHost:"",sshPort:22,sshUser:"root",sshPass:""});
+  // ── Per-recipient method routing rules (Feature D: methodRules) ──
+  // List of {when: glob, method: engine}.  Sent verbatim to /api/send as
+  // `methodRules`; backend evaluates per-recipient in _send_one().
+  const [methodRulesDraft, setMethodRulesDraft] = useState(_g("methodRulesDraft", []));
 
   // ── Deliverability ──
   const [priority, setPriority]     = useState(_g("priority","normal"));
@@ -10740,6 +10814,7 @@ function App() {
       leadsRaw, allowDupes,
       sendersRaw, senderName, senderNames, senderReplyTo, rotMode,
       activeMethod, smtpList, apiList, owaConfig, crmConfig, tunnelList,
+      methodRulesDraft,
       smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs,
       priority, batchSize, concurrent, cooldownEvery, cooldownSecs,
       batchPauseSecs, testEmail, testEveryN,
@@ -10766,6 +10841,7 @@ function App() {
     linkRot, linkRotDraft, linkRotMode, leadsRaw, allowDupes,
     sendersRaw, senderName, senderNames, senderReplyTo, rotMode,
     activeMethod, smtpList, apiList, owaConfig, crmConfig, tunnelList,
+    methodRulesDraft,
     smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs,
     priority, batchSize, concurrent, cooldownEvery, cooldownSecs,
     batchPauseSecs, testEmail, testEveryN,
@@ -10815,6 +10891,7 @@ function App() {
       _s("smtpFailThreshold",setSmtpFailThreshold); _s("smtpCooldownSecs",setSmtpCooldownSecs);
       _s("owaConfig",setOwaConfig); _s("crmConfig",setCrmConfig);
       _s("tunnelList",setTunnelList);
+      _s("methodRulesDraft",setMethodRulesDraft);
       _s("priority",setPriority); _s("batchSize",setBatchSize); _s("concurrent",setConcurrent);
       _s("cooldownEvery",setCooldownEvery); _s("cooldownSecs",setCooldownSecs);
       _s("batchPauseSecs",setBatchPauseSecs);
@@ -11297,6 +11374,14 @@ function App() {
       replyTos:senderReplyTo.split("\n").map(s=>s.trim()).filter(Boolean),
       _uid: (()=>{try{const u=JSON.parse(atob((localStorage.getItem("st_token")||"").split(".")[1]||"{}"));return u.sub||u.id||u.user_id||"";}catch(e){return "";}})(),
       method:effectiveMethod, smtpServers:smtpList, apiKeys:apiList, connectorHost:officeConnectorHost||"",
+      // Per-recipient routing — only include non-empty cleaned rules so the
+      // backend never receives stray {when:"", method:"smtp"} placeholders
+      // from rows the user added but didn't fill in.  Backend treats an
+      // empty/absent list as "no rules" (identical to legacy behaviour).
+      methodRules: (methodRulesDraft||[])
+        .filter(r => r && typeof r.when === "string" && r.when.trim()
+                       && typeof r.method === "string" && r.method.trim())
+        .map(r => ({when: r.when.trim(), method: r.method.trim()})),
       inboxProfile:true,
       owa:owaConfig, crm:crmConfig, tunnels:effectiveTunnels,
       // Only include ispTunnels if actually using ISP method — prevents auto-switch to tunnel
@@ -11876,6 +11961,7 @@ function App() {
       listUnsub,setListUnsub,unsubEmail,setUnsubEmail,unsubUrl,setUnsubUrl,
       oneClick,setOneClick,autoInject,setAutoInject,autoPlain,setAutoPlain,spamFilter,setSpamFilter,
       activeMethod,setActiveMethod,showDeliv,setShowDeliv,
+      methodRulesDraft,setMethodRulesDraft,
       concurrent,setConcurrent,
       hideFromEmail,setHideFromEmail,autoFlagEmail,setAutoFlagEmail,antiDetect,setAntiDetect,
       skipPreflightDns,setSkipPreflightDns,
