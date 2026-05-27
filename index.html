@@ -10440,7 +10440,7 @@ function TabAccount({username, role, doLogout,
 
             <div className="row g8 mb12">
               <button className="btn btn-g btn-sm" disabled={updateCheckLoading || updateApplying}
-                onClick={()=>checkForUpdate({showError:true, skipPopup:true})}>
+                onClick={()=>checkForUpdate({showError:true, forcePopup:true})}>
                 {updateCheckLoading ? "Checking…" : "🔍 Check now"}
               </button>
               {updateInfo && updateInfo.behind && (
@@ -10461,13 +10461,6 @@ function TabAccount({username, role, doLogout,
                   ))}
                 </div>
               </details>
-            )}
-            {updateInfo && updateInfo.compare_url && (
-              <div className="mt8">
-                <a href={updateInfo.compare_url} target="_blank" rel="noreferrer" className="sm" style={{color:"var(--accent)"}}>
-                  View diff on GitHub →
-                </a>
-              </div>
             )}
           </div>
 
@@ -10994,15 +10987,16 @@ function App() {
       }
       if (d.behind) {
         const sha = d.latest_sha || "";
-        const seenKey = "st_update_seen_" + sha.slice(0, 7);
         if (updateAutoApply && updatePopupSeen !== sha) {
           setUpdatePopupSeen(sha);
           if (role === "admin" || role === "superadmin") {
             await applyUpdate({silent: true});
           }
-        } else if (localStorage.getItem(seenKey) !== "1" && updatePopupSeen !== sha && !opts.skipPopup) {
+        } else if (opts.forcePopup || (updatePopupSeen !== sha && !opts.skipPopup)) {
+          // forcePopup = user manually clicked "Check now" — always show, even if
+          //              they've dismissed this SHA earlier.
+          // Otherwise: per-session dedup so the background timer doesn't spam.
           setUpdatePopupSeen(sha);
-          localStorage.setItem(seenKey, "1");
           showUpdatePopup(d);
         }
         setUpdateBannerHidden(false);
