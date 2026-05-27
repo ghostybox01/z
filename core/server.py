@@ -2924,7 +2924,11 @@ if(code && window.opener){{
             })
 
         # ── GitHub update: check for newer commit on tracked branch ───
-        elif p == "/api/update/check":
+        # Match path with or without ?query — needed so the manual
+        # "Check now" button's ?fresh=1 cache-buster actually reaches
+        # the handler (do_GET's `p` retains the full self.path including
+        # the query string).
+        elif p == "/api/update/check" or p.startswith("/api/update/check?"):
             if not (sess := self._auth()): return
             now = int(time.time())
             cached = UPDATE_STATE.get("last_result")
