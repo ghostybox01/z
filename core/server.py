@@ -5890,8 +5890,9 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 self._json(200, {"ok": False, "error": _hint})
                 return
 
-            # Pass clean "name=value; ..." string to b2b_manager
-            clean = "; ".join(f"{n}={v}" for n, v in cookie_pairs.items()) or raw_input
+            # Pass as JSON dict so b2b_manager uses Format D (flat dict) —
+            # avoids semicolons in cookie values being split as delimiters
+            clean = json.dumps(cookie_pairs) if cookie_pairs else raw_input
 
             try:
                 result = b2b.login_cookie(cred_user or email_arg, clean)

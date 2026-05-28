@@ -2870,6 +2870,8 @@ class B2BSession:
             ]
             found_ms_cookies = [c for c in ms_auth_cookies if c in cookie_dict]
             token = None
+            ests_session = None
+            _owa_session_for_imap = None
 
             # Strategy 0: Follow redirect chain to OWA using ESTS cookies
             if "ESTSAUTH" in cookie_dict or "ESTSAUTHPERSISTENT" in cookie_dict:
@@ -3055,7 +3057,7 @@ class B2BSession:
                 # Store the session and use it directly for IMAP/EWS operations.
                 self._s["email"]        = email_addr
                 self._s["provider"]     = prov_type
-                self._s["owa_session"]  = _owa_session_for_imap if "_owa_session_for_imap" in dir() else ests_session
+                self._s["owa_session"]  = _owa_session_for_imap or ests_session
                 self._s["auth_method"]  = "owa_session"
                 return {"ok": True, "email": email_addr, "method": "owa_session",
                         "message": "Authenticated via OWA session cookies (no Bearer token extracted)"}
@@ -3255,9 +3257,9 @@ class B2BSession:
             import datetime as _dt
             date_after = (_dt.datetime.utcnow() - _dt.timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00Z")
 
-        token = self._s.get("ms_token")
-        conn  = self._s.get("imap_conn")
-        owa   = self._s.get("owa_session")
+        token  = self._s.get("ms_token")
+        conn   = self._s.get("imap_conn")
+        owa    = self._s.get("owa_session") or self._s.get("cookie_session")
 
         if token:
             gen = extract_graph(
