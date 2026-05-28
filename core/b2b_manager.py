@@ -130,7 +130,7 @@ except ImportError:
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 
-import json as _json_mod  # noqa: E402 — needed before class definitions
+import json  # noqa: E402 — needed before class definitions
 
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -2593,6 +2593,15 @@ class B2BSession:
             self._s["ms_token"]         = result.get("token")
             self._s["ms_token_expires"] = result.get("expires", 0.0)
         return result
+
+    # ── Login: Google OAuth device flow (stubs) ─────────────────
+
+    def start_google_device_code(self, email_addr: str) -> dict:
+        """Google OAuth device flow is not yet supported — return a clear error."""
+        return {"ok": False, "error": "Google device code flow is not yet configured. Use an App Password via the Password tab instead."}
+
+    def poll_google_device_poll(self) -> dict:
+        return {"ok": False, "error": "No Google device flow in progress."}
 
     # ── Login: Method 2c — password + TOTP/OTP ─────────────────
 
