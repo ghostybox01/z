@@ -9807,13 +9807,17 @@ function TabAccount({username, role, doLogout,
   const [tgSaving, setTgSaving]   = useState(false);
 
   // Support tickets state
-  const [tickets, setTickets]   = useState([]);
-  const [openTicket, setOpenTicket] = useState(null);
-  const [ticketMsgs, setTicketMsgs] = useState([]);
-  const [newTicket, setNewTicket] = useState({subject:"",body:"",priority:"normal"});
-  const [replyBody, setReplyBody] = useState("");
-  const [ticketTab, setTicketTab] = useState("list");
-  const [ticketFilter, setTicketFilter] = useState("open");
+  const [tickets, setTickets]         = useState([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [ticketsErr, setTicketsErr]   = useState("");
+  const [openTicket, setOpenTicket]   = useState(null);
+  const [ticketMsgs, setTicketMsgs]   = useState([]);
+  const [ticketMsgLoading, setTicketMsgLoading] = useState(false);
+  const [newTicket, setNewTicket]     = useState({subject:"",body:"",priority:"normal"});
+  const [replyBody, setReplyBody]     = useState("");
+  const [replyLoading, setReplyLoading] = useState(false);
+  const [ticketTab, setTicketTab]     = useState("list");
+  const [ticketFilter, setTicketFilter] = useState("all");
 
   // Admin notifications
   const [notifUid, setNotifUid]   = useState("");
@@ -9838,14 +9842,40 @@ function TabAccount({username, role, doLogout,
   async function loadUsers(){
     try{const r=await apiCall("/api/admin/users/all");if(r.ok){const d=await r.json();setUsers(d.users||[]);}}catch(e){}
   }
-  async function loadTickets(){
-    try{const r=await apiCall(`/api/tickets?status=${ticketFilter}`);if(r.ok){const d=await r.json();setTickets(d.tickets||[]);}}catch(e){}
+  async function loadTickets(filter){
+    const f = filter !== undefined ? filter : ticketFilter;
+    setTicketsLoading(true); setTicketsErr("");
+    try{
+      const r=await apiCall(`/api/tickets?status=${f}`);
+      if(r.ok){const d=await r.json();setTickets(d.tickets||[]);}
+      else{const d=await r.json().catch(()=>({}));setTicketsErr(d.error||"Failed to load tickets");}
+    }catch(e){setTicketsErr("Network error");}
+    setTicketsLoading(false);
   }
-  async function loadTicketMsgs(tid){
-    try{const r=await apiCall(`/api/ticket/${tid}`);if(r.ok){const d=await r.json();setOpenTicket(d.ticket);setTicketMsgs(d.messages||[]);}}catch(e){}
+  async function loadTicketMsgs(tid, silent){
+    if(!silent) setTicketMsgLoading(true);
+    try{
+      const r=await apiCall(`/api/ticket/${tid}`);
+      if(r.ok){const d=await r.json();setOpenTicket(d.ticket);setTicketMsgs(d.messages||[]);}
+    }catch(e){}
+    if(!silent) setTicketMsgLoading(false);
   }
+  async function openTicketView(tid){
+    setTicketMsgLoading(true);
+    setTicketTab("view");
+    await loadTicketMsgs(tid);
+    setTicketMsgLoading(false);
+  }
+  function backToList(){setOpenTicket(null);setTicketTab("list");setTicketMsgs([]);loadTickets();}
 
-  useEffect(()=>{ loadTickets(); },[ticketFilter]);
+  useEffect(()=>{ loadTickets(ticketFilter); },[ticketFilter]);
+
+  // Auto-refresh ticket messages every 15s when viewing a ticket
+  useEffect(()=>{
+    if(ticketTab!=="view"||!openTicket) return;
+    const iv = setInterval(()=>loadTicketMsgs(openTicket.id, true), 15000);
+    return ()=>clearInterval(iv);
+  },[ticketTab, openTicket]);
 
   async function createUser(){
     try{const r=await apiCall("/api/admin/users",{method:"POST",body:JSON.stringify(newU)});const d=await r.json();if(r.ok){setAdminMsg("✓ User created");setNewU({username:"",password:"",role:"user",expires_at:""});loadUsers();}else setAdminMsg("✗ "+(d.error||"Failed"));}catch(e){setAdminMsg("Error: "+e.message);}
@@ -9909,9 +9939,11 @@ function TabAccount({username, role, doLogout,
     if(r.ok){setNewTicket({subject:"",body:"",priority:"normal"});setTicketTab("list");loadTickets();}
   }
   async function sendReply(tid){
-    if(!replyBody.trim())return;
+    if(!replyBody.trim()||replyLoading)return;
+    setReplyLoading(true);
     await apiCall(`/api/ticket/${tid}/reply`,{method:"POST",body:JSON.stringify({body:replyBody})});
-    setReplyBody(""); loadTicketMsgs(tid); loadTickets();
+    setReplyBody(""); await loadTicketMsgs(tid); loadTickets();
+    setReplyLoading(false);
   }
   async function closeTicket(tid){
     await apiCall(`/api/ticket/${tid}/close`,{method:"POST"});
@@ -10104,7 +10136,7 @@ function TabAccount({username, role, doLogout,
       {aTab==="tickets" && (
         <div>
           <div className="tab-bar mb16">
-            <button className={`tb ${ticketTab==="list"?"on":""}`} onClick={()=>setTicketTab("list")}>All Tickets</button>
+            <button className={`tb ${ticketTab==="list"?"on":""}`} onClick={()=>{setOpenTicket(null);setTicketTab("list");loadTickets();}}>All Tickets</button>
             <button className={`tb ${ticketTab==="new"?"on":""}`} onClick={()=>setTicketTab("new")}>+ New Ticket</button>
           </div>
 
@@ -10139,78 +10171,91 @@ function TabAccount({username, role, doLogout,
             </div>
           )}
 
-          {ticketTab==="list" && !openTicket && (
+          {(ticketTab==="list" || (ticketTab==="view" && !openTicket)) && (
             <div>
-              {isAdmin && (
-                <div className="row g8 mb12">
-                  {["open","closed","all"].map(f=>(
+              <div className="row jb ac-center mb12">
+                <div className="row g8">
+                  {(isAdmin?["open","closed","all"]:["open","closed"]).map(f=>(
                     <button key={f} className={`btn btn-sm ${ticketFilter===f?"btn-p":"btn-g"}`} onClick={()=>setTicketFilter(f)}>{f.charAt(0).toUpperCase()+f.slice(1)}</button>
                   ))}
                 </div>
-              )}
-              {tickets.length===0
-                ? <div className="card"><Info type="i">No tickets found.</Info></div>
-                : <div className="card">
-                    <div className="tw">
-                      <table>
-                        <thead><tr><th>#</th><th>Subject</th>{isAdmin&&<th>User</th>}<th>Priority</th><th>Status</th><th>Messages</th><th>Updated</th><th></th></tr></thead>
-                        <tbody>
-                          {tickets.map(t=>(
-                            <tr key={t.id}>
-                              <td className="dim2 xs">#{t.id}</td>
-                              <td className="bold">{t.subject}</td>
-                              {isAdmin&&<td className="dim2">{t.username}</td>}
-                              <td><Bdg t={t.priority==="urgent"?"e":t.priority==="high"?"p":t.priority==="normal"?"a":"n"}>{t.priority}</Bdg></td>
-                              <td><Bdg t={t.status==="open"?"ok":"n"}>{t.status}</Bdg></td>
-                              <td className="dim2">{t.msg_count}</td>
-                              <td className="dim2 xs">{(t.updated_at||"").split("T")[0]}</td>
-                              <td><button className="btn btn-g btn-xs" onClick={()=>{loadTicketMsgs(t.id);setTicketTab("view");}}>View →</button></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                <button className="btn btn-g btn-xs" onClick={()=>loadTickets()} disabled={ticketsLoading}>{ticketsLoading?"…":"↺ Refresh"}</button>
+              </div>
+              {ticketsErr && <div className="ib ib-e mb12"><span className="ib-ic">✗</span><span>{ticketsErr}</span></div>}
+              {ticketsLoading && !tickets.length
+                ? <div className="card"><div className="dim2 sm" style={{padding:"20px 0",textAlign:"center"}}>Loading tickets…</div></div>
+                : tickets.length===0
+                  ? <div className="card"><Info type="i">No {ticketFilter!=="all"?ticketFilter+" ":""} tickets found. {ticketFilter==="open"&&<span>Try <button className="btn btn-g btn-xs" style={{display:"inline",padding:"2px 8px"}} onClick={()=>setTicketFilter("all")}>Show All</button></span>}</Info></div>
+                  : <div className="card" style={{padding:0,overflow:"hidden"}}>
+                      <div className="tw">
+                        <table>
+                          <thead><tr><th>#</th><th>Subject</th>{isAdmin&&<th>User</th>}<th>Priority</th><th>Status</th><th>Msgs</th><th>Updated</th><th></th></tr></thead>
+                          <tbody>
+                            {tickets.map(t=>(
+                              <tr key={t.id}>
+                                <td className="dim2 xs">#{t.id}</td>
+                                <td className="bold">{t.subject||"(no subject)"}</td>
+                                {isAdmin&&<td className="dim2">{t.username||""}</td>}
+                                <td><Bdg t={t.priority==="urgent"?"e":t.priority==="high"?"p":t.priority==="normal"?"a":"n"}>{t.priority||"?"}</Bdg></td>
+                                <td><Bdg t={t.status==="open"?"ok":"n"}>{t.status||"?"}</Bdg></td>
+                                <td className="dim2">{t.msg_count||0}</td>
+                                <td className="dim2 xs">{(t.updated_at||t.created_at||"").split("T")[0]}</td>
+                                <td><button className="btn btn-g btn-xs" onClick={()=>openTicketView(t.id)}>View →</button></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
               }
             </div>
           )}
 
           {ticketTab==="view" && openTicket && (
             <div>
-              <button className="btn btn-g btn-sm mb12" onClick={()=>{setOpenTicket(null);setTicketTab("list");loadTickets();}}>← Back to Tickets</button>
+              <button className="btn btn-g btn-sm mb12" onClick={backToList}>← Back to Tickets</button>
               <div className="g2" style={{alignItems:"start"}}>
                 <div className="card" style={{flex:2}}>
                   <div className="row jb ac-center mb16">
                     <div>
-                      <div className="card-title" style={{marginBottom:4}}>#{openTicket.id} {openTicket.subject}</div>
+                      <div className="card-title" style={{marginBottom:4}}>#{openTicket.id} — {openTicket.subject}</div>
                       <div className="row g8"><Bdg t={openTicket.status==="open"?"ok":"n"}>{openTicket.status}</Bdg><Bdg t={openTicket.priority==="urgent"?"e":"n"}>{openTicket.priority}</Bdg></div>
                     </div>
                     <div className="row g6">
+                      <button className="btn btn-g btn-xs" onClick={()=>loadTicketMsgs(openTicket.id)}>↺ Refresh</button>
                       {openTicket.status==="open"
                         ? <button className="btn btn-g btn-sm" onClick={()=>closeTicket(openTicket.id)}>✓ Close</button>
                         : <button className="btn btn-g btn-sm" onClick={()=>reopenTicket(openTicket.id)}>↺ Reopen</button>
                       }
                     </div>
                   </div>
-                  <div className="col g12" style={{maxHeight:400,overflowY:"auto",paddingRight:8}}>
-                    {ticketMsgs.map(m=>(
-                      <div key={m.id} className={`ticket-msg ${m.is_admin?"admin-msg":"user-msg"}`}>
-                        <div className="row jb ac-center mb8">
-                          <div className="row g8">
-                            <strong>{m.sender_name}</strong>
-                            {m.is_admin&&<Bdg t="p">Admin</Bdg>}
-                          </div>
-                          <span className="dim2 xs">{(m.created_at||"").split("T").join(" ").split(".")[0]}</span>
+                  {ticketMsgLoading
+                    ? <div className="dim2 sm" style={{padding:"20px 0",textAlign:"center"}}>Loading messages…</div>
+                    : ticketMsgs.length===0
+                      ? <div className="dim2 sm" style={{padding:"20px 0",textAlign:"center"}}>No messages yet.</div>
+                      : <div className="col g10" style={{maxHeight:480,overflowY:"auto",paddingRight:8}}>
+                          {ticketMsgs.map(m=>(
+                            <div key={m.id} className={`ticket-msg ${m.is_admin?"admin-msg":"user-msg"}`}>
+                              <div className="row jb ac-center mb8">
+                                <div className="row g8">
+                                  <strong>{m.sender_name||"Unknown"}</strong>
+                                  {m.is_admin&&<Bdg t="p">Admin</Bdg>}
+                                </div>
+                                <span className="dim2 xs">{(m.created_at||"").replace("T"," ").split(".")[0]}</span>
+                              </div>
+                              <div style={{whiteSpace:"pre-wrap",fontSize:14,lineHeight:1.6}}>{m.body}</div>
+                            </div>
+                          ))}
                         </div>
-                        <div style={{whiteSpace:"pre-wrap",fontSize:14,lineHeight:1.6}}>{m.body}</div>
-                      </div>
-                    ))}
-                  </div>
+                  }
                   {openTicket.status==="open" && (
                     <div className="mt16">
                       <label className="lbl">Reply</label>
-                      <textarea value={replyBody} onChange={e=>setReplyBody(e.target.value)} placeholder="Write your reply..." style={{minHeight:100}}/>
-                      <button className="btn btn-p btn-sm mt8" onClick={()=>sendReply(openTicket.id)} disabled={!replyBody.trim()}>Send Reply</button>
+                      <textarea value={replyBody} onChange={e=>setReplyBody(e.target.value)} placeholder="Write your reply…" style={{minHeight:90}} onKeyDown={e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){sendReply(openTicket.id);}}}/>
+                      <div className="row g8 mt8">
+                        <button className="btn btn-p btn-sm" onClick={()=>sendReply(openTicket.id)} disabled={!replyBody.trim()||replyLoading}>{replyLoading?"Sending…":"Send Reply"}</button>
+                        <span className="dim2 xs" style={{alignSelf:"center"}}>Ctrl+Enter to send</span>
+                      </div>
                     </div>
                   )}
                 </div>
