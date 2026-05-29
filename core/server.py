@@ -771,17 +771,28 @@ def _gh_request(path: str, accept: str = "application/vnd.github+json"):
 
     Raises HTTPError on non-2xx.  Sends Authorization: Bearer when
     GITHUB_TOKEN is set, raising the unauthenticated 60/hr rate limit
-    to 5000/hr.
+    to 5000/hr.  If the token returns 401 (revoked/expired), retries
+    anonymously so public repos continue to work.
     """
     url = "https://api.github.com/" + path.lstrip("/")
-    req = Request(url, headers={
-        "Accept": accept,
-        "User-Agent": "synthtel-update-checker",
-    })
+    headers = {"Accept": accept, "User-Agent": "synthtel-update-checker"}
+
+    def _do_request(use_token: bool):
+        req = Request(url, headers=dict(headers))
+        if use_token and GITHUB_TOKEN:
+            req.add_header("Authorization", f"Bearer {GITHUB_TOKEN}")
+        with urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+
     if GITHUB_TOKEN:
-        req.add_header("Authorization", f"Bearer {GITHUB_TOKEN}")
-    with urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read().decode())
+        try:
+            return _do_request(use_token=True)
+        except HTTPError as he:
+            if he.code == 401:
+                # Token is revoked or expired — fall back to anonymous
+                return _do_request(use_token=False)
+            raise
+    return _do_request(use_token=False)
 
 
 def _gh_raw(path: str) -> bytes:
