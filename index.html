@@ -10440,9 +10440,17 @@ function TabAccount({username, role, doLogout,
             )}
             {updateInfo && updateInfo.error && (() => {
               const isAuthErr = updateInfo.error && (updateInfo.error.includes("401") || updateInfo.error.toLowerCase().includes("unauthorized"));
-              return isAuthErr
-                ? <div className="ib ib-w mb12"><span className="ib-ic">⚠</span><span>GitHub token invalid or expired — update check unavailable. Clear <code>SYNTHTEL_GH_TOKEN</code> in your VPS <code>.env</code> or set a fresh token.</span></div>
-                : <div className="ib ib-e mb12"><span className="ib-ic">✗</span><span>{updateInfo.error}</span></div>;
+              if (!isAuthErr) return <div className="ib ib-e mb12"><span className="ib-ic">✗</span><span>{updateInfo.error}</span></div>;
+              return (
+                <div className="ib ib-w mb12" style={{flexDirection:"column",alignItems:"start",gap:10}}>
+                  <div><span className="ib-ic">⚠</span><span>GitHub token on the server has expired — update check is failing.</span></div>
+                  <button className="btn btn-g btn-sm" onClick={async()=>{
+                    await apiCall("/api/update/config",{method:"POST",body:JSON.stringify({token:""})});
+                    setUpdateInfo(null);
+                    checkForUpdate({showError:true,skipPopup:false});
+                  }}>🔧 Remove expired token &amp; retry</button>
+                </div>
+              );
             })()}
 
             <div className="row g8 mb12">
