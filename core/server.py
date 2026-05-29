@@ -521,7 +521,7 @@ def _redirect_log_event(rid: int, *, ip: str, ua: str, country: str,
 def _redirect_render_theme(theme: str, target_url: str,
                            short_path: str = "") -> str:
     theme = (theme or "blank").lower().strip()
-    safe_target = target_url.replace("'", "%27").replace('"', "%22")
+    safe_target = target_url.replace("&", "&amp;").replace('"', "%22").replace("'", "%27").replace("<", "%3C").replace(">", "%3E")
     js_redirect = (
         "<script>"
         "setTimeout(function(){window.location.replace('" + safe_target + "');}, 1200);"
@@ -2027,7 +2027,7 @@ class SynthTelHandler(BaseHTTPRequestHandler):
             qs = parse_qs(urlparse(p).query)
             try: step = int(qs.get("s", ["0"])[0])
             except Exception: step = 0
-            step = max(0, min(step, len(chain)))
+            step = max(0, min(step, len(chain) - 1))
             if step < len(chain):
                 target = chain[step]
                 # Append next-step query param so the next hop continues
@@ -2060,10 +2060,14 @@ class SynthTelHandler(BaseHTTPRequestHandler):
 
         # Optional path/query passthrough (campaign tracking)
         try:
-            from urllib.parse import urlparse as _up
+            from urllib.parse import urlparse as _up, urlencode, parse_qsl
             qs_in = _up(p).query
             if cfg.get("preserveQuery") and qs_in:
-                target = target + (("&" if "?" in target else "?") + qs_in)
+                # Strip internal chain step param so it never leaks to destination
+                fwd = [(k, v) for k, v in parse_qsl(qs_in) if k != "s"]
+                if fwd:
+                    sep = "&" if "?" in target else "?"
+                    target = target + sep + urlencode(fwd)
         except Exception:
             pass
 
