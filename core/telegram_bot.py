@@ -383,16 +383,24 @@ def notify_admins(text: str, tier: str = None):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def notify_new_ticket(ticket_id: int, username: str, subject: str, body: str):
-    """Notify all admins of a new support ticket."""
+    """Notify all admins and the support chat of a new support ticket."""
     preview = _esc(body[:200]) + ("…" if len(body) > 200 else "")
     text = (
         f"🎫 <b>New Support Ticket #{ticket_id}</b>\n\n"
         f"👤 User: <b>{_esc(username)}</b>\n"
         f"📋 Subject: {_esc(subject)}\n\n"
         f"💬 {preview}\n\n"
-        f"Reply via the admin panel."
+        f"Reply here: <code>/reply {ticket_id} your message</code>\n"
+        f"Close: <code>/close {ticket_id}</code>"
     )
     notify_admins(text)
+    # Also forward to dedicated support chat if configured
+    support_chat = get_config("support_chat_id", "").strip()
+    if support_chat:
+        try:
+            send_message(int(support_chat), text)
+        except Exception:
+            pass
 
 
 def notify_ticket_reply(ticket_id: int, user_id: int, admin_name: str, reply: str):
@@ -431,13 +439,40 @@ ADMIN_COMMANDS = """
 
 /status — System status
 /users — List all users
+/tickets — Open support tickets
+/reply &lt;id&gt; &lt;msg&gt; — Reply to a ticket
+/close &lt;id&gt; — Close a ticket
 /kick &lt;username&gt; — Deactivate a user
 /unban &lt;username&gt; — Reactivate a user
 /resetpw &lt;username&gt; &lt;newpw&gt; — Reset user password
-/tickets — Open support tickets
 /broadcast &lt;msg&gt; — Send message to all users
 /help — Show this help
 """
+
+# ── Throttle update notifications: track last notified SHA in memory ─────────
+_last_notified_update_sha = ""
+
+def notify_update_available(sha: str, branch: str, commit_msg: str):
+    """Notify admins (and support chat) that a new version is available.
+    Fires at most once per unique SHA so the polling loop won't spam."""
+    global _last_notified_update_sha
+    if sha == _last_notified_update_sha:
+        return
+    _last_notified_update_sha = sha
+    short = sha[:7] if sha else "unknown"
+    text = (
+        f"🔔 <b>SynthTel Update Available</b>\n\n"
+        f"📦 New version: <code>{short}</code> on <b>{_esc(branch)}</b>\n"
+        f"💬 {_esc(commit_msg[:200])}\n\n"
+        f"Apply via Admin → Account → Updates in the panel."
+    )
+    notify_admins(text)
+    support_chat = get_config("support_chat_id", "").strip()
+    if support_chat:
+        try:
+            send_message(int(support_chat), text)
+        except Exception:
+            pass
 
 def handle_admin_command(chat_id: int, text: str, user_row: dict):
     """Process a command from a verified admin Telegram user."""
@@ -529,8 +564,66 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
         if not rows:
             send_message(chat_id, "✅ No open tickets")
             return
-        lines = [f"🎫 #{r['id']} <b>{r['username']}</b>: {r['subject'][:40]}" for r in rows]
-        send_message(chat_id, "🎫 <b>Open Tickets</b>\n\n" + "\n".join(lines))
+        lines = [f"🎫 #{r['id']} <b>{r['username']}</b>: {r['subject'][:40]}\n  <code>/reply {r['id']} ...</code>" for r in rows]
+        send_message(chat_id, "🎫 <b>Open Tickets</b>\n\n" + "\n\n".join(lines))
+
+    elif cmd == "/reply" and is_admin:
+        if len(parts) < 3:
+            send_message(chat_id, "Usage: /reply &lt;ticket_id&gt; &lt;message&gt;")
+            return
+        try:
+            tid = int(parts[1])
+        except ValueError:
+            send_message(chat_id, "❌ Ticket ID must be a number"); return
+        reply_text = parts[2].strip()
+        if not reply_text:
+            send_message(chat_id, "❌ Reply cannot be empty"); return
+        admin_name = user_row.get("username", "Admin")
+        with db_lock:
+            c = get_conn()
+            ticket = c.execute(
+                "SELECT id, user_id, status, subject FROM support_tickets WHERE id=?", (tid,)
+            ).fetchone()
+            if not ticket:
+                c.close()
+                send_message(chat_id, f"❌ Ticket #{tid} not found"); return
+            if ticket["status"] == "closed":
+                c.close()
+                send_message(chat_id, f"❌ Ticket #{tid} is closed. Reopen it first."); return
+            admin_id = user_row.get("id")
+            c.execute(
+                "INSERT INTO ticket_messages (ticket_id,sender_id,sender_name,is_admin,body) VALUES (?,?,?,?,?)",
+                (tid, admin_id, admin_name, 1, reply_text)
+            )
+            c.execute("UPDATE support_tickets SET status='open', updated_at=CURRENT_TIMESTAMP WHERE id=?", (tid,))
+            owner_id = ticket["user_id"]
+            c.commit()
+            c.close()
+        send_message(chat_id, f"✅ Reply sent to Ticket #{tid}")
+        # Notify the ticket owner via TG if linked
+        notify_ticket_reply(tid, owner_id, admin_name, reply_text)
+
+    elif cmd == "/close" and is_admin:
+        if len(parts) < 2:
+            send_message(chat_id, "Usage: /close &lt;ticket_id&gt;")
+            return
+        try:
+            tid = int(parts[1])
+        except ValueError:
+            send_message(chat_id, "❌ Ticket ID must be a number"); return
+        admin_name = user_row.get("username", "Admin")
+        with db_lock:
+            c = get_conn()
+            ticket = c.execute("SELECT user_id FROM support_tickets WHERE id=?", (tid,)).fetchone()
+            if not ticket:
+                c.close()
+                send_message(chat_id, f"❌ Ticket #{tid} not found"); return
+            c.execute("UPDATE support_tickets SET status='closed', updated_at=CURRENT_TIMESTAMP WHERE id=?", (tid,))
+            owner_id = ticket["user_id"]
+            c.commit()
+            c.close()
+        send_message(chat_id, f"✅ Ticket #{tid} closed")
+        notify_ticket_closed(tid, owner_id, admin_name)
 
     elif cmd == "/broadcast" and is_superadmin:
         if len(parts) < 2:

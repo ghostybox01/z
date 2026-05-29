@@ -9803,7 +9803,7 @@ function TabAccount({username, role, doLogout,
   const [tgStatus, setTgStatus]   = useState({linked:false,tg_username:"",tg_2fa_enabled:false});
   const [tgLink, setTgLink]       = useState(null);
   const [tgLoading, setTgLoading] = useState(false);
-  const [tgConfig, setTgConfig]   = useState({bot_token:"",enabled:true,notify_channel:""});
+  const [tgConfig, setTgConfig]   = useState({bot_token:"",enabled:true,notify_channel:"",support_chat_id:""});
   const [tgSaving, setTgSaving]   = useState(false);
 
   // Support tickets state
@@ -10246,6 +10246,12 @@ function TabAccount({username, role, doLogout,
               <div><label className="lbl">Notification Channel (optional)</label>
                 <input value={tgConfig.notify_channel} onChange={e=>setTgConfig({...tgConfig,notify_channel:e.target.value})}
                   placeholder="@yourchannel or chat ID" style={{fontSize:14,padding:"10px 12px"}}/></div>
+              <div>
+                <label className="lbl">Support Chat ID</label>
+                <Info type="i">All new support tickets will be forwarded to this chat. Admins can reply with <code>/reply &lt;id&gt; message</code> directly in Telegram. Use your personal chat ID or a group ID. Find your chat ID by messaging @userinfobot.</Info>
+                <input value={tgConfig.support_chat_id||""} onChange={e=>setTgConfig({...tgConfig,support_chat_id:e.target.value})}
+                  placeholder="Numeric chat ID e.g. 123456789" style={{fontSize:14,padding:"10px 12px",fontFamily:"var(--font-mono)"}}/>
+              </div>
               <Tog checked={tgConfig.enabled} onChange={v=>setTgConfig({...tgConfig,enabled:v})} label="Bot enabled" desc="Enable/disable the Telegram bot globally"/>
             </div>
             <button className="btn btn-p btn-sm mt12" onClick={saveTgConfig} disabled={tgSaving}>{tgSaving?"Saving…":"💾 Save Config"}</button>
@@ -10255,15 +10261,17 @@ function TabAccount({username, role, doLogout,
             <div className="col g8 sm" style={{fontFamily:"var(--font-mono)",fontSize:13}}>
               {[["/status","System status"],
                 ["/users","List all users"],
+                ["/tickets","Open support tickets"],
+                ["/reply <id> <msg>","Reply to a ticket from Telegram"],
+                ["/close <id>","Close a ticket from Telegram"],
                 ["/kick <user>","Suspend a user"],
                 ["/unban <user>","Reactivate a user"],
                 ["/resetpw <user> <pw>","Reset password (super admin)"],
-                ["/tickets","Open support tickets"],
                 ["/broadcast <msg>","Message all users (super admin)"],
                 ["/help","Show all commands"]
               ].map(([cmd,desc])=>(
                 <div key={cmd} className="row g12">
-                  <span style={{color:"var(--accent)",minWidth:200}}>{cmd}</span>
+                  <span style={{color:"var(--accent)",minWidth:220}}>{cmd}</span>
                   <span className="dim2" style={{fontFamily:"var(--font-ui)"}}>— {desc}</span>
                 </div>
               ))}

@@ -2415,12 +2415,14 @@ if(code && window.opener){{
             notify = tg.get_config("notify_channel", "") if TG_AVAILABLE else ""
             enabled= tg.get_config("enabled", "0") if TG_AVAILABLE else "0"
             notify_campaigns = tg.get_config("notify_campaigns", "1") if TG_AVAILABLE else "1"
+            support_chat_id  = tg.get_config("support_chat_id", "") if TG_AVAILABLE else ""
             self._json(200, {
                 "bot_token": "***" if token else "",
                 "has_token": bool(token),
                 "notify_channel": notify,
                 "enabled": enabled == "1",
                 "notify_campaigns": notify_campaigns == "1",
+                "support_chat_id": support_chat_id,
                 "polling": TG_AVAILABLE,
             })
 
@@ -2835,6 +2837,15 @@ if(code && window.opener){{
                 info = _check_for_update()
                 UPDATE_STATE["last_check"]  = int(time.time())
                 UPDATE_STATE["last_result"] = info
+                if info.get("behind") and TG_AVAILABLE:
+                    try:
+                        tg.notify_update_available(
+                            info.get("latest_sha", ""),
+                            info.get("branch", GITHUB_BRANCH),
+                            info.get("commit_msg", ""),
+                        )
+                    except Exception:
+                        pass
                 self._json(200, {"ok": True, **info,
                                  "in_progress": UPDATE_STATE.get("in_progress", False)})
             except HTTPError as he:
@@ -7362,6 +7373,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             tg.set_config("enabled", "1" if data.get("enabled") else "0")
             tg.set_config("notify_channel", data.get("notify_channel", ""))
             tg.set_config("notify_campaigns", "1" if data.get("notify_campaigns", True) else "0")
+            tg.set_config("support_chat_id", data.get("support_chat_id", "").strip())
             self._json(200, {"status": "ok"})
 
         # ── Telegram: generate link code for current user ─────────────────
