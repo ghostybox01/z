@@ -2522,9 +2522,9 @@ if(code && window.opener){{
                 ).fetchall()
                 conn.close()
             self._json(200, {
-                "ticket": {"id":ticket[0],"user_id":ticket[1],"subject":ticket[3],
-                           "status":ticket[4],"priority":ticket[5],
-                           "created_at":ticket[6],"updated_at":ticket[7],"username":ticket[8]},
+                "ticket": {"id":ticket[0],"user_id":ticket[1],"subject":ticket[2],
+                           "status":ticket[3],"priority":ticket[4],
+                           "created_at":ticket[5],"updated_at":ticket[6],"username":ticket[7]},
                 "messages": [{"id":m[0],"sender_id":m[1],"sender_name":m[2],
                                "is_admin":bool(m[3]),"body":m[4],"created_at":m[5]} for m in msgs]
             })
