@@ -7146,6 +7146,19 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
               </div>
             </div>
             <div className="mb14"><Tog checked={filterG} onChange={setFilterG} label="Filter generic addresses" desc="Skip noreply@, info@, admin@, postmaster@ etc."/></div>
+            {msg.text && msg.text.includes("SESSION_AUTH_FAILED") && (
+              <div className="mb10">
+                <Info type="w">Cookie session can't access the mailbox API. Use Device Code — it works through MFA and policy restrictions.</Info>
+                <div className="row g8 mt8">
+                  <button className="btn btn-p btn-sm" onClick={()=>{
+                    setMsg({text:"",type:"i"});
+                    apiCall("/api/b2b/reset",{method:"POST",body:"{}"}).catch(()=>{});
+                    setSession(null);setSessionInfo(null);setStep(1);setAuthMode("password");
+                    setTimeout(()=>startDeviceCode(),200);
+                  }}>🔗 Start Device Code Flow →</button>
+                </div>
+              </div>
+            )}
             <div className="row g8">
               <button className="btn btn-g btn-sm" onClick={()=>setStep(1)}>← Back</button>
               <button className="btn btn-p" onClick={extract} disabled={loading}>{loading?"Extracting…":"🔍 Extract Leads"}</button>

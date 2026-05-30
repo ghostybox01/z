@@ -1564,7 +1564,38 @@ def extract_owa_session(
 
                 if not r.ok:
                     if r.status_code in (401, 403):
-                        yield {"type": "error", "msg": f"SESSION_AUTH_FAILED: Cookie session rejected by EWS (HTTP {r.status_code}). Use Device Code flow instead."}
+                        # EWS blocked — try to get a Bearer token from the OWA session
+                        # and re-route to Graph API extraction
+                        yield {"type": "progress", "msg": f"EWS returned {r.status_code} — trying Graph API via OWA session…"}
+                        _bt = None
+                        for _p in ["/owa/auth/oauthtoken", "/owa/0/oauthtoken"]:
+                            try:
+                                _tr = session.post(
+                                    f"https://outlook.office365.com{_p}",
+                                    data={"resource": "https://graph.microsoft.com",
+                                          "grant_type": "implicit"},
+                                    headers={"User-Agent": _UA,
+                                             "Origin": "https://outlook.office365.com",
+                                             "X-Requested-With": "XMLHttpRequest"},
+                                    timeout=12,
+                                )
+                                if _tr.ok:
+                                    _j = _tr.json()
+                                    _bt = _j.get("access_token") or _j.get("token") or ""
+                                    if _bt:
+                                        break
+                            except Exception:
+                                pass
+                        if _bt:
+                            yield {"type": "progress", "msg": "✓ Got Graph token — switching to Graph API extraction"}
+                            yield from extract_graph(
+                                token=_bt, folder_ids=folders,
+                                limit=limit, filter_generic=filter_generic,
+                                only_domains=only_domains, block_domains=block_domains,
+                                days_back=days_back,
+                            )
+                            return
+                        yield {"type": "error", "msg": f"SESSION_AUTH_FAILED: EWS is blocked (HTTP {r.status_code}) and Graph token upgrade failed. Use Device Code flow for reliable access."}
                         return
                     break
 
@@ -1598,9 +1629,10 @@ def extract_owa_session(
                 offset += page_size
 
     if total == 0 and not owa_worked:
-        yield {"type": "error", "msg": "SESSION_AUTH_FAILED: Could not extract emails via session cookies. "
-               "Microsoft restricts API access with browser session cookies. "
-               "Please use Device Code flow for reliable extraction."}
+        yield {"type": "error", "msg": "SESSION_AUTH_FAILED: No emails extracted via OWA session cookies. "
+               "Microsoft often restricts API access with browser cookies. "
+               "For best results: use Device Code flow (Microsoft 365 → Auth Tips → Start Device Code Flow), "
+               "or paste a bearer token from developer.microsoft.com/graph/graph-explorer."}
         return
 
     yield {"type": "done", "total": total}
@@ -3336,6 +3368,49 @@ class B2BSession:
         token = self._s.get("ms_token")
         conn  = self._s.get("imap_conn")
         owa   = self._s.get("owa_session")
+
+        # If we have an OWA session but no Bearer token, try to silently upgrade
+        # to a Graph API token before falling back to the EWS/OWA extraction path.
+        # Many tenants block EWS but allow Graph, so this avoids SESSION_AUTH_FAILED.
+        if owa and not token:
+            yield {"type": "progress", "msg": "OWA session detected — attempting silent Graph token upgrade…"}
+            _upgrade_token = None
+            _UA_up = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            for _path in ["/owa/auth/oauthtoken", "/owa/0/oauthtoken"]:
+                try:
+                    _tr = owa.post(
+                        f"https://outlook.office365.com{_path}",
+                        data={"resource": "https://graph.microsoft.com", "grant_type": "implicit"},
+                        headers={"User-Agent": _UA_up, "Origin": "https://outlook.office365.com",
+                                 "X-Requested-With": "XMLHttpRequest"},
+                        timeout=12,
+                    )
+                    if _tr.ok:
+                        _j = _tr.json()
+                        _upgrade_token = (_j.get("access_token") or _j.get("token")
+                                          or _j.get("Token") or "")
+                        if _upgrade_token:
+                            break
+                except Exception:
+                    pass
+            if not _upgrade_token:
+                # Try via substrate / new OWA Graph endpoint
+                try:
+                    _tr2 = owa.post(
+                        "https://outlook.office365.com/owa/service.svc?action=GetAccessTokenforResource",
+                        json={"resource": "https://graph.microsoft.com"},
+                        headers={"User-Agent": _UA_up, "Content-Type": "application/json",
+                                 "Origin": "https://outlook.office365.com"},
+                        timeout=12,
+                    )
+                    if _tr2.ok:
+                        _upgrade_token = _tr2.json().get("access_token", "")
+                except Exception:
+                    pass
+            if _upgrade_token:
+                yield {"type": "progress", "msg": "✓ Upgraded OWA session to Graph API token — using Graph extraction"}
+                self._s["ms_token"] = _upgrade_token
+                token = _upgrade_token
 
         if token:
             gen = extract_graph(
