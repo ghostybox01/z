@@ -10197,7 +10197,7 @@ function TabAccount({username, role, doLogout,
                                 <td className="bold">{t.subject||"(no subject)"}</td>
                                 {isAdmin&&<td className="dim2">{t.username||""}</td>}
                                 <td><Bdg t={t.priority==="urgent"?"e":t.priority==="high"?"p":t.priority==="normal"?"a":"n"}>{t.priority||"?"}</Bdg></td>
-                                <td><Bdg t={t.status==="open"?"ok":"n"}>{t.status||"?"}</Bdg></td>
+                                <td><Bdg t={t.status==="open"?"ok":"e"}>{t.status||"?"}</Bdg></td>
                                 <td className="dim2">{t.msg_count||0}</td>
                                 <td className="dim2 xs">{(t.updated_at||t.created_at||"").split("T")[0]}</td>
                                 <td><button className="btn btn-g btn-xs" onClick={()=>openTicketView(t.id)}>View →</button></td>
@@ -10219,7 +10219,7 @@ function TabAccount({username, role, doLogout,
                   <div className="row jb ac-center mb16">
                     <div>
                       <div className="card-title" style={{marginBottom:4}}>#{openTicket.id} — {openTicket.subject}</div>
-                      <div className="row g8"><Bdg t={openTicket.status==="open"?"ok":"n"}>{openTicket.status}</Bdg><Bdg t={openTicket.priority==="urgent"?"e":"n"}>{openTicket.priority}</Bdg></div>
+                      <div className="row g8"><Bdg t={openTicket.status==="open"?"ok":"e"}>{openTicket.status}</Bdg><Bdg t={openTicket.priority==="urgent"?"e":"n"}>{openTicket.priority}</Bdg></div>
                     </div>
                     <div className="row g6">
                       <button className="btn btn-g btn-xs" onClick={()=>loadTicketMsgs(openTicket.id)}>↺ Refresh</button>
@@ -10263,7 +10263,7 @@ function TabAccount({username, role, doLogout,
                   <div className="card-title">Ticket Info</div>
                   <div className="col g10 sm">
                     {isAdmin&&<div><span className="dim2">User: </span><strong>{openTicket.username}</strong></div>}
-                    <div><span className="dim2">Status: </span><Bdg t={openTicket.status==="open"?"ok":"n"}>{openTicket.status}</Bdg></div>
+                    <div><span className="dim2">Status: </span><Bdg t={openTicket.status==="open"?"ok":"e"}>{openTicket.status}</Bdg></div>
                     <div><span className="dim2">Priority: </span><strong>{openTicket.priority}</strong></div>
                     <div><span className="dim2">Created: </span>{(openTicket.created_at||"").split("T")[0]}</div>
                     <div><span className="dim2">Messages: </span>{ticketMsgs.length}</div>
