@@ -1363,21 +1363,61 @@ def extract_owa_session(
     # This is what the Outlook web app itself uses — works with session cookies
     yield {"type": "progress", "msg": "Trying OWA internal API…"}
 
-    # First get the OWA canary token (CSRF) from the mail page
+    # ── Obtain OWA canary (CSRF token) ────────────────────────────
+    # Priority 1: already in cookie jar (set during the auth redirect chain)
+    # Priority 2: scrape from OWA boot page HTML
     canary = ""
-    try:
-        r_mail = session.get("https://outlook.office365.com/mail/",
-                             headers={"User-Agent": _UA}, timeout=15)
-        canary_m = re.search(r'"owaCanary"\s*:\s*"([^"]+)"', r_mail.text)
-        if not canary_m:
-            canary_m = re.search(r'X-OWA-Canary["\s]*:\s*["\s]*([A-Za-z0-9_\-+=/]{20,})', r_mail.text)
-        if canary_m:
-            canary = canary_m.group(1)
-            yield {"type": "progress", "msg": f"OWA canary obtained ({len(canary)} chars)"}
-        else:
-            yield {"type": "progress", "msg": "No OWA canary found in page — cookies may not be authenticated"}
-    except Exception as e:
-        yield {"type": "progress", "msg": f"OWA page load: {e}"}
+
+    def _cookie_val(name):
+        for ck in session.cookies:
+            if ck.name == name:
+                return ck.value
+        return ""
+
+    canary = _cookie_val("X-OWA-Canary")
+    if canary:
+        yield {"type": "progress", "msg": f"OWA canary from cookie ({len(canary)} chars)"}
+
+    if not canary:
+        # Try multiple OWA entry points — new OWA uses outlook.office.com
+        _owa_urls = [
+            "https://outlook.office365.com/mail/",
+            "https://outlook.office.com/mail/",
+            "https://outlook.office365.com/owa/",
+        ]
+        for _url in _owa_urls:
+            try:
+                r_mail = session.get(_url, headers={"User-Agent": _UA,
+                                     "Accept": "text/html,*/*"}, timeout=20,
+                                     allow_redirects=True)
+                # Check if we landed on OWA (not redirected back to login)
+                if "login.microsoftonline.com" in r_mail.url:
+                    yield {"type": "progress", "msg": f"OWA {_url[-20:]}: redirected to login — cookies need refresh"}
+                    continue
+                # Check cookie jar first (may be set during redirect)
+                canary = _cookie_val("X-OWA-Canary")
+                if canary:
+                    yield {"type": "progress", "msg": f"OWA canary from cookie after {_url[-20:]} ({len(canary)} chars)"}
+                    break
+                # Scrape from page HTML — try multiple patterns
+                for _pat in [
+                    r'"owaCanary"\s*:\s*"([^"]{20,})"',
+                    r'["\']X-OWA-Canary["\']\s*[,:]\s*["\']([A-Za-z0-9_\-+=/]{20,})["\']',
+                    r'canary["\s]*[:=]["\s]*([A-Za-z0-9_\-+=/]{20,})',
+                    r'"Canary"\s*:\s*"([^"]{20,})"',
+                ]:
+                    _m = re.search(_pat, r_mail.text, re.I)
+                    if _m:
+                        canary = _m.group(1)
+                        break
+                if canary:
+                    yield {"type": "progress", "msg": f"OWA canary from page HTML ({len(canary)} chars)"}
+                    break
+                yield {"type": "progress", "msg": f"OWA {_url[-20:]}: loaded (status {r_mail.status_code}) but no canary found"}
+            except Exception as e:
+                yield {"type": "progress", "msg": f"OWA {_url[-20:]}: {e}"}
+        if not canary:
+            yield {"type": "progress", "msg": "No OWA canary found — session cookies may be expired or EWS-only"}
 
     owa_worked = False
 
