@@ -6695,6 +6695,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState({text:"",type:"i"});
   const [extractLog, setExtractLog] = useState([]);
+  const [extractStats, setExtractStats] = useState({folder:"",scanned:0,found:0});
 
   // Resume existing server-side session on mount
   React.useEffect(() => {
@@ -6903,7 +6904,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
   }
 
   async function extract() {
-    setLoading(true); setInfo("","i"); setExtracted([]); setExtractLog([]);
+    setLoading(true); setInfo("","i"); setExtracted([]); setExtractLog([]); setExtractStats({folder:"",scanned:0,found:0});
     try {
       // Pass folders:null → backend defaults to all common folders (inbox, sent, deleted, junk)
       const r=await apiCall("/api/b2b/extract",{method:"POST",body:JSON.stringify({email,session,limit,filterGeneric:filterG,daysBack,folders:null})});
@@ -6917,7 +6918,11 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
           try{
             const ev=JSON.parse(l);
             if(ev.type==="lead"){all.push(ev.email);setExtracted([...all]);}
-            else if(ev.type==="progress"){setExtractLog(p=>[...p.slice(-20),ev.msg]);}
+            else if(ev.type==="progress"||ev.type==="log"){
+              const txt = ev.msg || (ev.done!==undefined ? `${ev.folder||"?"}: scanned ${ev.done}, found ${ev.found}` : null);
+              if(txt) setExtractLog(p=>[...p.slice(-50),txt]);
+              if(ev.done!==undefined) setExtractStats({folder:ev.folder||"",scanned:ev.done,found:ev.found||0});
+            }
             else if(ev.type==="done"){setInfo(`✓ Extracted ${all.length} leads from ${daysBack} days of email`,"ok");setStep(3);}
             else if(ev.type==="error"){setInfo("Error: "+ev.msg,"e");}
           }catch(e){}
@@ -7161,8 +7166,15 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
               <div className="card-title" style={{marginBottom:0}}>Live Results</div>
               {extracted.length>0&&<Bdg t="ok">{extracted.length} found</Bdg>}
             </div>
+            {extractStats.scanned>0 && (
+              <div style={{padding:"8px 12px",background:"var(--bg3)",borderRadius:"var(--radius-sm)",marginBottom:8,fontSize:12,display:"flex",gap:16}}>
+                <span>📂 <strong>{extractStats.folder||"scanning"}</strong></span>
+                <span>📧 Scanned: <strong>{extractStats.scanned.toLocaleString()}</strong></span>
+                <span className="c-ok">✓ Found: <strong>{extractStats.found.toLocaleString()}</strong></span>
+              </div>
+            )}
             {extractLog.length>0 && (
-              <div className="flog mb10" style={{height:140,overflowY:"auto"}}>{extractLog.map((l,i)=><div key={i} className="dim2 xs">{l}</div>)}</div>
+              <div className="flog mb10" style={{height:180,overflowY:"auto"}}>{extractLog.map((l,i)=><div key={i} className="dim2 xs">{l}</div>)}</div>
             )}
             {msg.text && msg.text.includes("SESSION_AUTH_FAILED") && (
               <div className="mb10">

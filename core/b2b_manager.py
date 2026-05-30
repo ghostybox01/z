@@ -1418,6 +1418,10 @@ def extract_owa_session(
                 yield {"type": "progress", "msg": f"OWA {_url[-20:]}: {e}"}
         if not canary:
             yield {"type": "progress", "msg": "No OWA canary found — session cookies may be expired or EWS-only"}
+        # Log available cookie names for debugging
+        _cookie_names = [ck.name for ck in session.cookies if "auth" in ck.name.lower() or "canary" in ck.name.lower() or "owa" in ck.name.lower()]
+        if _cookie_names:
+            yield {"type": "progress", "msg": f"Auth cookies in session: {_cookie_names[:8]}"}
 
     owa_worked = False
 
@@ -1562,6 +1566,91 @@ def extract_owa_session(
                 if len(items) < page_size:
                     break
                 offset_owa += page_size
+
+    # ── Strategy 1b: New Outlook ows/ API (no canary needed, works with session cookies) ──
+    # The new Outlook web app at outlook.office.com uses ows/ endpoints
+    # that accept the same session cookies as OWA — no canary required.
+    if not owa_worked:
+        _ows_base = "https://outlook.office.com/ows/v1.0/me"
+        _ows_worked = False
+        import datetime as _dt2
+        _date_filter = (_dt2.datetime.utcnow() - _dt2.timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00Z")
+
+        for _ows_folder in (folders or ["inbox", "sentitems", "deleteditems", "junkemail"]):
+            if total >= limit:
+                break
+            _folder_api = {
+                "inbox": "inbox", "sentitems": "SentItems", "deleteditems": "DeletedItems",
+                "junkemail": "JunkEmail",
+            }.get(_ows_folder.lower(), _ows_folder)
+
+            _ows_url = f"{_ows_base}/MailFolders/{_folder_api}/messages"
+            _ows_params = {
+                "$select": "from,receivedDateTime",
+                "$top": 100,
+                "$filter": f"receivedDateTime ge {_date_filter}",
+            }
+            yield {"type": "progress", "msg": f"Trying new OWA API for {_folder_api}…"}
+
+            while _ows_url and total < limit:
+                try:
+                    _r = session.get(
+                        _ows_url,
+                        params=_ows_params,
+                        headers={"User-Agent": _UA, "Accept": "application/json",
+                                 "Origin": "https://outlook.office.com"},
+                        timeout=30,
+                    )
+                    _ows_params = {}  # clear params after first page (nextLink has them)
+                except Exception as _e:
+                    yield {"type": "progress", "msg": f"ows/ error: {_e}"}
+                    break
+
+                if not _r.ok:
+                    yield {"type": "progress", "msg": f"ows/ {_folder_api}: HTTP {_r.status_code}"}
+                    break
+
+                try:
+                    _data = _r.json()
+                except Exception:
+                    break
+
+                _msgs = _data.get("value", [])
+                if not _msgs:
+                    break
+
+                _ows_worked = True
+                _ows_url = _data.get("@odata.nextLink")
+
+                for _m in _msgs:
+                    if total >= limit:
+                        break
+                    try:
+                        _frm = (_m.get("from") or {}).get("emailAddress") or {}
+                        _addr = (_frm.get("address") or "").strip().lower()
+                        if not _addr or "@" not in _addr:
+                            continue
+                        if _addr in seen:
+                            continue
+                        if filter_generic and GENERIC_RE.match(_addr.split("@")[0]):
+                            continue
+                        if only_domains and _addr.split("@")[-1] not in only_domains:
+                            continue
+                        if block_domains and _addr.split("@")[-1] in block_domains:
+                            continue
+                        seen.add(_addr)
+                        total += 1
+                        yield {"type": "lead", "email": _addr}
+                    except Exception:
+                        continue
+
+                yield {"type": "progress", "msg": f"ows/ {_folder_api}: {total} total leads so far"}
+
+        if _ows_worked:
+            yield {"type": "done", "total": total}
+            return
+        elif not canary:
+            yield {"type": "progress", "msg": "ows/ API also failed — trying EWS…"}
 
     # ── Strategy 2: EWS SOAP fallback ─────────────────────────────
     if not owa_worked:
@@ -1934,7 +2023,7 @@ def extract_graph(
     # Default: all common folders when none specified
     _default_graph_folders = ["Inbox", "SentItems", "DeletedItems", "JunkEmail"]
     for folder_id in (folder_ids or _default_graph_folders):
-        yield {"type": "log", "msg": f"Connecting to folder: {folder_id}"}
+        yield {"type": "progress", "msg": f"📂 Connecting to {folder_id}…"}
 
         # Build filter
         filters = []
@@ -2027,6 +2116,7 @@ def extract_graph(
                 done = 0
                 yield {
                     "type":   "progress",
+                    "msg":    f"{folder_id}: {total_done} scanned, {len(raw_results)} leads",
                     "done":   total_done,
                     "found":  len(raw_results),
                     "folder": folder_id,
