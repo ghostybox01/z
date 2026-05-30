@@ -1620,7 +1620,7 @@ def extract_owa_session(
                 token=_silent_token, folder_ids=folders,
                 limit=limit, filter_generic=filter_generic,
                 only_domains=only_domains, block_domains=block_domains,
-                days_back=days_back,
+                date_after=date_after,
             )
             return
         else:
@@ -1714,7 +1714,7 @@ def extract_owa_session(
                                 token=_bt, folder_ids=folders,
                                 limit=limit, filter_generic=filter_generic,
                                 only_domains=only_domains, block_domains=block_domains,
-                                days_back=days_back,
+                                date_after=date_after,
                             )
                             return
                         yield {"type": "error", "msg": f"SESSION_AUTH_FAILED: EWS is blocked (HTTP {r.status_code}) and Graph token upgrade failed. Use Device Code flow for reliable access."}
@@ -3613,7 +3613,16 @@ class B2BSession:
 
         for event in gen:
             if event.get("type") == "extracted":
-                self._s["raw_results"] = event.get("results", [])
+                raw = event.get("results", [])
+                self._s["raw_results"] = raw
+                # Convert batch results → individual lead events + done
+                # (extract_graph batches; frontend expects streaming lead + done)
+                for r in raw:
+                    yield {"type": "lead", "email": r.get("addr", ""),
+                           "name": r.get("name", ""), "date": r.get("date", ""),
+                           "subject": r.get("subject", "")}
+                yield {"type": "done", "total": len(raw)}
+                return
             yield event
 
     # ── Sanitise ─────────────────────────────────────────────────

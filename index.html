@@ -6913,11 +6913,12 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
         const{done,value}=await reader.read();if(done)break;
         buf+=dec.decode(value,{stream:true});
         const lines=buf.split("\n");buf=lines.pop();
+        let chunkHadLeads=false;
         for(const l of lines){
           if(!l.trim())continue;
           try{
             const ev=JSON.parse(l);
-            if(ev.type==="lead"){all.push(ev.email);setExtracted([...all]);}
+            if(ev.type==="lead"){all.push(ev.email);chunkHadLeads=true;}
             else if(ev.type==="progress"||ev.type==="log"){
               const txt = ev.msg || (ev.done!==undefined ? `${ev.folder||"?"}: scanned ${ev.done}, found ${ev.found}` : null);
               if(txt) setExtractLog(p=>[...p.slice(-50),txt]);
@@ -6927,6 +6928,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
             else if(ev.type==="error"){setInfo("Error: "+ev.msg,"e");}
           }catch(e){}
         }
+        if(chunkHadLeads) setExtracted([...all]);
       }
     } catch(e){setInfo("Extraction error: "+e.message,"e");}
     setLoading(false);
