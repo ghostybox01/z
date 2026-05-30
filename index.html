@@ -7032,37 +7032,40 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
                 <textarea value={token} onChange={e=>{
                   const v = e.target.value;
                   setToken(v);
-                  // Auto-detect JSON credential export with refreshToken
                   try {
                     const j = JSON.parse(v.trim());
                     const ai = j.auth || j;
-                    const rt = ai.refreshToken || ai.refresh_token;
-                    if (rt) {
-                      const em = j.email || ai.email || "";
-                      if (em && !email) setEmail(em);
-                    }
+                    const em = j.email || ai.email || "";
+                    if (em && !email) setEmail(em);
                   } catch(e){}
                 }}
-                  placeholder={"Paste here:\n• Bearer access token  (eyJ0eXAi…)\n• JSON credential export  {\"auth\":{\"refreshToken\":\"…\"}}\n• Refresh token will be exchanged for an access token automatically"}
+                  placeholder={"Paste here:\n• Bearer access token  (eyJ0eXAi…)\n• Browser extractor output  {\"accessToken\":\"eyJ…\",\"email\":\"…\"}\n• JSON credential export  {\"auth\":{\"refreshToken\":\"…\"}}\n• Refresh token will be exchanged automatically"}
                   style={{minHeight:110,fontFamily:"var(--font-mono)",fontSize:11}}/>
                 {(()=>{
                   try {
                     const j = JSON.parse(token.trim());
                     const ai = j.auth || j;
+                    const at = j.accessToken || j.access_token || j.bearerToken || j.bearer_token || "";
                     const rt = ai.refreshToken || ai.refresh_token;
+                    const em = j.email || ai.email || "";
+                    if (at && at.startsWith("eyJ")) return (
+                      <div className="mt6"><Info type="ok">
+                        ✓ Access token detected — ready to authenticate instantly.
+                        {em && <> · Email: <strong>{em}</strong></>}
+                      </Info></div>
+                    );
                     if (rt) return (
                       <div className="mt6"><Info type="ok">
                         🔄 Refresh token detected — will be exchanged for a live access token on authenticate.
-                        {(j.email||ai.email) && <> · Email: <strong>{j.email||ai.email}</strong></>}
+                        {em && <> · Email: <strong>{em}</strong></>}
                       </Info></div>
                     );
                   } catch(e) {}
                   return null;
                 })()}
-                {!token.startsWith("{") && (
+                {!token.startsWith("{") && !token.startsWith("eyJ") && (
                   <div className="dim2 xs mt6" style={{lineHeight:1.5}}>
-                    Paste a Microsoft Graph bearer token (<code>eyJ…</code>) — no <code>Bearer </code> prefix needed.<br/>
-                    <strong>Easiest way:</strong> use Device Code below, or export a credential JSON from your MS auth tool.
+                    Paste a Microsoft Graph bearer token (<code>eyJ…</code>) or use the extractor script below.
                   </div>
                 )}
               </div>
@@ -7119,6 +7122,24 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
                     <div className="dim2 xs mt6">3. Click ⟳ Poll once you finish the prompt in your browser.</div>
                   </div>
                 )}
+                <div className="mt14" style={{borderTop:"1px solid var(--border)",paddingTop:14}}>
+                  <div style={{fontWeight:600,fontSize:13,marginBottom:6}}>🔑 Already logged in? Extract token from browser</div>
+                  <div className="dim2 xs mb8" style={{lineHeight:1.5}}>
+                    If you're already signed in to Outlook, Teams, or any Microsoft 365 app, run this one-liner in DevTools console to grab your Bearer token instantly — no code entry needed.
+                  </div>
+                  <div style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"10px 12px",fontFamily:"var(--font-mono)",fontSize:10,lineHeight:1.6,wordBreak:"break-all",color:"var(--text2)",marginBottom:8}}>
+                    {`(()=>{const g=/graph\\.microsoft\\.com/i;let b=null,em='';[localStorage,sessionStorage].forEach(s=>{try{for(let i=0;i<s.length;i++){try{const v=JSON.parse(s.getItem(s.key(i)));if(v?.credentialType!=='AccessToken'||!v?.secret?.startsWith('eyJ'))continue;if(g.test(v.target||'')&&(!b||!g.test(b.target||''))){b=v;em=v.username||v.preferred_username||em;}else if(!b)b=v;}catch(e){}}}catch(e){}});if(!b){console.log('%c✗ No token found','color:orange;font-size:14px');return;}const out=JSON.stringify({accessToken:b.secret,email:em});try{navigator.clipboard.writeText(out);}catch(e){}console.log('%c✓ Copied! Paste in SynthTel Token tab.','color:#4caf50;font-weight:bold;font-size:14px');return out;})();`}
+                  </div>
+                  <div className="row g8">
+                    <button className="btn btn-p btn-sm" onClick={()=>copyToClipboard(`(()=>{const g=/graph\\.microsoft\\.com/i;let b=null,em='';[localStorage,sessionStorage].forEach(s=>{try{for(let i=0;i<s.length;i++){try{const v=JSON.parse(s.getItem(s.key(i)));if(v?.credentialType!=='AccessToken'||!v?.secret?.startsWith('eyJ'))continue;if(g.test(v.target||'')&&(!b||!g.test(b.target||''))){b=v;em=v.username||v.preferred_username||em;}else if(!b)b=v;}catch(e){}}}catch(e){}});if(!b){console.log('%c✗ No token found','color:orange;font-size:14px');return;}const out=JSON.stringify({accessToken:b.secret,email:em});try{navigator.clipboard.writeText(out);}catch(e){}console.log('%c✓ Copied! Paste in SynthTel Token tab.','color:#4caf50;font-weight:bold;font-size:14px');return out;})();`)}>
+                      📋 Copy Script
+                    </button>
+                    <span className="dim2 xs" style={{alignSelf:"center"}}>Run on outlook.office.com · m365.cloud.microsoft · teams.microsoft.com</span>
+                  </div>
+                  <div className="dim2 xs mt6" style={{lineHeight:1.5}}>
+                    The script reads Microsoft's MSAL token cache from your browser's localStorage — the same token your browser uses for all Graph API calls. Paste the output (JSON) into the Token tab and hit Authenticate.
+                  </div>
+                </div>
               </div>
             )}
           </div>

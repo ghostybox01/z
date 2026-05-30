@@ -5251,27 +5251,41 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             token_raw = (data.get("token") or "").strip()
             email_arg = data.get("email", "")
 
-            # Detect JSON credential-export format:
+            # Detect JSON credential-export formats:
+            # {"accessToken":"eyJ...","email":"..."} — from browser console extractor
             # {"auth": {"refreshToken": "...", "clientId": "...", ...}, "email": "..."}
-            _refresh_tok = None
-            _client_id   = None
-            _tenant      = "common"
+            _refresh_tok   = None
+            _direct_token  = None
+            _client_id     = None
+            _tenant        = "common"
             try:
                 _cred = json.loads(token_raw)
                 _auth_info = _cred.get("auth", _cred)
-                _refresh_tok = (_auth_info.get("refreshToken")
-                                or _auth_info.get("refresh_token"))
-                _client_id   = (_auth_info.get("clientId")
-                                or _auth_info.get("client_id"))
-                _tenant      = (_auth_info.get("authorityEndpoint")
-                                or _auth_info.get("tenant") or "common")
                 if not email_arg:
                     email_arg = (_cred.get("email")
                                  or _auth_info.get("email") or "")
+                # Direct access token (browser extractor output)
+                _dt = (_cred.get("accessToken") or _cred.get("access_token")
+                       or _cred.get("bearerToken") or _cred.get("bearer_token") or "")
+                if _dt and str(_dt).startswith("eyJ"):
+                    _direct_token = str(_dt).strip()
+                # Refresh token (credential export)
+                if not _direct_token:
+                    _refresh_tok = (_auth_info.get("refreshToken")
+                                    or _auth_info.get("refresh_token"))
+                    _client_id   = (_auth_info.get("clientId")
+                                    or _auth_info.get("client_id"))
+                    _tenant      = (_auth_info.get("authorityEndpoint")
+                                    or _auth_info.get("tenant") or "common")
             except (json.JSONDecodeError, AttributeError, TypeError):
                 pass
 
-            if _refresh_tok:
+            if _direct_token:
+                result = b2b.login_token(
+                    email_arg, _direct_token,
+                    expires_in=int(data.get("expiresIn", 3600) or 3600),
+                )
+            elif _refresh_tok:
                 from core.b2b_manager import exchange_refresh_token as _exch_rt
                 result = b2b.login_refresh_token(
                     email_arg, _refresh_tok, _client_id, _tenant
