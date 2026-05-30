@@ -6903,9 +6903,10 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
   }
 
   async function extract() {
-    setLoading(true); setInfo("Extracting leads…","i"); setExtracted([]); setExtractLog([]);
+    setLoading(true); setInfo("","i"); setExtracted([]); setExtractLog([]);
     try {
-      const r=await apiCall("/api/b2b/extract",{method:"POST",body:JSON.stringify({email,session,limit,filterGeneric:filterG,daysBack})});
+      // Pass folders:null → backend defaults to all common folders (inbox, sent, deleted, junk)
+      const r=await apiCall("/api/b2b/extract",{method:"POST",body:JSON.stringify({email,session,limit,filterGeneric:filterG,daysBack,folders:null})});
       const reader=r.body.getReader(),dec=new TextDecoder(); let buf="",all=[];
       while(true){
         const{done,value}=await reader.read();if(done)break;
@@ -7138,27 +7139,18 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
             <div className="g2 mb12">
               <div>
                 <label className="lbl">Email Limit</label>
-                <input type="number" value={limit} onChange={e=>setLimit(parseInt(e.target.value))} min="10" max="10000" style={{fontSize:15,padding:"10px 12px"}}/>
+                <input type="number" value={limit}
+                  onChange={e=>setLimit(Math.max(10, parseInt(e.target.value)||500))}
+                  min="10" max="50000" style={{fontSize:15,padding:"10px 12px"}}/>
               </div>
               <div>
                 <label className="lbl">Days Back</label>
-                <input type="number" value={daysBack} onChange={e=>setDaysBack(parseInt(e.target.value))} min="7" max="365" style={{fontSize:15,padding:"10px 12px"}}/>
+                <input type="number" value={daysBack}
+                  onChange={e=>setDaysBack(Math.max(1, parseInt(e.target.value)||90))}
+                  min="1" max="3650" style={{fontSize:15,padding:"10px 12px"}}/>
               </div>
             </div>
             <div className="mb14"><Tog checked={filterG} onChange={setFilterG} label="Filter generic addresses" desc="Skip noreply@, info@, admin@, postmaster@ etc."/></div>
-            {msg.text && msg.text.includes("SESSION_AUTH_FAILED") && (
-              <div className="mb10">
-                <Info type="w">Cookie session can't access the mailbox API. Use Device Code — it works through MFA and policy restrictions.</Info>
-                <div className="row g8 mt8">
-                  <button className="btn btn-p btn-sm" onClick={()=>{
-                    setMsg({text:"",type:"i"});
-                    apiCall("/api/b2b/reset",{method:"POST",body:"{}"}).catch(()=>{});
-                    setSession(null);setSessionInfo(null);setStep(1);setAuthMode("password");
-                    setTimeout(()=>startDeviceCode(),200);
-                  }}>🔗 Start Device Code Flow →</button>
-                </div>
-              </div>
-            )}
             <div className="row g8">
               <button className="btn btn-g btn-sm" onClick={()=>setStep(1)}>← Back</button>
               <button className="btn btn-p" onClick={extract} disabled={loading}>{loading?"Extracting…":"🔍 Extract Leads"}</button>
@@ -7169,17 +7161,30 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
               <div className="card-title" style={{marginBottom:0}}>Live Results</div>
               {extracted.length>0&&<Bdg t="ok">{extracted.length} found</Bdg>}
             </div>
-            {loading && extractLog.length>0 && (
-              <div className="flog mb10" style={{height:120}}>{extractLog.map((l,i)=><div key={i} className="dim2 xs">{l}</div>)}</div>
+            {extractLog.length>0 && (
+              <div className="flog mb10" style={{height:140,overflowY:"auto"}}>{extractLog.map((l,i)=><div key={i} className="dim2 xs">{l}</div>)}</div>
+            )}
+            {msg.text && msg.text.includes("SESSION_AUTH_FAILED") && (
+              <div className="mb10">
+                <Info type="w">Cookie session can't reach the mailbox API for this tenant. Device Code flow works through MFA and Conditional Access — it's the reliable path.</Info>
+                <button className="btn btn-p btn-sm mt8" style={{width:"100%"}} onClick={()=>{
+                  setMsg({text:"",type:"i"});
+                  apiCall("/api/b2b/reset",{method:"POST",body:"{}"}).catch(()=>{});
+                  setSession(null);setSessionInfo(null);setExtractLog([]);setStep(1);setAuthMode("password");
+                  setTimeout(()=>startDeviceCode(),300);
+                }}>🔗 Switch to Device Code Flow →</button>
+              </div>
             )}
             {extracted.length>0 ? (
-              <div className="code" style={{maxHeight:280,overflowY:"auto",fontSize:12,lineHeight:1.8}}>
+              <div className="code" style={{maxHeight:260,overflowY:"auto",fontSize:12,lineHeight:1.8}}>
                 {extracted.slice(0,100).join("\n")}{extracted.length>100?`\n…and ${extracted.length-100} more`:""}
               </div>
             ) : (
-              <div className="dim2 sm" style={{padding:"30px 0",textAlign:"center"}}>
-                {loading?"⏳ Scanning inbox for contacts…":"Results will appear here"}
-              </div>
+              !msg.text.includes("SESSION_AUTH_FAILED") && (
+                <div className="dim2 sm" style={{padding:"20px 0",textAlign:"center"}}>
+                  {loading?"⏳ Scanning folders for contacts…":"Click Extract Leads to start"}
+                </div>
+              )
             )}
           </div>
         </div>

@@ -1421,8 +1421,18 @@ def extract_owa_session(
 
     owa_worked = False
 
+    # Determine which OWA host to use for service.svc (match where the canary came from)
+    _owa_host = "https://outlook.office365.com"
+    for _ck in session.cookies:
+        if _ck.name == "X-OWA-Canary" and _ck.domain and "office.com" in _ck.domain:
+            _owa_host = f"https://{_ck.domain.lstrip('.')}"
+            break
+
+    # Default: all common folders (inbox + sent covers the bulk of contacts)
+    _default_folders = ["inbox", "sentitems", "deleteditems", "junkemail"]
+
     if canary:
-        for folder_ref in (folders or ["inbox"]):
+        for folder_ref in (folders or _default_folders):
             if total >= limit:
                 break
             folder_id  = folder_map.get(folder_ref.lower(), folder_ref)
@@ -1478,28 +1488,37 @@ def extract_owa_session(
                         }
                     }
                 }
-                try:
-                    r = session.post(
-                        "https://outlook.office365.com/owa/service.svc?action=FindItem&app=Mail",
-                        json=payload,
-                        headers={
-                            "User-Agent":    _UA,
-                            "Action":        "FindItem",
-                            "X-OWA-Canary":  canary,
-                            "X-Req-Source":  "Mail",
-                            "Content-Type":  "application/json; charset=utf-8",
-                            "Accept":        "application/json",
-                            "Origin":        "https://outlook.office365.com",
-                            "Referer":       "https://outlook.office365.com/mail/",
-                        },
-                        timeout=30,
-                    )
-                except Exception as e:
-                    yield {"type": "progress", "msg": f"OWA svc.svc: {e}"}
-                    break
+                r = None
+                _svc_hosts = [_owa_host]
+                if "outlook.office365.com" not in _owa_host:
+                    _svc_hosts.append("https://outlook.office365.com")
+                if "outlook.office.com" not in _owa_host:
+                    _svc_hosts.append("https://outlook.office.com")
+                for _svc_host in _svc_hosts:
+                    try:
+                        r = session.post(
+                            f"{_svc_host}/owa/service.svc?action=FindItem&app=Mail",
+                            json=payload,
+                            headers={
+                                "User-Agent":    _UA,
+                                "Action":        "FindItem",
+                                "X-OWA-Canary":  canary,
+                                "X-Req-Source":  "Mail",
+                                "Content-Type":  "application/json; charset=utf-8",
+                                "Accept":        "application/json",
+                                "Origin":        _svc_host,
+                                "Referer":       f"{_svc_host}/mail/",
+                            },
+                            timeout=30,
+                        )
+                        if r.ok:
+                            break
+                        yield {"type": "progress", "msg": f"service.svc {_svc_host[-20:]}/{folder_id}: HTTP {r.status_code}"}
+                    except Exception as e:
+                        yield {"type": "progress", "msg": f"service.svc error: {e}"}
+                        r = None
 
-                if not r.ok:
-                    yield {"type": "progress", "msg": f"OWA svc {folder_id}: HTTP {r.status_code}"}
+                if not r or not r.ok:
                     break
 
                 try:
@@ -1912,7 +1931,9 @@ def extract_graph(
     total_done  = 0
     cap         = int(limit) if limit else 999999
 
-    for folder_id in (folder_ids or ["Inbox"]):
+    # Default: all common folders when none specified
+    _default_graph_folders = ["Inbox", "SentItems", "DeletedItems", "JunkEmail"]
+    for folder_id in (folder_ids or _default_graph_folders):
         yield {"type": "log", "msg": f"Connecting to folder: {folder_id}"}
 
         # Build filter
