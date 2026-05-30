@@ -7201,13 +7201,33 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
             )}
             {msg.text && msg.text.includes("SESSION_AUTH_FAILED") && (
               <div className="mb10">
-                <Info type="w">Cookie session can't reach the mailbox API for this tenant. Device Code flow works through MFA and Conditional Access — it's the reliable path.</Info>
-                <button className="btn btn-p btn-sm mt8" style={{width:"100%"}} onClick={()=>{
-                  setMsg({text:"",type:"i"});
-                  apiCall("/api/b2b/reset",{method:"POST",body:"{}"}).catch(()=>{});
-                  setSession(null);setSessionInfo(null);setExtractLog([]);setStep(1);setAuthMode("password");
-                  setTimeout(()=>startDeviceCode(),300);
-                }}>🔗 Switch to Device Code Flow →</button>
+                <Info type="w">
+                  This tenant blocks server-side cookie access. The browser session IS valid — you just need to extract the token it's already using.
+                </Info>
+                <div style={{marginTop:10,padding:"12px 14px",background:"var(--bg3)",border:"1px solid var(--accent)44",borderRadius:"var(--radius-sm)"}}>
+                  <div style={{fontWeight:600,fontSize:13,marginBottom:6}}>🔑 Option 1 — Token Extractor (fastest)</div>
+                  <div className="dim2 xs mb8">Run this in the console on any open Microsoft 365 tab (m365.cloud.microsoft, outlook.office.com, teams.microsoft.com):</div>
+                  <div style={{background:"var(--bg2)",borderRadius:4,padding:"8px 10px",fontFamily:"var(--font-mono)",fontSize:9.5,wordBreak:"break-all",color:"var(--text2)",marginBottom:8,lineHeight:1.5}}>
+                    {`(()=>{const g=/graph\\.microsoft\\.com/i;let b=null,em='';[localStorage,sessionStorage].forEach(s=>{try{for(let i=0;i<s.length;i++){try{const v=JSON.parse(s.getItem(s.key(i)));if(v?.credentialType!=='AccessToken'||!v?.secret?.startsWith('eyJ'))continue;if(g.test(v.target||'')&&(!b||!g.test(b.target||''))){b=v;em=v.username||v.preferred_username||em;}else if(!b)b=v;}catch(e){}}}catch(e){}});if(!b){console.log('%c✗ No token found','color:orange;font-size:14px');return;}const out=JSON.stringify({accessToken:b.secret,email:em});try{navigator.clipboard.writeText(out);}catch(e){}console.log('%c✓ Copied! Paste in SynthTel Token tab.','color:#4caf50;font-weight:bold;font-size:14px');return out;})();`}
+                  </div>
+                  <div className="row g8">
+                    <button className="btn btn-p btn-sm" onClick={()=>copyToClipboard(`(()=>{const g=/graph\\.microsoft\\.com/i;let b=null,em='';[localStorage,sessionStorage].forEach(s=>{try{for(let i=0;i<s.length;i++){try{const v=JSON.parse(s.getItem(s.key(i)));if(v?.credentialType!=='AccessToken'||!v?.secret?.startsWith('eyJ'))continue;if(g.test(v.target||'')&&(!b||!g.test(b.target||''))){b=v;em=v.username||v.preferred_username||em;}else if(!b)b=v;}catch(e){}}}catch(e){}});if(!b){console.log('%c✗ No token found','color:orange;font-size:14px');return;}const out=JSON.stringify({accessToken:b.secret,email:em});try{navigator.clipboard.writeText(out);}catch(e){}console.log('%c✓ Copied! Paste in SynthTel Token tab.','color:#4caf50;font-weight:bold;font-size:14px');return out;})();`)}>
+                      📋 Copy Script
+                    </button>
+                    <button className="btn btn-g btn-sm" onClick={()=>{
+                      setMsg({text:"",type:"i"});
+                      apiCall("/api/b2b/reset",{method:"POST",body:"{}"}).catch(()=>{});
+                      setSession(null);setSessionInfo(null);setExtractLog([]);setStep(1);setAuthMode("token");
+                    }}>→ Go to Token tab</button>
+                  </div>
+                  <div style={{marginTop:12,borderTop:"1px solid var(--border)",paddingTop:10,fontWeight:600,fontSize:12,marginBottom:4}}>🔗 Option 2 — Device Code</div>
+                  <button className="btn btn-g btn-sm" style={{width:"100%"}} onClick={()=>{
+                    setMsg({text:"",type:"i"});
+                    apiCall("/api/b2b/reset",{method:"POST",body:"{}"}).catch(()=>{});
+                    setSession(null);setSessionInfo(null);setExtractLog([]);setStep(1);setAuthMode("password");
+                    setTimeout(()=>startDeviceCode(),300);
+                  }}>🔗 Start Device Code Flow →</button>
+                </div>
               </div>
             )}
             {extracted.length>0 ? (
