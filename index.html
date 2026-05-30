@@ -7020,26 +7020,54 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
             )}
             {authMode==="token" && (
               <div>
-                <label className="lbl">Access / Bearer Token</label>
-                <textarea value={token} onChange={e=>setToken(e.target.value)}
-                  placeholder="Paste your bearer token here…  (eyJ0eXAi…)"
-                  style={{minHeight:90,fontFamily:"var(--font-mono)",fontSize:11}}/>
-                <div className="dim2 xs mt6" style={{lineHeight:1.5}}>
-                  Paste a Microsoft Graph bearer token (<code>eyJ…</code>). No <code>Bearer </code> prefix needed.<br/>
-                  <strong>Easiest way to get one:</strong> use the Device Code flow below — no token copying needed.<br/>
-                  Or: open <code>developer.microsoft.com/graph/graph-explorer</code>, sign in, and copy the token from the Access Token tab.
-                </div>
+                <label className="lbl">Access / Bearer Token or Credential Export</label>
+                <textarea value={token} onChange={e=>{
+                  const v = e.target.value;
+                  setToken(v);
+                  // Auto-detect JSON credential export with refreshToken
+                  try {
+                    const j = JSON.parse(v.trim());
+                    const ai = j.auth || j;
+                    const rt = ai.refreshToken || ai.refresh_token;
+                    if (rt) {
+                      const em = j.email || ai.email || "";
+                      if (em && !email) setEmail(em);
+                    }
+                  } catch(e){}
+                }}
+                  placeholder={"Paste here:\n• Bearer access token  (eyJ0eXAi…)\n• JSON credential export  {\"auth\":{\"refreshToken\":\"…\"}}\n• Refresh token will be exchanged for an access token automatically"}
+                  style={{minHeight:110,fontFamily:"var(--font-mono)",fontSize:11}}/>
+                {(()=>{
+                  try {
+                    const j = JSON.parse(token.trim());
+                    const ai = j.auth || j;
+                    const rt = ai.refreshToken || ai.refresh_token;
+                    if (rt) return (
+                      <div className="mt6"><Info type="ok">
+                        🔄 Refresh token detected — will be exchanged for a live access token on authenticate.
+                        {(j.email||ai.email) && <> · Email: <strong>{j.email||ai.email}</strong></>}
+                      </Info></div>
+                    );
+                  } catch(e) {}
+                  return null;
+                })()}
+                {!token.startsWith("{") && (
+                  <div className="dim2 xs mt6" style={{lineHeight:1.5}}>
+                    Paste a Microsoft Graph bearer token (<code>eyJ…</code>) — no <code>Bearer </code> prefix needed.<br/>
+                    <strong>Easiest way:</strong> use Device Code below, or export a credential JSON from your MS auth tool.
+                  </div>
+                )}
               </div>
             )}
             {authMode==="cookie" && (
               <div>
                 <label className="lbl">Browser session cookies (raw)</label>
                 <textarea value={token} onChange={e=>setToken(e.target.value)}
-                  placeholder={"Paste your authenticated browser cookies here.\n\nSupported formats:\n• EditThisCookie JSON export\n• outlook.office.com / portal.azure.com cookies copied from DevTools\n• Raw 'name=value; name2=value2; …' string\n\nWe extract the auth cookie (ESTSAUTH / OWA / similar) and use it to load your inbox without a password — works through MFA + Conditional Access."}
+                  placeholder={"Paste here:\n• Cookie Editor / EditThisCookie JSON export\n• JavaScript cookie-injector script  (() => { let cookies = [...]; … })()\n• Raw 'name=value; name2=value2; …' header string\n• HAR file with request cookies\n\nThe ESTSAUTH / ESTSAUTHPERSISTENT cookies from login.microsoftonline.com work best."}
                   style={{minHeight:160,fontFamily:"var(--font-mono)",fontSize:11}}/>
-                <div className="dim2 xs mt6">
-                  Tip: in Chrome DevTools → Application → Cookies → outlook.office.com,
-                  right-click → Copy as JSON.  Paste here.  No password needed.
+                <div className="dim2 xs mt6" style={{lineHeight:1.5}}>
+                  All cookie formats accepted — JSON array, JS injector script, raw header, or HAR.<br/>
+                  Best source: login.microsoftonline.com cookies (ESTSAUTH*) from browser DevTools.
                 </div>
               </div>
             )}

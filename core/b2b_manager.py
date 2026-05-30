@@ -982,6 +982,40 @@ def login_token(email_addr: str, token: str, state: dict,
         return {"ok": False, "error": str(exc)[:200]}
 
 
+def exchange_refresh_token(refresh_token: str, client_id: str,
+                           tenant: str = "common") -> tuple:
+    """
+    Exchange a refresh token for a new access token via direct HTTP.
+    Does not require MSAL.
+    Returns (access_token, new_refresh_token, expires_at, error_str).
+    """
+    if not _HAS_REQUESTS:
+        return None, None, 0, "requests not installed"
+    try:
+        resp = _req.post(
+            f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+            data={
+                "grant_type":    "refresh_token",
+                "client_id":     client_id,
+                "refresh_token": refresh_token,
+                "scope":         "https://graph.microsoft.com/.default offline_access",
+            },
+            timeout=15,
+        )
+        res = resp.json()
+        if "access_token" in res:
+            return (
+                res["access_token"],
+                res.get("refresh_token", refresh_token),
+                time.time() + int(res.get("expires_in", 3600)),
+                None,
+            )
+        err = res.get("error", "unknown") + ": " + res.get("error_description", "")[:200]
+        return None, None, 0, err
+    except Exception as e:
+        return None, None, 0, str(e)[:200]
+
+
 # ═══════════════════════════════════════════════════════════════
 # AUTHENTICATION — IMAP LOGIN (Gmail / GoDaddy / any IMAP)
 # ═══════════════════════════════════════════════════════════════
@@ -3203,6 +3237,59 @@ class B2BSession:
             self._s["ms_token"]         = self._s.get("ms_token") or token
             self._s["ms_token_expires"] = self._s.get("ms_token_expires", 0.0)
         return result
+
+    def login_refresh_token(self, email_addr: str, refresh_token: str,
+                            client_id: str = None, tenant: str = "common") -> dict:
+        """
+        Exchange a refresh token for an access token and authenticate.
+
+        Tries the provided client_id first (if given), then falls back to
+        the built-in MS_APPS public clients (Azure PowerShell, Azure CLI,
+        Microsoft Office) which typically work with tokens issued by any
+        first-party Microsoft app.
+        """
+        if not self._s.get("provider"):
+            self._s["provider"] = detect(email_addr)
+        self._s["email"] = email_addr
+
+        # Normalise tenant: "common" authority string → use "common"
+        if tenant and tenant not in ("common", "organizations", "consumers"):
+            # might be a full URL like https://login.microsoftonline.com/common
+            if "/" in tenant:
+                tenant = tenant.rstrip("/").split("/")[-1]
+        tenant = tenant or "common"
+
+        # Build list of clients to try
+        clients = []
+        if client_id:
+            clients.append(("provided", client_id))
+        clients.extend(MS_APPS)
+
+        last_err = "no clients tried"
+        for _name, cid in clients:
+            at, rt, exp, err = exchange_refresh_token(refresh_token, cid, tenant)
+            if at:
+                log.info("[B2B] refresh token exchange OK via client=%s for %s", _name, email_addr)
+                result = login_token(email_addr, at, self._s, max(60, int(exp - time.time())))
+                if result.get("ok"):
+                    if rt:
+                        self._s["ms_refresh_token"] = rt
+                    return result
+                last_err = result.get("error", "token validated but login_token failed")
+                break
+            last_err = err or "exchange failed"
+
+        # MSAL fallback
+        if _HAS_MSAL:
+            at, rt, exp, err = _ms_refresh_token(refresh_token, email_addr)
+            if at:
+                result = login_token(email_addr, at, self._s, max(60, int(exp - time.time())))
+                if result.get("ok") and rt:
+                    self._s["ms_refresh_token"] = rt
+                return result
+            last_err = err or last_err
+
+        return {"ok": False, "error": f"Refresh token exchange failed — {last_err}"}
 
     # ── Folder listing ───────────────────────────────────────────
 
