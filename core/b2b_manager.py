@@ -947,14 +947,54 @@ def login_token(email_addr: str, token: str, state: dict,
     if not _HAS_REQUESTS:
         return {"ok": False, "error": "requests not installed"}
     try:
-        # Strip "Bearer " prefix if user copied the full header value
-        token = token.strip()
-        if token.lower().startswith("bearer "):
-            token = token[7:].strip()
+        # Strip "Bearer " prefix and any whitespace/newlines
+        token = re.sub(r'\s+', '', token.strip())
+        if token.lower().startswith("bearer"):
+            token = re.sub(r'^[Bb]earer', '', token).strip()
+
+        # If pasted text is JSON or a JSON fragment, try to extract the actual token
+        if not token.startswith("eyJ"):
+            # Try valid JSON first
+            try:
+                import json as _jmod
+                _j = _jmod.loads(token)
+                _tok = (_j.get("access_token") or _j.get("accessToken")
+                        or _j.get("Token") or _j.get("token") or "")
+                if _tok and _tok.startswith("eyJ"):
+                    token = re.sub(r'\s+', '', _tok)
+            except Exception:
+                pass
+            # Scan for embedded JWT (eyJ...) even in fragments
+            if not token.startswith("eyJ"):
+                _m = re.search(r'eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]*', token)
+                if _m:
+                    token = _m.group(0)
+
+        if not token.startswith("eyJ"):
+            return {"ok": False, "error": (
+                "Paste just the access token (starts with eyJ…), not a JSON response.\n"
+                "Tip: use the Token Extractor script from the Auth Tips panel — "
+                "it copies the correct token from your browser automatically."
+            )}
+
         h   = {"Authorization": f"Bearer {token}"}
         me  = _req.get(f"{GRAPH}/me?$select=displayName,mail,userPrincipalName",
                        headers=h, timeout=10)
         if me.status_code == 401:
+            # Detect EWS/Exchange tokens (audience 0ff1-ce00) — common mistake
+            try:
+                import base64 as _b64, json as _jmod2
+                _payload = _b64.b64decode(token.split('.')[1] + '==').decode('utf-8', errors='replace')
+                _claims  = _jmod2.loads(_payload)
+                _aud     = _claims.get('aud', '')
+                if '0ff1-ce00' in _aud or 'outlook.office' in _aud or 'exchange' in _aud.lower():
+                    return {"ok": False, "error": (
+                        "This is an EWS/Outlook token, not a Microsoft Graph token. "
+                        "Graph tokens have audience 'https://graph.microsoft.com'. "
+                        "Use the Token Extractor script — it finds the correct Graph token automatically."
+                    )}
+            except Exception:
+                pass
             return {"ok": False, "error": "Token rejected — invalid or expired"}
         if not me.ok:
             return {"ok": False, "error": f"Graph /me returned {me.status_code}"}

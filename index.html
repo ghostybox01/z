@@ -7063,10 +7063,11 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
                   } catch(e) {}
                   return null;
                 })()}
-                {!token.startsWith("{") && !token.startsWith("eyJ") && (
-                  <div className="dim2 xs mt6" style={{lineHeight:1.5}}>
-                    Paste a Microsoft Graph bearer token (<code>eyJ…</code>) or use the extractor script below.
-                  </div>
+                {token && !token.startsWith("{") && !token.startsWith("eyJ") && (
+                  <div className="mt6"><Info type="e">
+                    Token must start with <code>eyJ</code> — paste just the token, not a full JSON response.<br/>
+                    Use <strong>Copy Script</strong> in Auth Tips → run it in your M365 browser tab → paste the result here.
+                  </Info></div>
                 )}
               </div>
             )}
