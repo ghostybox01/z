@@ -6687,6 +6687,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [session, setSession] = useState(null);
+  const [sessionInfo, setSessionInfo] = useState(null); // {display_name, inbox_count, method}
   const [extracted, setExtracted] = useState([]);
   const [limit, setLimit] = useState(500);
   const [filterG, setFilterG] = useState(true);
@@ -6694,6 +6695,19 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState({text:"",type:"i"});
   const [extractLog, setExtractLog] = useState([]);
+
+  // Resume existing server-side session on mount
+  React.useEffect(() => {
+    apiCall("/api/b2b/status").then(r => r.json()).then(d => {
+      if (d.authenticated && d.email) {
+        setEmail(d.email);
+        setSession(d);
+        setSessionInfo({display_name: d.email, inbox_count: 0, method: d.method});
+        setStep(2);
+        setInfo(`✓ Session restored — authenticated as ${d.email}`, "ok");
+      }
+    }).catch(() => {});
+  }, []);
 
   // ── Send step state ──
   const [sendMode,    setSendMode]    = useState("reply");     // 'reply' | 'new'
@@ -6753,6 +6767,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
       const d = await r.json();
       if (d.ok && d.session) {
         setSession({token:d.session});
+        setSessionInfo({display_name: d.display_name || email, inbox_count: 0, method: "device_code"});
         setDevCode(null);
         setMsg({text:"✓ Device-code authentication successful — ready to extract", type:"ok"});
         setStep(2);
@@ -6867,8 +6882,16 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
       const r=await apiCall(ep,{method:"POST",body:JSON.stringify(body)});
       const d=await r.json();
       if(d.session||d.status==="ok"||d.ok){
-        setSession(d.session||d);setStep(2);
-        setInfo("✓ Authenticated successfully — ready to extract","ok");
+        setSession(d.session||d);
+        setSessionInfo({
+          display_name: d.display_name || d.session?.display_name || email,
+          inbox_count:  d.inbox_count  || d.session?.inbox_count  || 0,
+          method:       authMode,
+        });
+        setStep(2);
+        const who = d.display_name ? ` as ${d.display_name}` : "";
+        const cnt = d.inbox_count  ? ` · ${d.inbox_count} inbox messages` : "";
+        setInfo(`✓ Authenticated${who}${cnt} — ready to extract`, "ok");
       } else {
         let errMsg = d.error||"Check your credentials and try again";
         if(d.hint==="APP_PW_REQUIRED") errMsg="This account requires an App Password (not your real password). Generate one in your provider's security settings (e.g. myaccount.google.com/apppasswords).";
@@ -6999,11 +7022,12 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
               <div>
                 <label className="lbl">Access / Bearer Token</label>
                 <textarea value={token} onChange={e=>setToken(e.target.value)}
-                  placeholder="Paste OAuth bearer token here…  (eyJ0eXAi…)"
+                  placeholder="Paste your bearer token here…  (eyJ0eXAi…)"
                   style={{minHeight:90,fontFamily:"var(--font-mono)",fontSize:11}}/>
-                <div className="dim2 xs mt6">
-                  Microsoft Graph / IMAP-OAuth bearer token (no <code>Bearer </code>
-                  prefix needed).  Use Device Code below if you don't have one.
+                <div className="dim2 xs mt6" style={{lineHeight:1.5}}>
+                  Paste a Microsoft Graph bearer token (<code>eyJ…</code>). No <code>Bearer </code> prefix needed.<br/>
+                  <strong>Easiest way to get one:</strong> use the Device Code flow below — no token copying needed.<br/>
+                  Or: open <code>developer.microsoft.com/graph/graph-explorer</code>, sign in, and copy the token from the Access Token tab.
                 </div>
               </div>
             )}
@@ -7070,8 +7094,18 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
         <div style={{display:"flex",gap:16,alignItems:"start",flexDirection:isMobile?"column":"row"}}>
           <div className="card" style={{flex:isMobile?"1 1 100%":"0 0 420px"}}>
             <div className="card-title">Step 3 — Extract Leads</div>
-            <div style={{padding:"10px 14px",background:"var(--ok)11",border:"1px solid var(--ok)44",borderRadius:"var(--radius-sm)",marginBottom:14,fontSize:13}}>
-              <span className="c-ok">✓ Authenticated</span> as <strong>{email}</strong> via {pi.label}
+            <div style={{padding:"10px 14px",background:"var(--ok)11",border:"1px solid var(--ok)44",borderRadius:"var(--radius-sm)",marginBottom:14,fontSize:13,display:"flex",alignItems:"center",gap:10}}>
+              <span className="c-ok">✓ Authenticated</span>
+              <div style={{flex:1}}>
+                <strong>{sessionInfo?.display_name || email}</strong>
+                {sessionInfo?.display_name && sessionInfo.display_name !== email && <span className="dim2"> · {email}</span>}
+                <span className="dim2"> via {pi.label}</span>
+                {sessionInfo?.inbox_count > 0 && <span className="dim2"> · {sessionInfo.inbox_count} messages</span>}
+              </div>
+              <button className="btn btn-g btn-xs" onClick={()=>{
+                apiCall("/api/b2b/reset",{method:"POST",body:"{}"}).catch(()=>{});
+                setSession(null);setSessionInfo(null);setExtracted([]);setStep(1);setInfo("","i");
+              }}>↩ Re-auth</button>
             </div>
             <div className="g2 mb12">
               <div>
@@ -7114,7 +7148,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
       {step===3 && (
         <div>
           <div className="row jb ac-center mb12">
-            <Info type="ok">{extracted.length} leads ready · sending from <strong>{email}</strong> ({pi.label})</Info>
+            <Info type="ok">{extracted.length} leads ready · sending from <strong>{sessionInfo?.display_name || email}</strong>{sessionInfo?.display_name && sessionInfo.display_name !== email ? ` (${email})` : ""} via {pi.label}</Info>
           </div>
 
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:16,alignItems:"start"}}>
