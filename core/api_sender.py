@@ -203,6 +203,18 @@ _RETRY_STATUSES = {429, 503, 502, 504}
 _MAX_RETRIES    = 2
 _RETRY_DELAY    = 5   # seconds (overridden by Retry-After header if present)
 
+# Rotating browser User-Agents for API HTTP requests — avoids Python-urllib fingerprint
+_HTTP_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+]
+
 
 # ═══════════════════════════════════════════════════════════════
 # DELIVERABILITY HEADER BUILDER
@@ -326,8 +338,21 @@ def _api_request(
     If uid is provided, only THAT user's campaign-abort flag aborts
     the request — User A's Stop never breaks User B's send.
     """
+    import random as _random
     raw    = json.dumps(payload).encode("utf-8")
     delay  = _RETRY_DELAY
+
+    # Inject browser-like HTTP headers so the request doesn't fingerprint as
+    # Python-urllib. ESP log parsers and reputation systems see the HTTP layer.
+    _ua = headers.get("User-Agent") or _random.choice(_HTTP_USER_AGENTS)
+    headers = {
+        "User-Agent":      _ua,
+        "Accept":          "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection":      "keep-alive",
+        **headers,
+    }
 
     # Best-effort campaign-abort hook so retry loops bail out quickly when
     # the user presses Stop instead of waiting through 4×30s of timeouts.
