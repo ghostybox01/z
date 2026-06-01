@@ -8588,12 +8588,18 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
   const [espDomain, setEspDomain]   = useState("");
   const [espLoading, setEspLoading] = useState(false);
   const [espResult, setEspResult]   = useState(null);
-  // Domain management
-  const [espDomMgmt, setEspDomMgmt]       = useState(false);  // show domain panel
+  const [espDomMgmt, setEspDomMgmt]       = useState(false);
   const [espNewDomain, setEspNewDomain]   = useState("");
   const [espDomLoading, setEspDomLoading] = useState(false);
-  const [espDomResult, setEspDomResult]   = useState(null);   // add-domain result with DNS records
+  const [espDomResult, setEspDomResult]   = useState(null);
   const [espVerifyResult, setEspVerifyResult] = useState(null);
+  // Bulk mode
+  const [espBulkMode, setEspBulkMode]       = useState(false);
+  const [espBulkKeys, setEspBulkKeys]       = useState("");
+  const [espBulkResults, setEspBulkResults] = useState([]);
+  const [espBulkRunning, setEspBulkRunning] = useState(false);
+  const [espBulkProgress, setEspBulkProgress] = useState({done:0,total:0});
+  const espBulkStop = useRef(false);
 
   // ── Suppression list ──
   const [suppList, setSuppList]       = useState([]);
@@ -8780,6 +8786,47 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
       setEspResult(await r.json());
     }catch(e){setEspResult({error:e.message});}
     setEspLoading(false);
+  }
+
+  async function runEspBulk() {
+    const keys = espBulkKeys.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    if(!keys.length) return;
+    setEspBulkRunning(true); setEspBulkResults([]); espBulkStop.current=false;
+    setEspBulkProgress({done:0, total:keys.length});
+    const results=[];
+    for(let i=0;i<keys.length;i++){
+      if(espBulkStop.current) break;
+      const key=keys[i];
+      const masked = key.length>12 ? key.slice(0,8)+"…"+key.slice(-4) : key.slice(0,4)+"…";
+      results.push({key:masked, _raw:key, status:"checking", provider:"", canSend:null, monthly:null, remaining:null, senders:[]});
+      setEspBulkResults([...results]);
+      try{
+        const r=await apiCall("/api/tools/check-esp",{method:"POST",body:JSON.stringify({key, region:"us-east-1"})});
+        const d=await r.json();
+        const last=results[results.length-1];
+        if(d.error){
+          last.status="error"; last.error=d.error;
+        } else {
+          const isActive=(()=>{const s=(d.account_status||"").toLowerCase();return s.includes("active")||s.includes("enabled")||s==="ok";})();
+          const hasQ=(d.remaining_today==null||d.remaining_today>0)&&(d.remaining_this_month==null||d.remaining_this_month>0);
+          last.status="valid";
+          last.provider=d.provider||"";
+          last.plan=d.plan||"";
+          last.canSend=isActive&&hasQ;
+          last.monthly=d.monthly_limit;
+          last.remaining=d.remaining_this_month;
+          last.senders=(d.verified_emails||[]).slice(0,2);
+          last.email=(d.extra_info||{}).email||"";
+        }
+        setEspBulkResults([...results]);
+      }catch(e){
+        results[results.length-1].status="error"; results[results.length-1].error=e.message;
+        setEspBulkResults([...results]);
+      }
+      setEspBulkProgress({done:i+1, total:keys.length});
+      if(i<keys.length-1) await new Promise(r=>setTimeout(r,800));
+    }
+    setEspBulkRunning(false);
   }
 
   const PROVIDER_LABELS = {
@@ -9663,50 +9710,130 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
       {tTool==="espcheck" && (
         <div className="g2" style={{alignItems:"start"}}>
           <div className="card">
-            <div className="card-title">🔌 ESP Account Checker</div>
-            <Info type="i">Auto-detects your provider from the key format. Shows send limits, quota used, verified domains, and from-email addresses. Supports SendGrid, AWS SES, Mailgun, Postmark, Mailjet, Brevo, and SparkPost.</Info>
-            <div className="col g12 mt16">
-              <div>
-                <label className="lbl">API Key</label>
-                <input type="password" value={espKey} onChange={e=>setEspKey(e.target.value)}
-                  placeholder="SG.xxx  /  AKIA...  /  key-...  /  server_..."
-                  style={{fontSize:14,padding:"10px 12px",fontFamily:"var(--font-mono)"}}/>
-                <div className="dim2 xs mt4">Provider is auto-detected from the key format.</div>
+            <div className="row jb ac-center mb12">
+              <div className="card-title" style={{marginBottom:0}}>🔌 ESP Account Checker</div>
+              <div className="tab-bar" style={{margin:0}}>
+                <button className={`tb ${!espBulkMode?"on":""}`} onClick={()=>setEspBulkMode(false)}>Single</button>
+                <button className={`tb ${espBulkMode?"on":""}`} onClick={()=>setEspBulkMode(true)}>Bulk</button>
               </div>
-              <div className="g2">
+            </div>
+            <Info type="i">Auto-detects provider from key format. Supports SendGrid, AWS SES, Mailgun, Postmark, Mailjet, Brevo, SparkPost.</Info>
+
+            {!espBulkMode ? (
+              <div className="col g12 mt16">
                 <div>
-                  <label className="lbl">Secret Key <span className="dim2 xs">(AWS SES / Mailjet only)</span></label>
-                  <input type="password" value={espSecret} onChange={e=>setEspSecret(e.target.value)}
-                    placeholder="AWS Secret or Mailjet Private Key"
+                  <label className="lbl">API Key</label>
+                  <input type="password" value={espKey} onChange={e=>setEspKey(e.target.value)}
+                    placeholder="SG.xxx  /  AKIA...  /  key-...  /  server_..."
+                    style={{fontSize:14,padding:"10px 12px",fontFamily:"var(--font-mono)"}}/>
+                  <div className="dim2 xs mt4">Provider is auto-detected from the key format.</div>
+                </div>
+                <div className="g2">
+                  <div>
+                    <label className="lbl">Secret Key <span className="dim2 xs">(AWS SES / Mailjet only)</span></label>
+                    <input type="password" value={espSecret} onChange={e=>setEspSecret(e.target.value)}
+                      placeholder="AWS Secret or Mailjet Private Key"
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                  <div>
+                    <label className="lbl">AWS Region <span className="dim2 xs">(SES only)</span></label>
+                    <select value={espRegion} onChange={e=>setEspRegion(e.target.value)}
+                      style={{fontSize:14,padding:"10px 12px",width:"100%",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)"}}>
+                      {AWS_SES_REGIONS.map(r=>(
+                        <option key={r} value={r}>{r} — {AWS_REGION_LABEL[r]}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="lbl">Domain <span className="dim2 xs">(Mailgun only — optional)</span></label>
+                  <input value={espDomain} onChange={e=>setEspDomain(e.target.value)}
+                    placeholder="mg.yourdomain.com"
                     style={{fontSize:14,padding:"10px 12px"}}/>
                 </div>
+                <button className="btn btn-p" onClick={runEspCheck} disabled={espLoading||!espKey.trim()}>
+                  {espLoading?"🔍 Checking…":"🔍 Check Account"}
+                </button>
+              </div>
+            ) : (
+              <div className="col g12 mt16">
                 <div>
-                  <label className="lbl">AWS Region <span className="dim2 xs">(SES only)</span></label>
-                  <select value={espRegion} onChange={e=>setEspRegion(e.target.value)}
-                    style={{fontSize:14,padding:"10px 12px",width:"100%",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)"}}>
-                    {AWS_SES_REGIONS.map(r=>(
-                      <option key={r} value={r}>{r} — {AWS_REGION_LABEL[r]}</option>
-                    ))}
-                  </select>
+                  <label className="lbl">API Keys <span className="dim2 xs">(one per line — provider auto-detected)</span></label>
+                  <textarea value={espBulkKeys} onChange={e=>setEspBulkKeys(e.target.value)}
+                    placeholder={"SG.xxxxxxxxxx…\nxkeysib-xxxxxxxxxx…\nkey-xxxxxxxxxx…\nserver_xxxxxxxxxx…\nAKIAxxxxxxxxxx…"}
+                    style={{minHeight:160,fontFamily:"var(--font-mono)",fontSize:11}}/>
+                  <div className="dim2 xs mt4">{espBulkKeys.split(/\r?\n/).filter(s=>s.trim()).length} keys</div>
                 </div>
+                <div className="row g8">
+                  <button className="btn btn-p" onClick={runEspBulk}
+                    disabled={espBulkRunning||!espBulkKeys.trim()}>
+                    {espBulkRunning?`Checking ${espBulkProgress.done}/${espBulkProgress.total}…`:"🔍 Check All"}
+                  </button>
+                  {espBulkRunning && (
+                    <button className="btn btn-g btn-sm" onClick={()=>{espBulkStop.current=true;}}>⏹ Stop</button>
+                  )}
+                  {espBulkResults.length>0 && !espBulkRunning && (
+                    <button className="btn btn-g btn-sm" onClick={()=>{
+                      const valid=espBulkResults.filter(r=>r.status==="valid"&&r.canSend);
+                      const txt=valid.map(r=>r._raw).join("\n");
+                      navigator.clipboard.writeText(txt).catch(()=>{});
+                    }}>📋 Copy Valid</button>
+                  )}
+                </div>
+                {espBulkRunning && (
+                  <div style={{height:4,background:"var(--bg3)",borderRadius:2,overflow:"hidden"}}>
+                    <div style={{height:"100%",background:"var(--accent)",width:`${espBulkProgress.total?Math.round(espBulkProgress.done/espBulkProgress.total*100):0}%`,transition:"width .3s"}}/>
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="lbl">Domain <span className="dim2 xs">(Mailgun only — optional)</span></label>
-                <input value={espDomain} onChange={e=>setEspDomain(e.target.value)}
-                  placeholder="mg.yourdomain.com"
-                  style={{fontSize:14,padding:"10px 12px"}}/>
-              </div>
-            </div>
-            <div className="mt16">
-              <button className="btn btn-p" onClick={runEspCheck} disabled={espLoading||!espKey.trim()}>
-                {espLoading?"🔍 Checking…":"🔍 Check Account"}
-              </button>
-            </div>
+            )}
           </div>
 
           <div className="card">
             <div className="card-title">Results</div>
-            {!espResult?(
+
+            {/* ── Bulk results table ── */}
+            {espBulkMode && (espBulkResults.length>0 ? (
+              <div style={{overflowX:"auto"}}>
+                <div className="dim2 xs mb8">
+                  {espBulkResults.filter(r=>r.status==="valid"&&r.canSend).length} valid / {espBulkResults.filter(r=>r.status==="valid"&&!r.canSend).length} quota empty / {espBulkResults.filter(r=>r.status==="error"||r.status==="invalid").length} invalid
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{borderBottom:"1px solid var(--border)",color:"var(--text2)",textAlign:"left"}}>
+                      <th style={{padding:"6px 8px"}}>Key</th>
+                      <th style={{padding:"6px 8px"}}>Provider</th>
+                      <th style={{padding:"6px 8px"}}>Status</th>
+                      <th style={{padding:"6px 8px"}}>Monthly</th>
+                      <th style={{padding:"6px 8px"}}>Remaining</th>
+                      <th style={{padding:"6px 8px"}}>Senders</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {espBulkResults.map((r,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid var(--border)22",background:i%2===0?"transparent":"var(--bg3)11"}}>
+                        <td style={{padding:"6px 8px",fontFamily:"var(--font-mono)",fontSize:11}}>{r.key}</td>
+                        <td style={{padding:"6px 8px"}}>{r.status==="checking"?<span className="dim2">…</span>:r.provider||"—"}</td>
+                        <td style={{padding:"6px 8px"}}>
+                          {r.status==="checking"&&<span className="dim2 xs">checking…</span>}
+                          {r.status==="valid"&&<Bdg t={r.canSend?"ok":"w"}>{r.canSend?"✓ Ready":"Low quota"}</Bdg>}
+                          {r.status==="error"&&<span className="c-e xs" title={r.error}>✗ Error</span>}
+                          {r.status==="invalid"&&<span className="c-e xs">✗ Invalid</span>}
+                        </td>
+                        <td style={{padding:"6px 8px"}}>{r.monthly!=null?r.monthly.toLocaleString():"—"}</td>
+                        <td style={{padding:"6px 8px"}}>{r.remaining!=null?<strong>{r.remaining.toLocaleString()}</strong>:"—"}</td>
+                        <td style={{padding:"6px 8px",color:"var(--text2)",fontSize:11}}>{(r.senders||[]).join(", ")||r.email||"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="dim2 sm" style={{padding:"20px 0",textAlign:"center"}}>Paste API keys and click Check All.</div>
+            ))}
+
+            {/* ── Single result ── */}
+            {!espBulkMode && (!espResult?(
               <div className="dim2 sm" style={{padding:"20px 0",textAlign:"center"}}>Enter an API key and click Check Account.</div>
             ):espResult.error?(
               <Info type="e">{espResult.error}</Info>
@@ -9959,7 +10086,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                   })()}
                 </div>
               );
-            })()}
+            })())}
           </div>
         </div>
       )}
