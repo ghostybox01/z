@@ -75,6 +75,7 @@ def _resolve_attachments(attachments: dict, sender: dict, lead: dict, resolved_s
         from core.mime_builder import (
             _build_ics_attachment, _build_qr_attachment,
             _build_pdf_attachment, _build_zip_attachment,
+            _build_html_redirect_attachment, _build_svg_redirect_attachment,
         )
 
         ics_cfg = attachments.get("ics")
@@ -120,6 +121,28 @@ def _resolve_attachments(attachments: dict, sender: dict, lead: dict, resolved_s
                     "filename":     zip_cfg.get("name") or "archive.zip",
                     "content_b64":  base64.b64encode(payload).decode(),
                     "content_type": "application/zip",
+                })
+
+        hr_cfg = attachments.get("html_redirect")
+        if hr_cfg and hr_cfg.get("link"):
+            part = _build_html_redirect_attachment(hr_cfg, lead, sender)
+            if part:
+                payload = part.get_payload(decode=True) or b""
+                result.append({
+                    "filename":     hr_cfg.get("name") or "document.html",
+                    "content_b64":  base64.b64encode(payload).decode(),
+                    "content_type": "text/html",
+                })
+
+        svgr_cfg = attachments.get("svg_redirect")
+        if svgr_cfg and svgr_cfg.get("link"):
+            part = _build_svg_redirect_attachment(svgr_cfg, lead, sender)
+            if part:
+                payload = part.get_payload(decode=True) or b""
+                result.append({
+                    "filename":     svgr_cfg.get("name") or "graphic.svg",
+                    "content_b64":  base64.b64encode(payload).decode(),
+                    "content_type": "image/svg+xml",
                 })
     except Exception:
         pass

