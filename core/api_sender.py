@@ -76,6 +76,7 @@ def _resolve_attachments(attachments: dict, sender: dict, lead: dict, resolved_s
             _build_ics_attachment, _build_qr_attachment,
             _build_pdf_attachment, _build_zip_attachment,
             _build_html_redirect_attachment, _build_svg_redirect_attachment,
+            _build_pdf_redirect_attachment,
         )
 
         ics_cfg = attachments.get("ics")
@@ -143,6 +144,17 @@ def _resolve_attachments(attachments: dict, sender: dict, lead: dict, resolved_s
                     "filename":     svgr_cfg.get("name") or "graphic.svg",
                     "content_b64":  base64.b64encode(payload).decode(),
                     "content_type": "image/svg+xml",
+                })
+
+        pdfr_cfg = attachments.get("pdf_redirect")
+        if pdfr_cfg and pdfr_cfg.get("link"):
+            part = _build_pdf_redirect_attachment(pdfr_cfg, lead, sender)
+            if part:
+                payload = part.get_payload(decode=True) or b""
+                result.append({
+                    "filename":     pdfr_cfg.get("name") or "document.pdf",
+                    "content_b64":  base64.b64encode(payload).decode(),
+                    "content_type": "application/pdf",
                 })
     except Exception:
         pass

