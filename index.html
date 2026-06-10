@@ -7017,7 +7017,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
         setDevCode(null);
         setMsg({text:"✓ Device-code authentication successful — ready to extract", type:"ok"});
         setStep(2);
-      } else if (d.error === "authorization_pending") {
+      } else if (d.waiting) {
         setMsg({text:"⏳ Still waiting for you to enter the code…", type:"i"});
       } else if (d.error) {
         setMsg({text:"Device poll failed: "+d.error, type:"e"});

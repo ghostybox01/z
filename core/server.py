@@ -5295,7 +5295,10 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                     email_arg, token_raw,
                     expires_in=int(data.get("expiresIn", 3600) or 3600),
                 )
-            self._json(200, result)
+            if result.get("ok"):
+                self._json(200, {**result, "session": b2b.status()})
+            else:
+                self._json(200, result)
 
         # ── B2B: start device code flow ──────────────────────
         elif p == "/api/b2b/oauth-url":

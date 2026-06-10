@@ -2823,6 +2823,7 @@ class B2BSession:
         if result.get("ok"):
             self._s["ms_token"]         = result.get("token")
             self._s["ms_token_expires"] = result.get("expires", 0.0)
+            self._s["ms_refresh"]       = self._s.get("ms_refresh_token")
         return result
 
     # ── Login: Method 2c — password + TOTP/OTP ─────────────────
