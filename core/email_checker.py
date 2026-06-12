@@ -361,11 +361,17 @@ class MailgunProvider(EmailProvider):
         return key.startswith("key-") or (len(key) >= 32 and re.match(r'^[a-f0-9-]+$', key))
     
     def _request(self, endpoint: str) -> Tuple[Optional[Dict], Optional[str]]:
-        return _http_get_basic(f"{self.base_url}/{endpoint}", "api", self.api_key)
-    
+        data, err = _http_get_basic(f"{self.base_url}/{endpoint}", "api", self.api_key)
+        if data is None and self.base_url == "https://api.mailgun.net/v3":
+            eu_data, eu_err = _http_get_basic(f"https://api.eu.mailgun.net/v3/{endpoint}", "api", self.api_key)
+            if eu_data is not None:
+                self.base_url = "https://api.eu.mailgun.net/v3"
+                return eu_data, None
+        return data, err
+
     def fetch_status(self) -> EmailServiceStatus:
         status = EmailServiceStatus(provider=self.name)
-        
+
         # Get domains
         data, err = self._request("domains")
         if data:
@@ -727,12 +733,68 @@ class SparkPostProvider(EmailProvider):
         return status
 
 
+class ResendProvider(EmailProvider):
+    """Resend email service provider."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://api.resend.com"
+
+    @property
+    def name(self) -> str:
+        return "Resend"
+
+    @staticmethod
+    def detect(key: str, secret: Optional[str] = None) -> bool:
+        return key.startswith("re_")
+
+    def _request(self, endpoint: str) -> Tuple[Optional[Dict], Optional[str]]:
+        return _http_get(
+            f"{self.base_url}/{endpoint}",
+            {"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"},
+        )
+
+    def fetch_status(self) -> EmailServiceStatus:
+        status = EmailServiceStatus(provider=self.name)
+
+        data, err = self._request("domains")
+        if err:
+            code = "401" if "401" in err else ("403" if "403" in err else "")
+            status.account_status = "Invalid Key" if code else "Error"
+            status.errors.append(f"Auth: {err}")
+            return status
+
+        for d in (data or {}).get("data", []):
+            dom_status = d.get("status", "")
+            records    = d.get("records", []) or []
+            dkim_ok = any(r.get("status") == "verified" and "dkim" in (r.get("name") or "").lower() for r in records)
+            spf_ok  = any((r.get("type") or "").upper() == "TXT" and r.get("status") == "verified" for r in records)
+            status.domains.append({
+                "domain":       d.get("name"),
+                "verified":     dom_status == "verified",
+                "dkim_status":  "Success" if dkim_ok else dom_status.capitalize(),
+                "spf_verified": spf_ok,
+                "region":       d.get("region", ""),
+            })
+
+        for d in status.domains:
+            if d.get("verified"):
+                status.verified_emails.append(f"*@{d['domain']}")
+
+        verified_count = sum(1 for d in status.domains if d.get("verified"))
+        status.extra_info["domains_total"]    = len(status.domains)
+        status.extra_info["domains_verified"] = verified_count
+        status.account_status = "Active"
+        return status
+
+
 # Provider registry for auto-detection
 PROVIDERS = [
     AWSSESProvider,
     SendGridProvider,
     BrevoProvider,
     PostmarkProvider,
+    ResendProvider,
     SparkPostProvider,
     MailgunProvider,
     MailjetProvider,  # Must come after others since it requires secret

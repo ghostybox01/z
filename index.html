@@ -10084,8 +10084,9 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
               <Info type="e">{espResult.error}</Info>
             ):(()=>{
               const r=espResult;
-              const pct = r.daily_limit&&r.sent_last_24h!=null ? Math.round(r.sent_last_24h/r.daily_limit*100) : null;
-              const pctM = r.monthly_limit&&r.sent_this_month!=null ? Math.round(r.sent_this_month/r.monthly_limit*100) : null;
+              const sentForBar = r.sent_last_24h ?? r.sent_today;
+              const pct = r.daily_limit && sentForBar != null ? Math.round(sentForBar / r.daily_limit * 100) : null;
+              const pctM = r.monthly_limit && r.sent_this_month != null ? Math.round(r.sent_this_month / r.monthly_limit * 100) : null;
               // Derive can-send: account active + has quota remaining
               const isActive = (()=>{const s=(r.account_status||"").toLowerCase();return s.includes("active")||s.includes("enabled")||s.includes("healthy")||s==="ok";})();
               const hasQuota = r.remaining_today==null||r.remaining_today>0;
@@ -10117,6 +10118,10 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                         <div className="dim2 xs">Sent (24h)</div>
                         <div style={{fontWeight:700,fontSize:18,color:pct>80?"var(--err)":pct>50?"var(--warn)":"var(--ok)"}}>{r.sent_last_24h.toLocaleString()}</div>
                       </div>}
+                      {r.sent_today!=null&&r.sent_last_24h==null&&<div className="card" style={{background:"var(--inset)",padding:"10px 14px"}}>
+                        <div className="dim2 xs">Sent Today</div>
+                        <div style={{fontWeight:700,fontSize:18,color:pct>80?"var(--err)":pct>50?"var(--warn)":"var(--ok)"}}>{r.sent_today.toLocaleString()}</div>
+                      </div>}
                       {r.remaining_today!=null&&<div className="card" style={{background:"var(--inset)",padding:"10px 14px"}}>
                         <div className="dim2 xs">Remaining Today</div>
                         <div style={{fontWeight:700,fontSize:18,color:"var(--ok)"}}>{r.remaining_today.toLocaleString()}</div>
@@ -10141,11 +10146,22 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                     {pct!=null&&(
                       <div className="mt8">
                         <div className="row jb xs dim mb4">
-                          <span>24h usage</span>
+                          <span>Daily usage</span>
                           <span style={{color:pct>80?"var(--err)":pct>50?"var(--warn)":"var(--ok)",fontWeight:600}}>{pct}%</span>
                         </div>
                         <div style={{height:6,borderRadius:3,background:"var(--bg3)",overflow:"hidden"}}>
                           <div style={{width:pct+"%",height:"100%",borderRadius:3,background:pct>80?"var(--err)":pct>50?"var(--warn)":"var(--ok)",transition:"width .4s"}}/>
+                        </div>
+                      </div>
+                    )}
+                    {pctM!=null&&(
+                      <div className="mt8">
+                        <div className="row jb xs dim mb4">
+                          <span>Monthly usage</span>
+                          <span style={{color:pctM>80?"var(--err)":pctM>50?"var(--warn)":"var(--ok)",fontWeight:600}}>{pctM}%</span>
+                        </div>
+                        <div style={{height:6,borderRadius:3,background:"var(--bg3)",overflow:"hidden"}}>
+                          <div style={{width:pctM+"%",height:"100%",borderRadius:3,background:pctM>80?"var(--err)":pctM>50?"var(--warn)":"var(--ok)",transition:"width .4s"}}/>
                         </div>
                       </div>
                     )}
@@ -10156,27 +10172,33 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                     <div>
                       <div className="div-lbl mb8">VERIFIED DOMAINS ({r.domains.length})</div>
                       <div className="tw">
-                        <table>
-                          <thead><tr><th>Domain</th><th>Status</th><th>DKIM</th></tr></thead>
-                          <tbody>
-                            {r.domains.map((d,i)=>{
-                              // verified can be bool (SendGrid) or string ("Success"/"Pending") (SES/others)
-                              const verOk = d.verified===true||d.verified==="Success"||d.verified==="active";
-                              const verPending = d.verified==="Pending"||d.state==="unverified";
-                              const verLabel = d.verified===true?"Verified":d.verified===false?"Unverified":d.verified||d.state||"—";
-                              // DKIM: bool or status string
-                              const dkimOk = d.dkim_enabled===true||d.dkim_verified===true||d.dkim_status==="Success";
-                              const dkimLabel = d.dkim_status||(d.dkim_enabled===true?"✓":d.dkim_enabled===false?"✗":"—");
-                              return (
-                                <tr key={i}>
-                                  <td className="mono xs">{d.domain}</td>
-                                  <td><Bdg t={verOk?"ok":verPending?"w":"n"}>{verLabel}</Bdg></td>
-                                  <td><Bdg t={dkimOk?"ok":"n"}>{dkimLabel}</Bdg></td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                        {(()=>{
+                          const hasSpf = r.domains.some(d=>d.spf_verified!=null||d.spf_status!=null);
+                          return (
+                            <table>
+                              <thead><tr><th>Domain</th><th>Status</th><th>DKIM</th>{hasSpf&&<th>SPF</th>}</tr></thead>
+                              <tbody>
+                                {r.domains.map((d,i)=>{
+                                  const verOk = d.verified===true||d.verified==="Success"||d.verified==="active";
+                                  const verPending = d.verified==="Pending"||d.state==="unverified";
+                                  const verLabel = d.verified===true?"Verified":d.verified===false?"Unverified":d.verified||d.state||"—";
+                                  const dkimOk = d.dkim_enabled===true||d.dkim_verified===true||d.dkim_status==="Success";
+                                  const dkimLabel = d.dkim_status||(d.dkim_enabled===true?"✓":d.dkim_enabled===false?"✗":"—");
+                                  const spfOk = d.spf_verified===true||d.spf_status==="Success"||d.spf_status==="Pass";
+                                  const spfLabel = d.spf_status||(d.spf_verified===true?"✓":d.spf_verified===false?"✗":"—");
+                                  return (
+                                    <tr key={i}>
+                                      <td className="mono xs">{d.domain}</td>
+                                      <td><Bdg t={verOk?"ok":verPending?"w":"n"}>{verLabel}</Bdg></td>
+                                      <td><Bdg t={dkimOk?"ok":"n"}>{dkimLabel}</Bdg></td>
+                                      {hasSpf&&<td><Bdg t={spfOk?"ok":"n"}>{spfLabel}</Bdg></td>}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          );
+                        })()}
                       </div>
                     </div>
                   )}
@@ -10198,20 +10220,47 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                     </div>
                   )}
 
-                  {/* Extra info */}
-                  {r.extra_info&&Object.keys(r.extra_info).length>0&&(
-                    <div>
-                      <div className="div-lbl mb8">ACCOUNT DETAILS</div>
-                      <div className="col g6">
-                        {Object.entries(r.extra_info).filter(([,v])=>v!=null&&v!=="").map(([k,v],i)=>(
-                          <div key={i} className="row jb xs" style={{padding:"4px 0",borderBottom:"1px solid var(--border)"}}>
-                            <span className="dim2">{k.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())}</span>
-                            <span style={{fontWeight:500}}>{String(v)}</span>
+                  {/* Deliverability stats + account details split */}
+                  {r.extra_info&&Object.keys(r.extra_info).length>0&&(()=>{
+                    const DELIV_KEYS=new Set(["delivered","bounced","bounces","spam_reports","spam_complaints","bounce_rate","total_sent","delivered_today","bounces_today"]);
+                    const delivEntries=Object.entries(r.extra_info).filter(([k,v])=>DELIV_KEYS.has(k)&&v!=null&&v!=="");
+                    const acctEntries=Object.entries(r.extra_info).filter(([k,v])=>!DELIV_KEYS.has(k)&&v!=null&&v!=="");
+                    const fmt=(k,v)=>{
+                      if(typeof v==="boolean") return v?"Yes":"No";
+                      if(typeof v==="number"&&(k.includes("rate")||k.includes("pct"))) return (v*100).toFixed(1)+"%";
+                      return String(v);
+                    };
+                    return (
+                      <>
+                        {delivEntries.length>0&&(
+                          <div>
+                            <div className="div-lbl mb8">DELIVERABILITY</div>
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+                              {delivEntries.map(([k,v],i)=>(
+                                <div key={i} className="card" style={{background:"var(--inset)",padding:"10px 14px"}}>
+                                  <div className="dim2 xs">{k.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())}</div>
+                                  <div style={{fontWeight:700,fontSize:16}}>{typeof v==="number"?v.toLocaleString():String(v)}</div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                        )}
+                        {acctEntries.length>0&&(
+                          <div>
+                            <div className="div-lbl mb8">ACCOUNT DETAILS</div>
+                            <div className="col g6">
+                              {acctEntries.map(([k,v],i)=>(
+                                <div key={i} className="row jb xs" style={{padding:"4px 0",borderBottom:"1px solid var(--border)"}}>
+                                  <span className="dim2">{k.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())}</span>
+                                  <span style={{fontWeight:500}}>{fmt(k,v)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   {/* Errors */}
                   {r.errors&&r.errors.length>0&&(
