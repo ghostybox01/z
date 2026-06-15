@@ -806,24 +806,68 @@ class MailchimpProvider(EmailProvider):
         return bool(re.search(r'-[a-z]{2}\d+$', key))
 
     def _request(self, endpoint: str) -> Tuple[Optional[Dict], Optional[str]]:
-        return _http_get_basic(f"{self.base_url}/{endpoint}", "anystring", self.api_key)
+        sep = "" if endpoint.startswith("/") or endpoint == "" else "/"
+        url = f"{self.base_url}{sep}{endpoint}" if endpoint else f"{self.base_url}/"
+        return _http_get_basic(url, "anystring", self.api_key)
 
     def fetch_status(self) -> EmailServiceStatus:
         status = EmailServiceStatus(provider=self.name)
+
+        # Account info
         data, err = self._request("")
         if err:
             status.account_status = "Invalid Key" if "401" in (err or "") else "Error"
             status.errors.append(f"Auth: {err}")
             return status
         if data:
-            status.extra_info["account_name"] = data.get("account_name")
-            status.extra_info["email"]        = data.get("email")
-            status.extra_info["plan"]         = data.get("pricing_plan_type")
+            status.extra_info["account_name"]     = data.get("account_name")
+            status.extra_info["email"]            = data.get("email")
+            status.extra_info["plan"]             = data.get("pricing_plan_type")
+            status.extra_info["industry"]         = data.get("industry_type")
+            status.extra_info["country"]          = (data.get("contact") or {}).get("country")
+            status.extra_info["timezone"]         = data.get("timezone")
+            total_subs = data.get("total_subscribers") or data.get("total_contacts", 0)
+            status.extra_info["total_subscribers"] = total_subs
             pro = data.get("pro_sends") or {}
             if pro.get("sends_allowance"):
                 status.monthly_limit        = pro["sends_allowance"]
                 status.sent_this_month      = pro.get("current_period_sends", 0)
                 status.remaining_this_month = max(0, status.monthly_limit - (status.sent_this_month or 0))
+
+        # Lists / audiences — full details
+        ldata, lerr = self._request("lists?count=100&fields=lists.id,lists.name,lists.stats,lists.date_created")
+        if ldata:
+            lists = ldata.get("lists", [])
+            status.extra_info["lists_count"] = len(lists)
+            total_subs_from_lists = 0
+            for i, lst in enumerate(lists):
+                stats = lst.get("stats") or {}
+                subs  = stats.get("member_count", 0)
+                total_subs_from_lists += subs
+                unsub = stats.get("unsubscribe_count", 0)
+                name  = lst.get("name", f"List {i+1}")
+                status.extra_info[f"list_{i+1}_name"]        = name
+                status.extra_info[f"list_{i+1}_subscribers"] = subs
+                if unsub:
+                    status.extra_info[f"list_{i+1}_unsubscribed"] = unsub
+            if not status.extra_info.get("total_subscribers"):
+                status.extra_info["total_subscribers"] = total_subs_from_lists
+        elif lerr:
+            status.errors.append(f"Lists: {lerr}")
+
+        # Verified sending domains
+        ddata, _ = self._request("verified-domains")
+        if ddata:
+            for d in (ddata.get("domains") or []):
+                domain   = d.get("domain") or d.get("name") or ""
+                verified = d.get("verified", False)
+                status.domains.append({
+                    "domain":      domain,
+                    "verified":    verified,
+                    "dkim_status": "Success" if d.get("dkim_enabled") else "Pending",
+                    "spf_status":  "Success" if d.get("spf_enabled")  else "Pending",
+                })
+
         status.account_status = "Active"
         return status
 
