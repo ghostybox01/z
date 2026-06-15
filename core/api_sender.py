@@ -228,6 +228,7 @@ _API_URLS = {
     "postmark":   "https://api.postmarkapp.com/email",
     "sparkpost":  "https://api.sparkpost.com/api/v1/transmissions",
     "ses":        "https://email.{region}.amazonaws.com/v2/email/outbound-emails",
+    "mandrill":   "https://mandrillapp.com/api/1.0/messages/send.json",
     # mailgun: endpoint built dynamically from domain field
 }
 
@@ -947,6 +948,42 @@ def _send_ses(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None
         raise Exception(f"Amazon SES HTTP {exc.code} — {detail}")
 
 
+def _send_mandrill(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
+    key        = api_cfg.get("apiKey", "")
+    from_email = sender.get("fromEmail", "")
+    from_name  = sender.get("fromName", "")
+    reply_to   = sender.get("replyTo", "")
+    lead_email = lead.get("email", "")
+    lead_name  = lead.get("name", "")
+
+    msg = {
+        "from_email": from_email,
+        "from_name":  from_name,
+        "to":         [{"email": lead_email, "name": lead_name, "type": "to"}],
+        "subject":    subject,
+        "html":       html,
+    }
+    if plain:
+        msg["text"] = plain
+    if reply_to:
+        msg["headers"] = {"Reply-To": reply_to}
+    if extra_hdrs:
+        msg.setdefault("headers", {}).update(extra_hdrs)
+    if atts:
+        msg["attachments"] = [
+            {"type": a["content_type"], "name": a["filename"], "content": a["content_b64"]}
+            for a in atts
+        ]
+
+    return _api_request(
+        _API_URLS["mandrill"],
+        {"key": key, "message": msg},
+        {"Accept": "application/json", "Content-Type": "application/json"},
+        "mandrill",
+        uid=api_cfg.get("_uid"),
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
 # MAIN SEND FUNCTION
 # ═══════════════════════════════════════════════════════════════
@@ -984,7 +1021,8 @@ def send_api(
     """
     provider = (api_cfg.get("provider") or "brevo").lower()
     # Normalize aliases — frontend saves ses-api, we need ses
-    _aliases = {"ses-api": "ses", "aws": "ses", "aws-ses": "ses", "sendinblue": "brevo"}
+    _aliases = {"ses-api": "ses", "aws": "ses", "aws-ses": "ses", "sendinblue": "brevo",
+                "mailchimp": "mandrill", "mailchimptransactional": "mandrill"}
     provider = _aliases.get(provider, provider)
 
     if provider not in SUPPORTED_PROVIDERS:
@@ -1024,6 +1062,7 @@ def send_api(
         "postmark":  _send_postmark,
         "sparkpost": _send_sparkpost,
         "ses":       _send_ses,
+        "mandrill":  _send_mandrill,
     }
 
     fn = dispatch.get(provider)

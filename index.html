@@ -4027,6 +4027,8 @@ function TabMethod({
   const [testL, setTestL] = useState({});
   const [apiTestResult, setApiTestResult] = useState(null);
   const [apiTestLoading, setApiTestLoading] = useState(false);
+  const [apiDetectedSenders, setApiDetectedSenders] = useState([]);
+  const [apiSenderSel, setApiSenderSel] = useState(new Set());
   const [tunnelTestResult, setTunnelTestResult] = useState(null);
   const [tunnelTestLoading, setTunnelTestLoading] = useState(false);
   const [mxProxyTests, setMxProxyTests] = useState({});
@@ -4849,7 +4851,7 @@ function TabMethod({
               <label className="lbl">Provider</label>
               <select value={apiDraft.provider} onChange={e=>setApiDraft({...apiDraft,provider:e.target.value})} style={{fontSize:14,padding:"10px 12px"}}>
                 <optgroup label="── Transactional ESP ──">
-                  {["sendgrid","mailgun","postmark","sparkpost","brevo","resend"].map(p=><option key={p}>{p}</option>)}
+                  {["sendgrid","mailgun","postmark","sparkpost","brevo","resend","mandrill"].map(p=><option key={p}>{p}</option>)}
                 </optgroup>
                 <optgroup label="── AWS ──">
                   <option value="ses-api">AWS SES (API)</option>
@@ -4869,6 +4871,8 @@ function TabMethod({
                 else if(k.startsWith("xkeysib-")||k.startsWith("xsmtpsib-")) p="brevo";
                 else if(k.startsWith("re_"))      p="resend";
                 else if(k.startsWith("server_"))  p="postmark";
+                else if(/[a-zA-Z0-9]{20,}-[a-z]{2}\d+$/.test(k)) p="mandrill";
+                setApiDetectedSenders([]); setApiSenderSel(new Set());
                 setApiDraft({...apiDraft,key:k,provider:p});
               }}
                 placeholder={apiDraft.provider==="ses-api" ? "AKIA..." : apiDraft.provider==="mailgun" ? "key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : "sk_…"}
@@ -4962,12 +4966,13 @@ function TabMethod({
             }}>+ Add Key</button>
             <button className="btn btn-g btn-sm" disabled={apiTestLoading||!apiDraft.key} onClick={async()=>{
               if(!apiDraft.key) return;
-              setApiTestLoading(true); setApiTestResult(null);
+              setApiTestLoading(true); setApiTestResult(null); setApiDetectedSenders([]);
               try {
                 const r=await apiCall("/api/tools/check-esp",{method:"POST",body:JSON.stringify({
                   key:apiDraft.key, secret:apiDraft.secret||null,
                   region:apiDraft.region||"us-east-1",
                   domain:apiDraft.mailgunDomain||null,
+                  provider_hint: apiDraft.provider==="mandrill"?"mandrill":null,
                 })});
                 const d=await r.json();
                 if(d.error){
@@ -4980,15 +4985,26 @@ function TabMethod({
                   if(d.daily_limit) parts.push(`${Number(d.daily_limit).toLocaleString()} daily limit`);
                   if(d.remaining_this_month!=null) parts.push(`${Number(d.remaining_this_month).toLocaleString()} remaining`);
                   if(d.domains?.length) parts.push(`${d.domains.length} domain(s)`);
-                  if(d.verified_emails?.length) parts.push(`${d.verified_emails.length} verified sender(s)`);
+                  // Collect verified senders: from verified_emails + wildcard domains
+                  const senders=[];
+                  (d.verified_emails||[]).forEach(e=>{if(e&&e.includes("@"))senders.push(e);});
+                  (d.domains||[]).filter(dom=>dom.verified).forEach(dom=>{
+                    const wc=`*@${dom.domain}`;
+                    if(!senders.includes(wc))senders.push(wc);
+                  });
+                  if(senders.length) parts.push(`${senders.length} verified sender(s)`);
                   setApiTestResult({ok:canSend, msg:`${d.provider||"ESP"} · ${parts.join(" · ")}`});
+                  if(senders.length>0){
+                    setApiDetectedSenders(senders);
+                    setApiSenderSel(new Set(senders));
+                  }
                 }
               } catch(e){
                 setApiTestResult({ok:false, msg:e.message||"Request failed"});
               }
               setApiTestLoading(false);
             }}>
-              {apiTestLoading?"🔍 Testing…":"🔍 Test Connection"}
+              {apiTestLoading?"🔍 Testing…":"🔍 Test & Fetch Senders"}
             </button>
           </div>
           {apiTestResult && (
@@ -4997,6 +5013,36 @@ function TabMethod({
               border:"1px solid "+(apiTestResult.ok?"#22c55e44":"#ef444444"),
               color:apiTestResult.ok?"#4ade80":"#f87171"}}>
               {apiTestResult.ok?"✓ ":"✗ "}{apiTestResult.msg}
+            </div>
+          )}
+          {apiDetectedSenders.length>0&&(
+            <div className="card mt10" style={{background:"var(--inset)",padding:"12px 14px"}}>
+              <div className="row jb ac-center mb8">
+                <span style={{fontSize:12,fontWeight:700,color:"var(--t2)"}}>DETECTED FROM-EMAILS ({apiDetectedSenders.length})</span>
+                <div className="row g6">
+                  <button className="btn btn-g btn-xs" onClick={()=>setApiSenderSel(new Set(apiDetectedSenders))}>All</button>
+                  <button className="btn btn-g btn-xs" onClick={()=>setApiSenderSel(new Set())}>None</button>
+                </div>
+              </div>
+              <div className="col g4 mb8" style={{maxHeight:160,overflowY:"auto"}}>
+                {apiDetectedSenders.map((e,i)=>(
+                  <label key={i} className="row ac-center g8" style={{cursor:"pointer",padding:"3px 0"}}>
+                    <input type="checkbox" checked={apiSenderSel.has(e)}
+                      onChange={ev=>{const s=new Set(apiSenderSel);ev.target.checked?s.add(e):s.delete(e);setApiSenderSel(s);}}/>
+                    <span className="mono xs">{e}</span>
+                  </label>
+                ))}
+              </div>
+              <button className="btn btn-p btn-sm" disabled={apiSenderSel.size===0}
+                onClick={()=>{
+                  const toAdd=[...apiSenderSel].filter(e=>!e.startsWith("*@")).join("\n");
+                  if(!toAdd)return;
+                  setSendersRaw(s=>s?s+"\n"+toAdd:toAdd);
+                  showToast("ok","Added",`${[...apiSenderSel].filter(e=>!e.startsWith("*@")).length} sender(s) added to From Emails`);
+                  setApiDetectedSenders([]); setApiSenderSel(new Set());
+                }}>
+                ➕ Add Selected to From Emails
+              </button>
             </div>
           )}
           {apiList.length>0 && (
