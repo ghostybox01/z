@@ -6934,10 +6934,11 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 data = self._read_body()
             except Exception:
                 self._json(400, {"error": "Invalid JSON"}); return
-            api_key = (data.get("key") or "").strip()
-            secret  = (data.get("secret") or "").strip() or None
-            region  = (data.get("region") or "us-east-1").strip()
-            domain  = (data.get("domain") or "").strip() or None
+            api_key       = (data.get("key") or "").strip()
+            secret        = (data.get("secret") or "").strip() or None
+            region        = (data.get("region") or "us-east-1").strip()
+            domain        = (data.get("domain") or "").strip() or None
+            provider_hint = (data.get("provider_hint") or "").strip() or None
             if not api_key:
                 self._json(400, {"error": "API key is required"}); return
             try:
@@ -6947,11 +6948,11 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 if "email_checker" in _sys.modules:
                     _il.reload(_sys.modules["email_checker"])
                 from email_checker import create_provider, detect_provider
-                provider = create_provider(api_key, secret, region, domain)
+                provider = create_provider(api_key, secret, region, domain, provider_hint)
                 if not provider:
                     pc = detect_provider(api_key, secret)
                     if pc is None:
-                        self._json(200, {"error": "Could not detect provider. Supported: SendGrid (SG.*), AWS SES (AKIA*), Mailgun (key-*), Postmark (server_*), Mailjet, Brevo, SparkPost"}); return
+                        self._json(200, {"error": "Could not detect provider. Select a provider manually or use a supported key format. Supported: SendGrid (SG.*), AWS SES (AKIA*), Mailgun (key-*), Postmark (UUID), Mailjet, Brevo (xkeysib-*), SparkPost, Resend (re_*), Mailchimp (*-us1), Mandrill"}); return
                     else:
                         self._json(200, {"error": f"Provider detected as {pc.__name__.replace('Provider','')} but needs additional credentials (secret key, region, or domain)"}); return
                 status = provider.fetch_status()

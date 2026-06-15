@@ -8831,6 +8831,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
   const [espSecret, setEspSecret]   = useState("");
   const [espRegion, setEspRegion]   = useState("us-east-1");
   const [espDomain, setEspDomain]   = useState("");
+  const [espProviderHint, setEspProviderHint] = useState("");
   const [espLoading, setEspLoading] = useState(false);
   const [espResult, setEspResult]   = useState(null);
   const [espDomMgmt, setEspDomMgmt]       = useState(false);
@@ -9027,6 +9028,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
       const r=await apiCall("/api/tools/check-esp",{method:"POST",body:JSON.stringify({
         key:espKey.trim(), secret:espSecret.trim()||null,
         region:espRegion||"us-east-1", domain:espDomain.trim()||null,
+        provider_hint:espProviderHint||null,
       })});
       setEspResult(await r.json());
     }catch(e){setEspResult({error:e.message});}
@@ -9962,7 +9964,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                 <button className={`tb ${espBulkMode?"on":""}`} onClick={()=>setEspBulkMode(true)}>Bulk</button>
               </div>
             </div>
-            <Info type="i">Auto-detects provider from key format. Supports SendGrid, AWS SES, Mailgun, Postmark, Mailjet, Brevo, SparkPost.</Info>
+            <Info type="i">Auto-detects provider from key format. Supports SendGrid, AWS SES, Mailgun, Postmark, Mailjet, Brevo, SparkPost, Resend, Mailchimp, Mandrill. If detection fails, select the provider manually below.</Info>
 
             {!espBulkMode ? (
               <div className="col g12 mt16">
@@ -9990,11 +9992,30 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                     </select>
                   </div>
                 </div>
-                <div>
-                  <label className="lbl">Domain <span className="dim2 xs">(Mailgun only — optional)</span></label>
-                  <input value={espDomain} onChange={e=>setEspDomain(e.target.value)}
-                    placeholder="mg.yourdomain.com"
-                    style={{fontSize:14,padding:"10px 12px"}}/>
+                <div className="g2">
+                  <div>
+                    <label className="lbl">Domain <span className="dim2 xs">(Mailgun only — optional)</span></label>
+                    <input value={espDomain} onChange={e=>setEspDomain(e.target.value)}
+                      placeholder="mg.yourdomain.com"
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                  <div>
+                    <label className="lbl">Provider <span className="dim2 xs">(override auto-detect)</span></label>
+                    <select value={espProviderHint} onChange={e=>setEspProviderHint(e.target.value)}
+                      style={{fontSize:14,padding:"10px 12px",width:"100%",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)"}}>
+                      <option value="">Auto-detect</option>
+                      <option value="sendgrid">SendGrid</option>
+                      <option value="ses">AWS SES</option>
+                      <option value="mailgun">Mailgun</option>
+                      <option value="postmark">Postmark</option>
+                      <option value="mailjet">Mailjet</option>
+                      <option value="brevo">Brevo</option>
+                      <option value="sparkpost">SparkPost</option>
+                      <option value="resend">Resend</option>
+                      <option value="mailchimp">Mailchimp</option>
+                      <option value="mandrill">Mandrill</option>
+                    </select>
+                  </div>
                 </div>
                 <button className="btn btn-p" onClick={runEspCheck} disabled={espLoading||!espKey.trim()}>
                   {espLoading?"🔍 Checking…":"🔍 Check Account"}

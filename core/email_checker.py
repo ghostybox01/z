@@ -688,8 +688,8 @@ class SparkPostProvider(EmailProvider):
     
     @staticmethod
     def detect(key: str, secret: Optional[str] = None) -> bool:
-        # SparkPost keys are 40-char hex strings
-        return bool(re.match(r'^[a-f0-9]{40}$', key.lower()))
+        # SparkPost keys are alphanumeric, typically 40 chars (not just hex)
+        return bool(re.match(r'^[a-zA-Z0-9]{36,50}$', key))
     
     def _request(self, endpoint: str) -> Tuple[Optional[Dict], Optional[str]]:
         return _http_get(
@@ -788,6 +788,97 @@ class ResendProvider(EmailProvider):
         return status
 
 
+class MailchimpProvider(EmailProvider):
+    """Mailchimp Marketing API provider."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        dc_match = re.search(r'-([a-z]{2}\d+)$', api_key)
+        self.dc = dc_match.group(1) if dc_match else "us1"
+        self.base_url = f"https://{self.dc}.api.mailchimp.com/3.0"
+
+    @property
+    def name(self) -> str:
+        return "Mailchimp"
+
+    @staticmethod
+    def detect(key: str, secret: Optional[str] = None) -> bool:
+        return bool(re.search(r'-[a-z]{2}\d+$', key))
+
+    def _request(self, endpoint: str) -> Tuple[Optional[Dict], Optional[str]]:
+        return _http_get_basic(f"{self.base_url}/{endpoint}", "anystring", self.api_key)
+
+    def fetch_status(self) -> EmailServiceStatus:
+        status = EmailServiceStatus(provider=self.name)
+        data, err = self._request("")
+        if err:
+            status.account_status = "Invalid Key" if "401" in (err or "") else "Error"
+            status.errors.append(f"Auth: {err}")
+            return status
+        if data:
+            status.extra_info["account_name"] = data.get("account_name")
+            status.extra_info["email"]        = data.get("email")
+            status.extra_info["plan"]         = data.get("pricing_plan_type")
+            pro = data.get("pro_sends") or {}
+            if pro.get("sends_allowance"):
+                status.monthly_limit        = pro["sends_allowance"]
+                status.sent_this_month      = pro.get("current_period_sends", 0)
+                status.remaining_this_month = max(0, status.monthly_limit - (status.sent_this_month or 0))
+        status.account_status = "Active"
+        return status
+
+
+class MandrillProvider(EmailProvider):
+    """Mandrill (Mailchimp Transactional) email provider."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://mandrillapp.com/api/1.0"
+
+    @property
+    def name(self) -> str:
+        return "Mandrill"
+
+    @staticmethod
+    def detect(key: str, secret: Optional[str] = None) -> bool:
+        # Mandrill keys: 20-26 char mixed-case alphanumeric (no distinctive prefix)
+        # Only used as explicit override; broad fallback would cause false positives
+        return False
+
+    def _post(self, endpoint: str) -> Tuple[Optional[Dict], Optional[str]]:
+        return _http_post(
+            f"{self.base_url}/{endpoint}",
+            {"Accept": "application/json"},
+            {"key": self.api_key},
+        )
+
+    def fetch_status(self) -> EmailServiceStatus:
+        status = EmailServiceStatus(provider=self.name)
+        data, err = self._post("users/info.json")
+        if err:
+            status.account_status = "Invalid Key" if "Invalid" in (err or "") or "11" in (err or "") else "Error"
+            status.errors.append(f"Auth: {err}")
+            return status
+        if data:
+            status.extra_info["username"]      = data.get("username")
+            status.extra_info["reputation"]    = data.get("reputation")
+            status.extra_info["hourly_quota"]  = data.get("hourly_quota")
+            stats = data.get("stats", {}).get("today", {})
+            status.sent_today      = stats.get("sent", 0)
+            status.extra_info["delivered"]     = stats.get("soft_bounces", 0) + stats.get("hard_bounces", 0)
+            status.extra_info["spam_reports"]  = stats.get("spam", 0)
+            alltime = data.get("stats", {}).get("all_time", {})
+            status.extra_info["total_sent"]    = alltime.get("sent", 0)
+        data2, _ = self._post("senders/list.json")
+        if isinstance(data2, list):
+            for s in data2:
+                addr = s.get("address")
+                if addr:
+                    status.verified_emails.append(addr)
+        status.account_status = "Active"
+        return status
+
+
 # Provider registry for auto-detection
 PROVIDERS = [
     AWSSESProvider,
@@ -795,26 +886,51 @@ PROVIDERS = [
     BrevoProvider,
     PostmarkProvider,
     ResendProvider,
+    MailchimpProvider,  # Must come before SparkPost — distinctive -usN suffix
     SparkPostProvider,
     MailgunProvider,
-    MailjetProvider,  # Must come after others since it requires secret
+    MailjetProvider,   # Must come last — requires secret, broad key pattern
 ]
+
+# Map of lowercase provider names to classes (for forced override)
+PROVIDER_MAP: Dict[str, type] = {
+    "sendgrid":  SendGridProvider,
+    "ses":       AWSSESProvider,
+    "aws":       AWSSESProvider,
+    "aws ses":   AWSSESProvider,
+    "mailgun":   MailgunProvider,
+    "postmark":  PostmarkProvider,
+    "mailjet":   MailjetProvider,
+    "brevo":     BrevoProvider,
+    "sparkpost": SparkPostProvider,
+    "resend":    ResendProvider,
+    "mailchimp": MailchimpProvider,
+    "mandrill":  MandrillProvider,
+}
 
 
 def detect_provider(key: str, secret: Optional[str] = None) -> Optional[type]:
     """Auto-detect the email provider from the API key format."""
+    key = key.strip()
     for provider_class in PROVIDERS:
         if provider_class.detect(key, secret):
             return provider_class
     return None
 
 
-def create_provider(key: str, secret: Optional[str] = None, region: Optional[str] = None, domain: Optional[str] = None) -> Optional[EmailProvider]:
-    """Create a provider instance based on the key."""
-    provider_class = detect_provider(key, secret)
-    if provider_class is None:
-        return None
-    
+def create_provider(key: str, secret: Optional[str] = None, region: Optional[str] = None,
+                    domain: Optional[str] = None, provider_hint: Optional[str] = None) -> Optional[EmailProvider]:
+    """Create a provider instance. provider_hint forces a specific provider by name."""
+    key = key.strip()
+    if provider_hint:
+        provider_class = PROVIDER_MAP.get(provider_hint.lower().strip())
+        if provider_class is None:
+            return None
+    else:
+        provider_class = detect_provider(key, secret)
+        if provider_class is None:
+            return None
+
     if provider_class == AWSSESProvider:
         if not secret:
             return None
