@@ -2348,7 +2348,7 @@ function TabCampaign({
             <div className="row jb xs dim mt4">
               <span style={{color:"var(--ok)"}}>✓ {stats.sent.toLocaleString()} sent</span>
               <span style={{color:"var(--err)"}}>✗ {stats.failed.toLocaleString()} failed</span>
-              <span>{stats.total-(stats.sent+stats.failed)} left</span>
+              <span>{Math.max(0, stats.total-(stats.sent+stats.failed))} left</span>
             </div>
           )}
         </div>
@@ -12186,7 +12186,12 @@ function App() {
           } else {
             addLog(`✅ Complete — ${(ev.success||0).toLocaleString()} sent, ${(ev.fail||0).toLocaleString()} failed`,"inf");
           }
-          setCampStats(s=>({...s, pending:0}));
+          setCampStats(s=>({
+            ...s,
+            sent:   ev.success != null ? ev.success : s.sent,
+            failed: ev.fail    != null ? ev.fail    : s.failed,
+            pending: 0,
+          }));
           setCampRunning(false);
           setCampPaused(false);
           loadHistory();
@@ -12438,9 +12443,9 @@ function App() {
 
   /* ── MOBILE MONITOR ── */
   function MobileMonitor() {
-    const pct = campStats.total > 0 ? ((campStats.sent + campStats.failed) / campStats.total * 100) : 0;
+    const pct = campStats.total > 0 ? Math.min(100, (campStats.sent + campStats.failed) / campStats.total * 100) : 0;
     const speed = campStats.speed || 0;
-    const remaining = campStats.total - campStats.sent - campStats.failed;
+    const remaining = Math.max(0, campStats.total - campStats.sent - campStats.failed);
     const etaMin = speed > 0 ? remaining / speed / 60 : 0;
     const etaStr = etaMin >= 60 ? `~${(etaMin/60).toFixed(1)}h` : etaMin > 0 ? `~${Math.round(etaMin)}m` : "";
 
@@ -12452,7 +12457,7 @@ function App() {
             {campRunning ? (campPaused ? "⏸" : "📤") : "⏹"}
           </div>
           <div className="mm-status-label">
-            {campRunning ? (campPaused ? "Paused" : "Sending...") : "Ready"}
+            {campRunning ? (campPaused ? "Paused" : "Sending...") : (campStats.total > 0 && campStats.sent + campStats.failed >= campStats.total ? "Complete" : "Ready")}
           </div>
           <div className="mm-status-sub">
             {campRunning ? campName || "Campaign" : "Configure and start a campaign"}
