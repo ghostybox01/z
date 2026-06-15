@@ -4871,7 +4871,9 @@ function TabMethod({
                 else if(k.startsWith("xkeysib-")||k.startsWith("xsmtpsib-")) p="brevo";
                 else if(k.startsWith("re_"))      p="resend";
                 else if(k.startsWith("server_"))  p="postmark";
+                else if(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(k)) p="postmark";
                 else if(/[a-zA-Z0-9]{20,}-[a-z]{2}\d+$/.test(k)) p="mandrill";
+                else if(/^[a-f0-9]{36,50}$/.test(k)) p="sparkpost";
                 setApiDetectedSenders([]); setApiSenderSel(new Set());
                 setApiDraft({...apiDraft,key:k,provider:p});
               }}
@@ -11573,7 +11575,13 @@ function App() {
         const r = await apiCall(`/api/campaign/events?since=${campEventCursor.current}`);
         if(!r.ok || !active) return;
         const d = await r.json();
-        // Sync live stats first so the UI reacts even before we drain events.
+        // Sync live stats — but only mirror sent/failed from the server when
+        // there are no individual events in this batch.  When events ARE
+        // present they drive the counter themselves (one increment per email)
+        // so the progress number and per-email log lines advance in unison.
+        // Without this guard the counter jumped to 3/3 from d.live before
+        // the three checkmarks appeared, making it look like only 2 were logged.
+        const _hasEvents = Array.isArray(d.events) && d.events.length > 0;
         if(d.live) {
           setRemoteRunning(true);
           remoteRunningRef.current = true;
@@ -11583,16 +11591,12 @@ function App() {
           // what Telegram is showing.  Without this, if event-replay is
           // ever broken the panel would show 0/0 forever even though
           // server-side stats are climbing.
-          setCampStats(s => ({
-            ...s,
-            total:  d.live.total  || s.total  || 0,
-            sent:   Math.max(s.sent   || 0, d.live.sent   || 0),
-            failed: Math.max(s.failed || 0, d.live.failed || 0),
-            pending: Math.max(0,
-              (d.live.total||s.total||0) -
-              Math.max(s.sent||0, d.live.sent||0) -
-              Math.max(s.failed||0, d.live.failed||0)),
-          }));
+          setCampStats(s => {
+            const total  = d.live.total || s.total || 0;
+            const sent   = _hasEvents ? (s.sent   || 0) : Math.max(s.sent   || 0, d.live.sent   || 0);
+            const failed = _hasEvents ? (s.failed || 0) : Math.max(s.failed || 0, d.live.failed || 0);
+            return {...s, total, sent, failed, pending: Math.max(0, total - sent - failed)};
+          });
           // Stuck check: server says X sent, panel events never delivered
           // any successes (cursor at 0 after a few polls means the events
           // endpoint isn't serialising — old code).  Warn once.

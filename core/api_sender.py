@@ -1019,11 +1019,36 @@ def send_api(
     Returns: HTTP status code (200/201/202 = success)
     Raises:  Exception with actionable message on failure
     """
-    provider = (api_cfg.get("provider") or "brevo").lower()
+    provider = (api_cfg.get("provider") or "").lower()
     # Normalize aliases — frontend saves ses-api, we need ses
     _aliases = {"ses-api": "ses", "aws": "ses", "aws-ses": "ses", "sendinblue": "brevo",
                 "mailchimp": "mandrill", "mailchimptransactional": "mandrill"}
     provider = _aliases.get(provider, provider)
+
+    # Auto-detect from key format when provider is missing or unrecognised
+    if not provider or provider not in SUPPORTED_PROVIDERS:
+        key = api_cfg.get("apiKey", "")
+        import re as _re
+        if key.startswith("SG."):
+            provider = "sendgrid"
+        elif key.startswith("key-"):
+            provider = "mailgun"
+        elif key.startswith("AKIA") or key.startswith("ASIA"):
+            provider = "ses"
+        elif key.startswith("xkeysib-") or key.startswith("xsmtpsib-"):
+            provider = "brevo"
+        elif key.startswith("re_"):
+            provider = "resend"
+        elif key.startswith("server_"):
+            provider = "postmark"
+        elif _re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', key, _re.I):
+            provider = "postmark"
+        elif _re.search(r'-[a-z]{2}\d+$', key) and len(key) > 20:
+            provider = "mandrill"
+        elif _re.match(r'^[a-f0-9]{36,50}$', key):
+            provider = "sparkpost"
+        else:
+            provider = "brevo"
 
     if provider not in SUPPORTED_PROVIDERS:
         raise Exception(
