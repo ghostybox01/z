@@ -1042,7 +1042,7 @@ def _send_one(
                 pool            = pool,
                 attachments     = opts.attachments or {},
                 envelope_from   = server.get("envelope_from", ""),
-                smtp_auth_email = server.get("smtp_auth_email", ""),
+                smtp_auth_email = server.get("smtp_auth_email") or server.get("username", ""),
             )
             return True, "", via_used or via
         except Exception as exc:

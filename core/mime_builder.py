@@ -2521,9 +2521,10 @@ def build_message(
             _rt_addr = reply_to.strip()
             _rt_name = ""
         if _rt_addr and "@" in _rt_addr and "." in _rt_addr.split("@")[-1]:
-            # Preserve display name so "Reply" in client shows name, not raw address.
-            # smtp_sender injects this post-serialisation to bypass relay DKIM coverage.
-            _rt_full = _eu_rt.formataddr((_rt_name, _rt_addr)) if _rt_name else _rt_addr
+            # Use name from Reply-To field; fall back to From display name so
+            # recipients see a name (not raw email) when they hit Reply.
+            _rt_display = _rt_name or from_name or ""
+            _rt_full = _eu_rt.formataddr((_rt_display, _rt_addr)) if _rt_display else _rt_addr
             msg._synthtel_reply_to = _rt_full
         elif reply_to.strip():
             log.warning("Invalid Reply-To skipped: %s", reply_to.strip()[:50])
