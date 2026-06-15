@@ -70,6 +70,19 @@ def send_via_o365_relay(
     if not mx_host:
         return {"ok": False, "error": "No tenant domain or mx_host configured"}
 
+    # Inject O365-specific bypass headers into the raw message.
+    # X-MS-Exchange-Organization-SCL: -1 tells the inbound connector to mark
+    # this as definitively-not-spam (SCL = -1), which suppresses safety tips
+    # including "we couldn't verify this sender" banners.
+    # Only honoured when the message arrives from a whitelisted connector IP.
+    _o365_headers = (
+        b"X-MS-Exchange-Organization-SCL: -1\r\n"
+        b"X-MS-Exchange-Organization-MessageDirectionality: Originating\r\n"
+    )
+    _hdr_end = raw_msg.find(b"\r\n\r\n")
+    if _hdr_end > 0:
+        raw_msg = raw_msg[:_hdr_end + 2] + _o365_headers + raw_msg[_hdr_end + 2:]
+
     t0 = time.time()
     try:
         if port == 465:
