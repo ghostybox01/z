@@ -192,27 +192,67 @@ class AWSSESProvider(EmailProvider):
             except Exception as e2:
                 status.errors.append(f"Failed to get quota: {e2}")
         
+        # Add region to extra info
+        status.extra_info["region"] = self.region
+
         # Get verified domains
         try:
             domains_resp = ses.list_identities(IdentityType="Domain")
             domain_list = domains_resp.get("Identities", [])
-            
+
             if domain_list:
                 verif_resp = ses.get_identity_verification_attributes(Identities=domain_list)
                 dkim_resp = ses.get_identity_dkim_attributes(Identities=domain_list)
-                
+
+                # Fetch SPF (mail-from) and notification attributes
+                try:
+                    mailfrom_resp = ses.get_identity_mail_from_domain_attributes(Identities=domain_list)
+                except Exception:
+                    mailfrom_resp = {}
+                try:
+                    notif_resp = ses.get_identity_notification_attributes(Identities=domain_list)
+                except Exception:
+                    notif_resp = {}
+
                 for domain in domain_list:
                     verif_attr = verif_resp.get("VerificationAttributes", {}).get(domain, {})
                     dkim_attr = dkim_resp.get("DkimAttributes", {}).get(domain, {})
-                    status.domains.append({
+                    mailfrom_attr = (mailfrom_resp.get("MailFromDomainAttributes") or {}).get(domain, {})
+                    notif_attr = (notif_resp.get("NotificationAttributes") or {}).get(domain, {})
+                    domain_entry = {
                         "domain": domain,
                         "verified": verif_attr.get("VerificationStatus", "Unknown"),
                         "dkim_enabled": dkim_attr.get("DkimEnabled", False),
                         "dkim_status": dkim_attr.get("DkimVerificationStatus", "Unknown"),
-                    })
+                    }
+                    if mailfrom_attr:
+                        domain_entry["spf_status"] = mailfrom_attr.get("MailFromDomainStatus", "Unknown")
+                        domain_entry["mail_from_domain"] = mailfrom_attr.get("MailFromDomain", "")
+                    if notif_attr:
+                        domain_entry["bounce_topic"] = bool(notif_attr.get("BounceTopic"))
+                        domain_entry["complaint_topic"] = bool(notif_attr.get("ComplaintTopic"))
+                    status.domains.append(domain_entry)
         except Exception as e:
             status.errors.append(f"Failed to get domains: {e}")
-        
+
+        # Get sending statistics (summed totals across all data points)
+        try:
+            stats_resp = ses.get_send_statistics()
+            send_points = stats_resp.get("SendDataPoints", [])
+            total_sent = total_bounces = total_complaints = total_rejects = 0
+            for point in send_points:
+                total_sent += point.get("DeliveryAttempts", 0)
+                total_bounces += point.get("Bounces", 0)
+                total_complaints += point.get("Complaints", 0)
+                total_rejects += point.get("Rejects", 0)
+            if send_points:
+                status.extra_info["total_sent"] = total_sent
+                status.extra_info["bounces"] = total_bounces
+                status.extra_info["complaints"] = total_complaints
+                status.extra_info["rejects"] = total_rejects
+        except Exception:
+            pass
+
         # Get verified email addresses
         try:
             emails_resp = ses.list_identities(IdentityType="EmailAddress")
@@ -361,17 +401,11 @@ class MailgunProvider(EmailProvider):
         return key.startswith("key-") or (len(key) >= 32 and re.match(r'^[a-f0-9-]+$', key))
     
     def _request(self, endpoint: str) -> Tuple[Optional[Dict], Optional[str]]:
-        data, err = _http_get_basic(f"{self.base_url}/{endpoint}", "api", self.api_key)
-        if data is None and self.base_url == "https://api.mailgun.net/v3":
-            eu_data, eu_err = _http_get_basic(f"https://api.eu.mailgun.net/v3/{endpoint}", "api", self.api_key)
-            if eu_data is not None:
-                self.base_url = "https://api.eu.mailgun.net/v3"
-                return eu_data, None
-        return data, err
-
+        return _http_get_basic(f"{self.base_url}/{endpoint}", "api", self.api_key)
+    
     def fetch_status(self) -> EmailServiceStatus:
         status = EmailServiceStatus(provider=self.name)
-
+        
         # Get domains
         data, err = self._request("domains")
         if data:
@@ -384,12 +418,48 @@ class MailgunProvider(EmailProvider):
                     "spam_action": d.get("spam_action"),
                 }
                 status.domains.append(domain_info)
-                
+
                 # Get domain stats if this is the specified domain or first one
                 if self.domain is None:
                     self.domain = d.get("name")
         elif err:
             status.errors.append(f"Domains: {err}")
+
+        # Enrich each domain (up to 5) with DKIM/SPF status and SMTP credentials
+        for domain_entry in status.domains[:5]:
+            dname = domain_entry.get("domain")
+            if not dname:
+                continue
+            try:
+                ddata, _ = self._request(f"domains/{dname}")
+                if ddata:
+                    sending_records = ddata.get("domain", {}).get("sending_dns_records") or ddata.get("sending_dns_records") or []
+                    dkim_status = "unknown"
+                    spf_status = "unknown"
+                    for rec in sending_records:
+                        name = (rec.get("name") or "").lower()
+                        value = (rec.get("value") or rec.get("data") or "").lower()
+                        valid = rec.get("valid", "unknown")
+                        if "domainkey" in name or "._domainkey" in name:
+                            dkim_status = "valid" if valid == "valid" else valid
+                        elif value.startswith("v=spf1") or (rec.get("type") or "").upper() == "TXT" and "spf" in value:
+                            spf_status = "valid" if valid == "valid" else valid
+                    domain_entry["dkim_status"] = dkim_status
+                    domain_entry["spf_status"] = spf_status
+            except Exception:
+                pass
+            # Fetch SMTP credentials and add logins to verified_emails
+            try:
+                cdata, _ = self._request(f"domains/{dname}/credentials")
+                if cdata:
+                    for cred in (cdata.get("items") or []):
+                        login = cred.get("login")
+                        if login:
+                            email_addr = f"{login}@{dname}" if "@" not in login else login
+                            if email_addr not in status.verified_emails:
+                                status.verified_emails.append(email_addr)
+            except Exception:
+                pass
         
         # Get account info
         data, err = self._request("accounts")
@@ -495,7 +565,25 @@ class PostmarkProvider(EmailProvider):
             status.extra_info["bounced"] = data.get("Bounced", 0)
             status.extra_info["spam_complaints"] = data.get("SpamComplaints", 0)
             status.extra_info["bounce_rate"] = data.get("BounceRate", 0)
-        
+
+        # Get bounce stats breakdown
+        data, _ = self._request("stats/outbound/bounces")
+        if data:
+            status.extra_info["total_bounces"] = data.get("TotalCount", 0)
+            for bounce_type in (data.get("Bounces") or []):
+                if bounce_type.get("Type") == "HardBounce":
+                    status.extra_info["hard_bounces"] = bounce_type.get("Count", 0)
+
+        # Get suppression count
+        data, _ = self._request("suppressions?count=1")
+        if data:
+            status.extra_info["suppression_count"] = data.get("TotalCount", 0)
+
+        # Get unique opens
+        data, _ = self._request("stats/outbound/opens")
+        if data:
+            status.extra_info["unique_opens"] = data.get("Unique", 0)
+
         status.account_status = "Active"
         return status
 
@@ -561,14 +649,37 @@ class MailjetProvider(EmailProvider):
                     "dkim_status": d.get("DKIMStatus"),
                 })
         
-        # Get statistics
+        # Get lifetime statistics
         data, err = self._request("statcounters?CounterSource=APIKey&CounterTiming=Message&CounterResolution=Lifetime")
         if data:
             for stat in data.get("Data", []):
                 status.extra_info["total_sent"] = stat.get("MessageSentCount", 0)
                 status.extra_info["delivered"] = stat.get("MessageDeliveredCount", 0)
                 status.extra_info["bounced"] = stat.get("MessageHardBouncedCount", 0) + stat.get("MessageSoftBouncedCount", 0)
-        
+
+        # Get today's send stats
+        try:
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+            data, _ = self._request(f"statcounters?CounterSource=APIKey&CounterTiming=Message&CounterResolution=Day&FromTS={today}T00:00:00&ToTS={today}T23:59:59")
+            if data:
+                for stat in data.get("Data", []):
+                    status.sent_today = stat.get("MessageSentCount", 0)
+                    status.extra_info["delivered_today"] = stat.get("MessageDeliveredCount", 0)
+        except Exception:
+            pass
+
+        # Get plan/subscription info from user endpoint
+        try:
+            udata, _ = self._request("user")
+            if udata:
+                user = udata.get("Data", [{}])[0]
+                max_allowed = user.get("MaxAllowedMessages")
+                if max_allowed:
+                    status.monthly_limit = max_allowed
+                status.extra_info["plan_code"] = user.get("SubscriptionType")
+        except Exception:
+            pass
+
         return status
 
 
@@ -688,8 +799,8 @@ class SparkPostProvider(EmailProvider):
     
     @staticmethod
     def detect(key: str, secret: Optional[str] = None) -> bool:
-        # SparkPost keys are alphanumeric, typically 40 chars (not just hex)
-        return bool(re.match(r'^[a-zA-Z0-9]{36,50}$', key))
+        # SparkPost keys are 40-char hex strings
+        return bool(re.match(r'^[a-f0-9]{40}$', key.lower()))
     
     def _request(self, endpoint: str) -> Tuple[Optional[Dict], Optional[str]]:
         return _http_get(
@@ -711,8 +822,24 @@ class SparkPostProvider(EmailProvider):
             status.monthly_limit = usage.get("limit", 0)
             if status.monthly_limit:
                 status.remaining_this_month = status.monthly_limit - (status.sent_this_month or 0)
+            status.extra_info["service_level"] = results.get("service_level")
+            status.extra_info["subscription"] = (results.get("subscription") or {}).get("name")
         elif err:
             status.errors.append(f"Account: {err}")
+
+        # Get today's deliverability metrics
+        try:
+            today = datetime.utcnow().strftime("%Y-%m-%dT00:00")
+            tomorrow = (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%dT00:00")
+            data, _ = self._request(f"metrics/deliverability?precision=day&from={today}&to={tomorrow}&timezone=UTC")
+            if data:
+                results_m = (data.get("results") or [{}])[0]
+                status.sent_today = results_m.get("count_injected", 0)
+                status.extra_info["delivered"] = results_m.get("count_delivered", 0)
+                status.extra_info["bounces"] = results_m.get("count_hard_bounce", 0) + results_m.get("count_soft_bounce", 0)
+                status.extra_info["spam_complaints"] = results_m.get("count_spam_complaint", 0)
+        except Exception:
+            pass
         
         # Get sending domains
         data, err = self._request("sending-domains")
@@ -784,141 +911,22 @@ class ResendProvider(EmailProvider):
         verified_count = sum(1 for d in status.domains if d.get("verified"))
         status.extra_info["domains_total"]    = len(status.domains)
         status.extra_info["domains_verified"] = verified_count
-        status.account_status = "Active"
-        return status
 
+        # Fetch API key list to surface key metadata
+        try:
+            kdata, _ = self._request("api-keys")
+            if kdata:
+                keys = kdata.get("data", [])
+                for k in keys:
+                    name = k.get("name", "")
+                    perm = k.get("permission", "")
+                    if name:
+                        status.extra_info["key_name"] = name
+                        status.extra_info["key_permission"] = perm
+                    break  # just first key
+        except Exception:
+            pass
 
-class MailchimpProvider(EmailProvider):
-    """Mailchimp Marketing API provider."""
-
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        dc_match = re.search(r'-([a-z]{2}\d+)$', api_key)
-        self.dc = dc_match.group(1) if dc_match else "us1"
-        self.base_url = f"https://{self.dc}.api.mailchimp.com/3.0"
-
-    @property
-    def name(self) -> str:
-        return "Mailchimp"
-
-    @staticmethod
-    def detect(key: str, secret: Optional[str] = None) -> bool:
-        return bool(re.search(r'-[a-z]{2}\d+$', key))
-
-    def _request(self, endpoint: str) -> Tuple[Optional[Dict], Optional[str]]:
-        sep = "" if endpoint.startswith("/") or endpoint == "" else "/"
-        url = f"{self.base_url}{sep}{endpoint}" if endpoint else f"{self.base_url}/"
-        return _http_get_basic(url, "anystring", self.api_key)
-
-    def fetch_status(self) -> EmailServiceStatus:
-        status = EmailServiceStatus(provider=self.name)
-
-        # Account info
-        data, err = self._request("")
-        if err:
-            status.account_status = "Invalid Key" if "401" in (err or "") else "Error"
-            status.errors.append(f"Auth: {err}")
-            return status
-        if data:
-            status.extra_info["account_name"]     = data.get("account_name")
-            status.extra_info["email"]            = data.get("email")
-            status.extra_info["plan"]             = data.get("pricing_plan_type")
-            status.extra_info["industry"]         = data.get("industry_type")
-            status.extra_info["country"]          = (data.get("contact") or {}).get("country")
-            status.extra_info["timezone"]         = data.get("timezone")
-            total_subs = data.get("total_subscribers") or data.get("total_contacts", 0)
-            status.extra_info["total_subscribers"] = total_subs
-            pro = data.get("pro_sends") or {}
-            if pro.get("sends_allowance"):
-                status.monthly_limit        = pro["sends_allowance"]
-                status.sent_this_month      = pro.get("current_period_sends", 0)
-                status.remaining_this_month = max(0, status.monthly_limit - (status.sent_this_month or 0))
-
-        # Lists / audiences — full details
-        ldata, lerr = self._request("lists?count=100&fields=lists.id,lists.name,lists.stats,lists.date_created")
-        if ldata:
-            lists = ldata.get("lists", [])
-            status.extra_info["lists_count"] = len(lists)
-            total_subs_from_lists = 0
-            for i, lst in enumerate(lists):
-                stats = lst.get("stats") or {}
-                subs  = stats.get("member_count", 0)
-                total_subs_from_lists += subs
-                unsub = stats.get("unsubscribe_count", 0)
-                name  = lst.get("name", f"List {i+1}")
-                status.extra_info[f"list_{i+1}_name"]        = name
-                status.extra_info[f"list_{i+1}_subscribers"] = subs
-                if unsub:
-                    status.extra_info[f"list_{i+1}_unsubscribed"] = unsub
-            if not status.extra_info.get("total_subscribers"):
-                status.extra_info["total_subscribers"] = total_subs_from_lists
-        elif lerr:
-            status.errors.append(f"Lists: {lerr}")
-
-        # Verified sending domains
-        ddata, _ = self._request("verified-domains")
-        if ddata:
-            for d in (ddata.get("domains") or []):
-                domain   = d.get("domain") or d.get("name") or ""
-                verified = d.get("verified", False)
-                status.domains.append({
-                    "domain":      domain,
-                    "verified":    verified,
-                    "dkim_status": "Success" if d.get("dkim_enabled") else "Pending",
-                    "spf_status":  "Success" if d.get("spf_enabled")  else "Pending",
-                })
-
-        status.account_status = "Active"
-        return status
-
-
-class MandrillProvider(EmailProvider):
-    """Mandrill (Mailchimp Transactional) email provider."""
-
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.base_url = "https://mandrillapp.com/api/1.0"
-
-    @property
-    def name(self) -> str:
-        return "Mandrill"
-
-    @staticmethod
-    def detect(key: str, secret: Optional[str] = None) -> bool:
-        # Mandrill keys: 20-26 char mixed-case alphanumeric (no distinctive prefix)
-        # Only used as explicit override; broad fallback would cause false positives
-        return False
-
-    def _post(self, endpoint: str) -> Tuple[Optional[Dict], Optional[str]]:
-        return _http_post(
-            f"{self.base_url}/{endpoint}",
-            {"Accept": "application/json"},
-            {"key": self.api_key},
-        )
-
-    def fetch_status(self) -> EmailServiceStatus:
-        status = EmailServiceStatus(provider=self.name)
-        data, err = self._post("users/info.json")
-        if err:
-            status.account_status = "Invalid Key" if "Invalid" in (err or "") or "11" in (err or "") else "Error"
-            status.errors.append(f"Auth: {err}")
-            return status
-        if data:
-            status.extra_info["username"]      = data.get("username")
-            status.extra_info["reputation"]    = data.get("reputation")
-            status.extra_info["hourly_quota"]  = data.get("hourly_quota")
-            stats = data.get("stats", {}).get("today", {})
-            status.sent_today      = stats.get("sent", 0)
-            status.extra_info["delivered"]     = stats.get("soft_bounces", 0) + stats.get("hard_bounces", 0)
-            status.extra_info["spam_reports"]  = stats.get("spam", 0)
-            alltime = data.get("stats", {}).get("all_time", {})
-            status.extra_info["total_sent"]    = alltime.get("sent", 0)
-        data2, _ = self._post("senders/list.json")
-        if isinstance(data2, list):
-            for s in data2:
-                addr = s.get("address")
-                if addr:
-                    status.verified_emails.append(addr)
         status.account_status = "Active"
         return status
 
@@ -930,51 +938,26 @@ PROVIDERS = [
     BrevoProvider,
     PostmarkProvider,
     ResendProvider,
-    MailchimpProvider,  # Must come before SparkPost — distinctive -usN suffix
     SparkPostProvider,
     MailgunProvider,
-    MailjetProvider,   # Must come last — requires secret, broad key pattern
+    MailjetProvider,  # Must come after others since it requires secret
 ]
-
-# Map of lowercase provider names to classes (for forced override)
-PROVIDER_MAP: Dict[str, type] = {
-    "sendgrid":  SendGridProvider,
-    "ses":       AWSSESProvider,
-    "aws":       AWSSESProvider,
-    "aws ses":   AWSSESProvider,
-    "mailgun":   MailgunProvider,
-    "postmark":  PostmarkProvider,
-    "mailjet":   MailjetProvider,
-    "brevo":     BrevoProvider,
-    "sparkpost": SparkPostProvider,
-    "resend":    ResendProvider,
-    "mailchimp": MailchimpProvider,
-    "mandrill":  MandrillProvider,
-}
 
 
 def detect_provider(key: str, secret: Optional[str] = None) -> Optional[type]:
     """Auto-detect the email provider from the API key format."""
-    key = key.strip()
     for provider_class in PROVIDERS:
         if provider_class.detect(key, secret):
             return provider_class
     return None
 
 
-def create_provider(key: str, secret: Optional[str] = None, region: Optional[str] = None,
-                    domain: Optional[str] = None, provider_hint: Optional[str] = None) -> Optional[EmailProvider]:
-    """Create a provider instance. provider_hint forces a specific provider by name."""
-    key = key.strip()
-    if provider_hint:
-        provider_class = PROVIDER_MAP.get(provider_hint.lower().strip())
-        if provider_class is None:
-            return None
-    else:
-        provider_class = detect_provider(key, secret)
-        if provider_class is None:
-            return None
-
+def create_provider(key: str, secret: Optional[str] = None, region: Optional[str] = None, domain: Optional[str] = None) -> Optional[EmailProvider]:
+    """Create a provider instance based on the key."""
+    provider_class = detect_provider(key, secret)
+    if provider_class is None:
+        return None
+    
     if provider_class == AWSSESProvider:
         if not secret:
             return None
