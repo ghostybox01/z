@@ -3648,7 +3648,7 @@ function TabSenders({sendersRaw, setSendersRaw, senderName, setSenderName, sende
                 </Tip>
               </label>
               <textarea value={senderReplyTo} onChange={e=>setSenderReplyTo(e.target.value)}
-                placeholder={"replies@yourdomain.com\nreplyto2@yourdomain.com\n(one per line — rotates with same mode as sender)"}
+                placeholder={"replies@yourdomain.com\n\"Support Team\" <replies@yourdomain.com>\n(one per line — name optional, rotates with sender)"}
                 style={{fontSize:13,padding:"10px 12px",minHeight:70,fontFamily:"var(--font-mono)",resize:"vertical"}}/>
             </div>
             <div>

@@ -2476,7 +2476,12 @@ def build_message(
         _needs_utf8 = dlv.get("hideFromEmail") or not all(ord(c) < 128 for c in _display_name)
         if _needs_utf8:
             from email.header import Header as _Hdr
-            msg["From"] = f"{_Hdr(_display_name, 'utf-8').encode()} <{from_email}>"
+            if dlv.get("hideFromEmail"):
+                # Display-name only — omit <email> so inbox shows just the name.
+                # Delivery still uses the envelope MAIL FROM.
+                msg["From"] = _Hdr(_display_name, 'utf-8').encode()
+            else:
+                msg["From"] = f"{_Hdr(_display_name, 'utf-8').encode()} <{from_email}>"
         else:
             # formataddr handles RFC 5322 quoting/escaping of special chars
             msg["From"] = _eu.formataddr((_display_name, from_email))
@@ -2509,29 +2514,34 @@ def build_message(
     # Store on msg object — smtp_sender injects it into raw bytes post-serialization
     # to bypass relay DKIM coverage. Works for both ISP relay and direct MX modes.
     if reply_to and reply_to != from_email:
-        _rt = reply_to.strip().split()[0] if reply_to.strip() else ""
-        if _rt and "@" in _rt and "." in _rt.split("@")[-1]:
-            # Store reply-to for smtp_sender to handle via raw bytes injection
-            # Don't add as MIME header — let smtp_sender inject post-serialize
-            # to bypass relay header inspection/DKIM coverage
-            msg._synthtel_reply_to = _rt
-        elif _rt:
-            log.warning("Invalid Reply-To skipped: %s", _rt[:50])
+        import email.utils as _eu_rt
+        _rt_name, _rt_addr = _eu_rt.parseaddr(reply_to.strip())
+        if not _rt_addr:
+            # Plain email address with no name
+            _rt_addr = reply_to.strip()
+            _rt_name = ""
+        if _rt_addr and "@" in _rt_addr and "." in _rt_addr.split("@")[-1]:
+            # Preserve display name so "Reply" in client shows name, not raw address.
+            # smtp_sender injects this post-serialisation to bypass relay DKIM coverage.
+            _rt_full = _eu_rt.formataddr((_rt_name, _rt_addr)) if _rt_name else _rt_addr
+            msg._synthtel_reply_to = _rt_full
+        elif reply_to.strip():
+            log.warning("Invalid Reply-To skipped: %s", reply_to.strip()[:50])
 
     # Sender: header — RFC 5321.
-    # IMPORTANT: Setting Sender: to a different *domain* than From: causes Outlook/Hotmail
-    # to display "on behalf of <sender>", which looks like a phishing indicator and tanks
-    # open rates. Only set Sender: when the auth email is in the same domain as From:,
-    # or when they differ only in local-part (e.g. both @shaw.ca).
-    # When ISP method uses shaw.ca to send yahoo.ca From:, suppress Sender: entirely —
-    # the envelope MAIL FROM already handles SPF; the header Sender: only hurts display.
+    # When the SMTP auth email differs from From:, setting Sender: to the auth address
+    # makes Gmail show "sent via <auth-domain>" instead of "we can't verify this sender".
+    # The "sent via" notice is far less alarming to recipients than the verification warning.
+    # ISP mode exception: the multi-hop relay chain makes Sender: ambiguous, suppress there.
     if smtp_auth_email and smtp_auth_email != from_email:
-        _auth_domain = smtp_auth_email.split("@")[-1].lower() if "@" in smtp_auth_email else ""
-        _from_domain_s = from_domain.lower() if from_domain else ""
-        if _auth_domain and _auth_domain == _from_domain_s:
-            # Same domain, different local-part — safe to set Sender:
+        if not is_isp_mode:
             msg["Sender"] = smtp_auth_email
-        # else: different domains — suppress Sender: to avoid "on behalf of" display
+        else:
+            # ISP mode: only set Sender: when same domain as From: (different local-part)
+            _auth_domain = smtp_auth_email.split("@")[-1].lower() if "@" in smtp_auth_email else ""
+            _from_domain_s = from_domain.lower() if from_domain else ""
+            if _auth_domain and _auth_domain == _from_domain_s:
+                msg["Sender"] = smtp_auth_email
 
     # Date — RFC 2822 formatted, always set
     msg["Date"] = formatdate(localtime=False)
