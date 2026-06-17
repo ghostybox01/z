@@ -1374,11 +1374,41 @@ const SMTP_PRESETS = [
 /* ════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════ */
+// Show/hide the "server restarting" overlay and auto-retry the page reload.
+let _restartBanner = null;
+let _restartPoller = null;
+function _showRestartBanner() {
+  if (_restartBanner) return;
+  _restartBanner = document.createElement("div");
+  _restartBanner.id = "restart-banner";
+  _restartBanner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#e65;color:#fff;text-align:center;padding:12px 16px;font-size:14px;font-weight:600;letter-spacing:.02em;";
+  _restartBanner.textContent = "⟳ Server restarting — reconnecting…";
+  document.body.appendChild(_restartBanner);
+  _restartPoller = setInterval(() => {
+    fetch(API + "/api/ping").then(r => {
+      if (r.ok) { clearInterval(_restartPoller); _restartPoller = null; if (_restartBanner) { _restartBanner.remove(); _restartBanner = null; } }
+    }).catch(() => {});
+  }, 2000);
+}
+
 function apiCall(path, opts={}) {
   const tk = localStorage.getItem("st_token");
   return fetch(API + path, {
     headers: {"Content-Type":"application/json", ...(tk?{"Authorization":"Bearer "+tk}:{}), ...(opts.headers||{})},
     ...opts
+  }).then(r => {
+    if (r.status === 503) {
+      return r.json().catch(()=>({})).then(d => {
+        if (d && d.error === "restarting") { _showRestartBanner(); }
+        return r;
+      });
+    }
+    if (_restartBanner) { clearInterval(_restartPoller); _restartPoller = null; _restartBanner.remove(); _restartBanner = null; }
+    return r;
+  }).catch(err => {
+    // Network error (server totally unreachable) — also show restart banner
+    _showRestartBanner();
+    throw err;
   });
 }
 
