@@ -449,7 +449,21 @@ def _api_request(
             body   = ""
             detail = ""
             try:
-                body = exc.read().decode("utf-8", errors="replace")[:600]
+                _raw_body = exc.read()
+                _enc = (exc.headers.get("Content-Encoding") or "").lower()
+                if _enc in ("gzip", "x-gzip"):
+                    import gzip as _gz
+                    try:
+                        _raw_body = _gz.decompress(_raw_body)
+                    except Exception:
+                        pass
+                elif _enc == "br":
+                    try:
+                        import brotli as _br
+                        _raw_body = _br.decompress(_raw_body)
+                    except Exception:
+                        pass
+                body = _raw_body.decode("utf-8", errors="replace")[:600]
                 err_data = json.loads(body)
                 detail = (
                     err_data.get("message")
