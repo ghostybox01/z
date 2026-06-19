@@ -330,7 +330,7 @@ def _parse_smtp_error(error: Exception, lead_email: str = "") -> str:
     if m:
         smtp_code = m.group(1)
 
-    if err.startswith("api ") or "api key" in err:
+    if err.startswith("api ") or err.startswith("amazon ses") or "api key" in err:
         return str(error)[:300]
     if err.startswith("invalid email") or "invalid domain in email" in err:
         return f"INVALID EMAIL — bad address format ({lead_email})"

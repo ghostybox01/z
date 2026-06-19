@@ -950,16 +950,22 @@ def _send_ses(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None
         resp = urlopen(req, timeout=30)
         return resp.status
     except HTTPError as exc:
-        body_str = exc.read().decode(errors="replace")[:400]
+        _raw = exc.read()
+        _enc2 = (exc.headers.get("Content-Encoding") or "").lower()
+        if _enc2 in ("gzip", "x-gzip"):
+            import gzip as _gz2
+            try: _raw = _gz2.decompress(_raw)
+            except Exception: pass
+        body_str = _raw.decode(errors="replace")[:400]
         try:
             detail = json.loads(body_str).get("message", body_str)
         except Exception:
             detail = body_str
         if exc.code == 403:
-            raise Exception(f"Amazon SES 403 — {detail}. Check access key, secret, and IAM permissions.")
+            raise Exception(f"API ses 403 — {detail}. Check access key, secret, and IAM permissions.")
         if exc.code == 400:
-            raise Exception(f"Amazon SES 400 — {detail}. Sender email must be verified in SES.")
-        raise Exception(f"Amazon SES HTTP {exc.code} — {detail}")
+            raise Exception(f"API ses 400 — {detail}. Sender email must be verified in SES.")
+        raise Exception(f"API ses {exc.code} — {detail}")
 
 
 def _send_mandrill(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
