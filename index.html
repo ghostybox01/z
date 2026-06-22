@@ -4967,7 +4967,13 @@ function TabMethod({
               <label className="lbl">Provider</label>
               <select value={apiDraft.provider} onChange={e=>setApiDraft({...apiDraft,provider:e.target.value})} style={{fontSize:14,padding:"10px 12px"}}>
                 <optgroup label="── Transactional ESP ──">
-                  {["sendgrid","mailgun","postmark","sparkpost","brevo","resend","mandrill"].map(p=><option key={p}>{p}</option>)}
+                  <option value="sendgrid">SendGrid</option>
+                  <option value="mailgun">Mailgun</option>
+                  <option value="postmark">Postmark</option>
+                  <option value="sparkpost">SparkPost</option>
+                  <option value="brevo">Brevo (Sendinblue)</option>
+                  <option value="resend">Resend</option>
+                  <option value="mandrill">Mailchimp / Mandrill</option>
                 </optgroup>
                 <optgroup label="── AWS ──">
                   <option value="ses-api">AWS SES (API)</option>
@@ -10177,7 +10183,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                       <option value="sparkpost">SparkPost</option>
                       <option value="resend">Resend</option>
                       <option value="mailchimp">Mailchimp</option>
-                      <option value="mandrill">Mandrill</option>
+                      <option value="mandrill">Mailchimp / Mandrill</option>
                     </select>
                   </div>
                 </div>
