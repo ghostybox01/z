@@ -6431,6 +6431,97 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
         # {domain → provider_key}.  Used by the Leads tab to upgrade
         # the heuristic 'business' classification to a precise host.
         # In-memory cache keyed by domain; lasts for the server lifetime.
+        elif p == "/api/tools/office-verify":
+            if not (sess := self._auth()): return
+            import socket as _vs
+            body         = self._read_body()
+            from_email   = (body.get("fromEmail") or "").strip()
+            tenant_domain = (body.get("tenantDomain") or "").strip()
+            custom_host  = (body.get("mxHost") or "").strip()
+            port         = int(body.get("port") or 25)
+
+            if not tenant_domain and "@" in from_email:
+                tenant_domain = from_email.split("@")[-1].lower()
+            if not tenant_domain and not custom_host:
+                self._json(400, {"ok": False, "error": "fromEmail or tenantDomain required"}); return
+
+            mx_host     = custom_host or (tenant_domain.replace(".", "-") + ".mail.protection.outlook.com")
+            ehlo_domain = from_email.split("@")[-1] if "@" in from_email else (tenant_domain or "mail.local")
+            result = {"ok": False, "linked": False, "mx_host": mx_host, "port": port,
+                      "from_email": from_email, "steps": []}
+            try:
+                t0   = time.time()
+                sock = _vs.create_connection((mx_host, port), timeout=10)
+                result["steps"].append({"step": "tcp_connect", "ok": True,
+                    "msg": f"Connected to {mx_host}:{port}"})
+                sock.settimeout(8)
+                banner = b""
+                try: banner = sock.recv(512)
+                except Exception: pass
+                banner_str = banner.decode("utf-8", errors="replace").strip()
+                banner_ok  = banner_str.startswith("220")
+                result["banner"] = banner_str[:120]
+                result["steps"].append({"step": "banner", "ok": banner_ok,
+                    "msg": banner_str[:100] or "(no banner)"})
+                if not banner_ok:
+                    result["error"] = "No 220 banner — server may not be an SMTP server"
+                    sock.close(); self._json(200, result); return
+                sock.sendall(f"EHLO {ehlo_domain}\r\n".encode())
+                ehlo_resp = b""
+                try:
+                    import select as _sel
+                    while True:
+                        r, _, _ = _sel.select([sock], [], [], 3)
+                        if not r: break
+                        chunk = sock.recv(1024)
+                        if not chunk: break
+                        ehlo_resp += chunk
+                        last = ehlo_resp.rstrip().rsplit(b"\r\n", 1)[-1]
+                        if len(last) > 3 and last[3:4] == b" ": break
+                except Exception: pass
+                ehlo_str = ehlo_resp.decode("utf-8", errors="replace").strip()
+                ehlo_ok  = ehlo_str.startswith("250")
+                result["ehlo_resp"] = ehlo_str[:200]
+                result["steps"].append({"step": "ehlo", "ok": ehlo_ok,
+                    "msg": ehlo_str.split("\r\n")[0][:100] or "(no response)"})
+                if not ehlo_ok:
+                    result["error"] = "EHLO rejected"
+                    sock.close(); self._json(200, result); return
+                mail_from_addr = from_email or f"test@{ehlo_domain}"
+                sock.sendall(f"MAIL FROM:<{mail_from_addr}>\r\n".encode())
+                mf_resp = b""
+                try:
+                    import select as _sel2
+                    r2, _, _ = _sel2.select([sock], [], [], 5)
+                    if r2: mf_resp = sock.recv(512)
+                except Exception: pass
+                mf_str     = mf_resp.decode("utf-8", errors="replace").strip()
+                mf_ok      = mf_str.startswith("250")
+                ip_blocked = any(x in mf_str for x in ["5.7", "550", "not permitted", "policy", "rejected"])
+                result["mail_from_resp"] = mf_str[:200]
+                result["steps"].append({"step": "mail_from", "ok": mf_ok,
+                    "msg": mf_str[:120] or "(no response)"})
+                try: sock.sendall(b"QUIT\r\n"); sock.recv(64)
+                except Exception: pass
+                sock.close()
+                latency_ms = round((time.time() - t0) * 1000)
+                result["latency_ms"] = latency_ms
+                if mf_ok:
+                    result.update({"ok": True, "linked": True,
+                        "message": f"Connector verified — IP is whitelisted ({latency_ms}ms). Ready to send."})
+                elif ip_blocked:
+                    result["error"] = ("IP not whitelisted in M365 connector yet. "
+                        "Run the PowerShell snippet from Step 1, wait ~2 minutes, then test again.")
+                else:
+                    result["error"] = f"Unexpected MAIL FROM response: {mf_str[:120]}"
+            except _vs.timeout:
+                result["error"] = f"Timed out connecting to {mx_host}:{port} — port 25 may be blocked on this VPS"
+            except ConnectionRefusedError:
+                result["error"] = f"Connection refused to {mx_host}:{port}"
+            except Exception as e:
+                result["error"] = str(e)[:200]
+            self._json(200, result)
+
         elif p == "/api/tools/detect-providers":
             if not (sess := self._auth()): return
             try:

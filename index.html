@@ -4518,24 +4518,110 @@ function TabMethod({
             </div>
           </div>
 
-          {/* Step 3 — Smart Host */}
-          <div className="card mb12" style={{borderLeft:"3px solid #0078d4"}}>
-            <div className="card-title" style={{marginBottom:4}}>Step 3 — Set Smart Host (Connector Hostname)</div>
-            <div className="dim sm mb12">
-              Enter your M365 MX endpoint. Find it in <strong>Exchange Admin Center → Mail flow → Connectors → your inbound connector → Smart host</strong>.
-              Format: <code>yourtenant-com.mail.protection.outlook.com</code>
-            </div>
-            <label className="lbl">M365 Smart Host</label>
-            <input value={officeConnectorHost||""} onChange={e=>setOfficeConnectorHost(e.target.value)}
-              placeholder="yourtenant-com.mail.protection.outlook.com"
-              style={{fontSize:14,padding:"10px 12px",fontFamily:"var(--font-mono)"}}/>
-            {officeConnectorHost && (
-              <div className="ib ib-ok mt10 sm">
-                <span className="ib-ic">✓</span>
-                Campaigns set to <strong>Office Admin</strong> will relay through <code>{officeConnectorHost}:25</code> — no credentials needed.
+          {/* Step 3 — Auto-configure from email */}
+          {(()=>{
+            const [o365Email, setO365Email]     = React.useState("");
+            const [o365Testing, setO365Testing] = React.useState(false);
+            const [o365Result, setO365Result]   = React.useState(null);
+
+            // Derive smart host from email domain
+            const _domain   = o365Email.includes("@") ? o365Email.split("@").pop().trim().toLowerCase() : "";
+            const _derived  = _domain ? _domain.replace(/\./g,"-") + ".mail.protection.outlook.com" : "";
+
+            // When derived host changes, auto-populate the connector host field
+            React.useEffect(()=>{
+              if(_derived) setOfficeConnectorHost(_derived);
+            },[_derived]);
+
+            async function testConnector() {
+              if(!_derived && !officeConnectorHost) return;
+              setO365Testing(true); setO365Result(null);
+              try {
+                const r = await apiCall("/api/tools/office-verify",{
+                  method:"POST",
+                  body: JSON.stringify({
+                    fromEmail:   o365Email.trim(),
+                    mxHost:      officeConnectorHost||_derived,
+                  })
+                });
+                const d = await r.json();
+                setO365Result(d);
+              } catch(e) {
+                setO365Result({ok:false, error:e.message});
+              }
+              setO365Testing(false);
+            }
+
+            return (
+              <div className="card mb12" style={{borderLeft:"3px solid #0078d4"}}>
+                <div className="card-title" style={{marginBottom:4}}>Step 3 — Connect &amp; Verify</div>
+                <div className="dim sm mb12">
+                  Enter the <strong>from email</strong> you'll send from — the smart host is derived automatically.
+                  After adding the IP to your M365 connector, click <strong>Test Connection</strong> to confirm it's live.
+                </div>
+
+                <label className="lbl">From Email (in your M365 tenant)</label>
+                <input value={o365Email} onChange={e=>{setO365Email(e.target.value);setO365Result(null);}}
+                  placeholder="you@contoso.com"
+                  style={{fontSize:14,padding:"10px 12px",maxWidth:360}}/>
+
+                {_derived && (
+                  <div className="row ac-center g8 mt8">
+                    <span className="dim2 sm">Smart host:</span>
+                    <code style={{fontSize:12}}>{_derived}</code>
+                    <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(_derived)}>📋</button>
+                  </div>
+                )}
+
+                <div className="row g8 mt12 ac-center" style={{flexWrap:"wrap"}}>
+                  <button className="btn btn-p btn-sm" onClick={testConnector}
+                    disabled={o365Testing||(!_derived&&!officeConnectorHost)}>
+                    {o365Testing ? "Testing…" : "🔗 Test Connection"}
+                  </button>
+                  {o365Result && o365Result.linked && (
+                    <span style={{color:"var(--ok)",fontWeight:600,fontSize:13}}>✓ Linked — ready to send</span>
+                  )}
+                  {o365Result && !o365Result.linked && (
+                    <span style={{color:"var(--err)",fontSize:13}}>✗ Not linked yet</span>
+                  )}
+                </div>
+
+                {o365Result && (
+                  <div className={`ib mt10 sm ${o365Result.linked?"ib-ok":o365Result.ok===false?"ib-e":"ib-i"}`}>
+                    <span className="ib-ic">{o365Result.linked?"✓":"✗"}</span>
+                    <div>
+                      <div>{o365Result.message || o365Result.error || "No response"}</div>
+                      {o365Result.steps && (
+                        <div className="col g4 mt8">
+                          {o365Result.steps.map((s,i)=>(
+                            <div key={i} className="row g6 ac-center xs">
+                              <span style={{color:s.ok?"var(--ok)":"var(--err)"}}>{s.ok?"✓":"✗"}</span>
+                              <span className="dim2">{s.step}:</span>
+                              <span style={{maxWidth:380,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.msg}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt12">
+                  <div className="dim2 xs mb4">Override smart host (optional — leave blank to use auto-derived)</div>
+                  <input value={officeConnectorHost||""} onChange={e=>{setOfficeConnectorHost(e.target.value);setO365Result(null);}}
+                    placeholder={_derived||"yourtenant-com.mail.protection.outlook.com"}
+                    style={{fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)",color:"var(--dim)"}}/>
+                </div>
+
+                {officeConnectorHost && o365Result && o365Result.linked && (
+                  <div className="ib ib-ok mt10 sm">
+                    <span className="ib-ic">✓</span>
+                    Campaigns set to <strong>Office Admin</strong> will relay through <code>{officeConnectorHost}:25</code>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
         </div>
       )}
 
