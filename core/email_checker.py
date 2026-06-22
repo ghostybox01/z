@@ -1036,7 +1036,7 @@ class MandrillProvider(EmailProvider):
         status = EmailServiceStatus(provider=self.name)
         data, err = self._post("users/info.json")
         if err:
-            status.account_status = "Invalid Key" if ("Invalid" in (err or "") or "10" in (err or "")) else "Error"
+            status.account_status = "Invalid Key" if ("Invalid_Key" in (err or "") or "Invalid API key" in (err or "") or '"code": -1' in (err or "")) else "Error"
             status.errors.append(f"Auth: {err}")
             return status
         if data:
@@ -1374,16 +1374,25 @@ def _http_post(url: str, headers: dict, body: dict) -> Tuple[Optional[Dict], Opt
     """POST JSON request using stdlib urllib."""
     from urllib.request import Request, urlopen
     from urllib.error import HTTPError, URLError
+    import gzip as _gz
     raw = json.dumps(body).encode("utf-8")
     try:
         req  = Request(url, data=raw, headers={**headers, "Content-Type":"application/json"}, method="POST")
         resp = urlopen(req, timeout=30)
-        txt  = resp.read().decode("utf-8", errors="replace")
+        raw_body = resp.read()
+        if (resp.headers.get("Content-Encoding") or "").lower() in ("gzip", "x-gzip"):
+            try: raw_body = _gz.decompress(raw_body)
+            except Exception: pass
+        txt = raw_body.decode("utf-8", errors="replace")
         return (json.loads(txt) if txt.strip() else {}), None
     except HTTPError as e:
-        body_s = ""
-        try: body_s = e.read().decode("utf-8", errors="replace")[:400]
+        raw_err = b""
+        try: raw_err = e.read()
         except Exception: pass
+        if (e.headers.get("Content-Encoding") or "").lower() in ("gzip", "x-gzip"):
+            try: raw_err = _gz.decompress(raw_err)
+            except Exception: pass
+        body_s = raw_err.decode("utf-8", errors="replace")[:400]
         return None, f"HTTP {e.code}: {body_s}"
     except URLError as e:
         return None, f"Network error: {e.reason}"
