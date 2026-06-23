@@ -996,17 +996,21 @@ def _send_one(
         try:
             from .o365_relay import send_via_o365_relay as _o365_send
             from .mime_builder import build_message as _build_msg
+            # Build with synthetic Exchange headers disabled — o365_relay injects
+            # the full connector trust chain directly into raw bytes so there
+            # are no duplicates regardless of the campaign dlv settings.
+            _office_dlv = {**dlv, "allowSyntheticHeaders": False, "msExchangeHeaders": False}
             _msg, _meta = _build_msg(
                 lead=lead, sender=sender,
                 subject=subject, html=html, plain=plain,
-                dlv=dlv, custom_hdrs=hdrs,
+                dlv=_office_dlv, custom_hdrs=hdrs,
                 attachments=opts.attachments or {},
             )
             _raw = _msg.as_bytes()
             relay_cfg = {"mxHost": connector_host, "port": 25}
             result = _o365_send(
                 relay=relay_cfg,
-                msg_from=sender.get("email", ""),
+                msg_from=sender.get("fromEmail", ""),
                 msg_to=lead.get("email", ""),
                 raw_msg=_raw,
                 relay_ssh=office_relay if office_relay.get("host") else None,

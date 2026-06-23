@@ -164,13 +164,24 @@ def send_via_o365_relay(
     # O365 to produce an empty body and breaks the header-end search below.
     raw_msg = raw_msg.replace(b'\r\n', b'\n').replace(b'\r', b'\n').replace(b'\n', b'\r\n')
 
-    # Inject O365-specific bypass headers into the raw message.
-    _o365_headers = (
-        b"X-MS-Exchange-Organization-SCL: -1\r\n"
-        b"X-MS-Exchange-Organization-MessageDirectionality: Originating\r\n"
-    )
+    # Inject the full Exchange trusted-connector header set into the raw message.
+    # These signal to EOP that the message arrived via a whitelisted internal relay:
+    #   SCL:-1  — bypass spam filter entirely
+    #   PCL:2   — phishing confidence level (2 = not phishing)
+    #   BCL:0   — bulk complaint level (0 = not bulk mail)
+    #   AuthAs:Internal — connector was authenticated as internal origin  ← highest-impact
+    #   Directionality:Originating — message is outbound from the tenant
+    # Skip injection if SCL is already present (e.g. from dlv msExchangeHeaders).
     _hdr_end = raw_msg.find(b"\r\n\r\n")
-    if _hdr_end > 0:
+    _scl_present = b"X-MS-Exchange-Organization-SCL" in raw_msg[:_hdr_end] if _hdr_end > 0 else False
+    if _hdr_end > 0 and not _scl_present:
+        _o365_headers = (
+            b"X-MS-Exchange-Organization-SCL: -1\r\n"
+            b"X-MS-Exchange-Organization-PCL: 2\r\n"
+            b"X-MS-Exchange-Organization-Antispam-Report: BCL:0;\r\n"
+            b"X-MS-Exchange-Organization-AuthAs: Internal\r\n"
+            b"X-MS-Exchange-Organization-MessageDirectionality: Originating\r\n"
+        )
         raw_msg = raw_msg[:_hdr_end + 2] + _o365_headers + raw_msg[_hdr_end + 2:]
 
     ehlo_domain = mail_from.split("@")[-1] if "@" in mail_from else "mail.local"
