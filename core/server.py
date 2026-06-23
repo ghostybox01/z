@@ -6448,7 +6448,34 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             mx_host     = custom_host or (tenant_domain.replace(".", "-") + ".mail.protection.outlook.com")
             ehlo_domain = from_email.split("@")[-1] if "@" in from_email else (tenant_domain or "mail.local")
             result = {"ok": False, "linked": False, "mx_host": mx_host, "port": port,
-                      "from_email": from_email, "steps": []}
+                      "from_email": from_email, "steps": [], "connector_ip": "", "blacklist": None}
+            # Resolve MX IP + reputation check before SMTP test so results are
+            # always present even when SMTP fails early.
+            connector_ip = ""
+            try:
+                _info = _vs.getaddrinfo(mx_host, port, _vs.AF_INET)
+                if _info:
+                    connector_ip = _info[0][4][0]
+                    result["connector_ip"] = connector_ip
+                    result["steps"].append({"step": "ip_resolved", "ok": True,
+                        "msg": f"Resolves to {connector_ip}"})
+                    try:
+                        from suppression_list import check_ip_blacklists as _cbl
+                        _bl = _cbl([connector_ip])
+                        _blr = _bl["results"][0] if _bl.get("results") else None
+                        result["blacklist"] = _blr
+                        if _blr:
+                            if _blr["listed_count"] > 0:
+                                result["steps"].append({"step": "reputation", "ok": False,
+                                    "msg": f"Listed on {_blr['listed_count']} of {len(_blr['checks'])} blacklists"})
+                            else:
+                                result["steps"].append({"step": "reputation", "ok": True,
+                                    "msg": f"Clean on all {len(_blr['checks'])} blacklists"})
+                    except Exception:
+                        result["blacklist"] = None
+            except Exception as _dns_err:
+                result["steps"].append({"step": "ip_resolved", "ok": False,
+                    "msg": f"DNS lookup failed: {str(_dns_err)[:60]}"})
             try:
                 t0   = time.time()
                 sock = _vs.create_connection((mx_host, port), timeout=10)
