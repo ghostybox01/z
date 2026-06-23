@@ -2412,6 +2412,8 @@ function TabCampaign({
               {activeMethod==="tunnel"&&<>🔑 SSH Tunnel</>}
               {activeMethod==="b2b"&&<>🔒 B2B Inbox</>}
               {activeMethod==="isp"&&<>🌐 ISP Proxy SMTP</>}
+              {activeMethod==="mx"&&<>📡 Direct MX</>}
+              {activeMethod==="office"&&<>🏢 Office Admin</>}
               <button className="btn btn-g btn-xs" onClick={()=>setTab("method")} style={{marginLeft:"auto"}}>Change →</button>
             </div>
           </div>
@@ -2639,7 +2641,7 @@ function TabCampaign({
                 </div>
               ))}
             </div>
-            {running && (
+            {(running || userScrolled.current) && (
               <div style={{position:"absolute",bottom:8,right:8}}>
                 <button className="btn btn-g btn-xs" onClick={()=>{userScrolled.current=false;scrollToBottom();}}>
                   ↓ Latest
@@ -3473,7 +3475,7 @@ function TabLeads({leadsRaw, setLeadsRaw, leads, setLeads, filesList, allowDupes
               <button key={file.id} className="btn btn-g btn-xs" onClick={async()=>{
                 const r=await apiCall(`/api/files/download/${file.id}`);
                 const text=await r.text();
-                setLeadsRaw(text); setLeads(parseLeads(text));
+                setLeadsRaw(text); setLeads(parseLeads(text, allowDupes));
               }}>📂 {file.display_name||file.name}</button>
             ))}
           </div>
@@ -3490,7 +3492,7 @@ function TabLeads({leadsRaw, setLeadsRaw, leads, setLeads, filesList, allowDupes
                   <div key={file.id} className="pi" style={{cursor:"pointer"}} onClick={async()=>{
                     const r=await apiCall(`/api/files/download/${file.id}`);
                     const text=await r.text();
-                    setLeadsRaw(text); setLeads(parseLeads(text));
+                    setLeadsRaw(text); setLeads(parseLeads(text, allowDupes));
                   }}>
                     <span style={{fontSize:20}}>📄</span>
                     <div style={{flex:1,minWidth:0}}>
@@ -3726,8 +3728,10 @@ function TabSenders({sendersRaw, setSendersRaw, senderName, setSenderName, sende
               ? <Info type="e">{domainResults.error}</Info>
               : (() => {
                   const validDomains = new Set((domainResults.results||[]).filter(r=>r.valid).map(r=>r.domain));
-                  const goodEmails   = list.filter(e=>validDomains.has((e.split("@")[1]||"").toLowerCase()));
-                  const badEmails    = list.filter(e=>!validDomains.has((e.split("@")[1]||"").toLowerCase()));
+                  const _emailPart = e => (e.split("|")[0]||"").trim();
+                  const _domain    = e => (_emailPart(e).split("@")[1]||"").toLowerCase();
+                  const goodEmails   = list.filter(e=>validDomains.has(_domain(e)));
+                  const badEmails    = list.filter(e=>!validDomains.has(_domain(e)));
                   return (<div>
                     <div className="row g8 mb12" style={{flexWrap:"wrap"}}>
                       <Bdg t="ok">{validDomains.size} valid domain{validDomains.size!==1?"s":""} ({goodEmails.length} sender{goodEmails.length!==1?"s":""})</Bdg>
@@ -3811,7 +3815,8 @@ function SesCredGen({onApply, initialRegion}) {
         ipad.set(msg,64);const inner=sha256(ipad);opad.set(inner,64);return sha256(opad);
       }
       const enc=s=>{const a=[];for(let i=0;i<s.length;i++)a.push(s.charCodeAt(i));return new Uint8Array(a);};
-      let sig=hmac(enc("AWS4"+sk),"11111111");
+      const _awsDate=new Date().toISOString().slice(0,10).replace(/-/g,"");
+      let sig=hmac(enc("AWS4"+sk),_awsDate);
       sig=hmac(sig,region);sig=hmac(sig,"ses");sig=hmac(sig,"aws4_request");sig=hmac(sig,"SendRawEmail");
       const ver=new Uint8Array([0x04]),combined=new Uint8Array(1+sig.length);
       combined.set(ver);combined.set(sig,1);
@@ -3849,7 +3854,7 @@ function SesCredGen({onApply, initialRegion}) {
               disabled={!ak||!sk}
               title={(!ak||!sk) ? "Enter Access Key + Secret first" : "Probe every SES region in parallel and pick the one that authorizes"}
               onClick={async()=>{
-                showToast("inf","Detecting…","Probing SES in every region — this takes ~5s.");
+                showToast("i","Detecting…","Probing SES in every region — this takes ~5s.");
                 try {
                   const r = await apiCall("/api/tools/aws-detect-region",{
                     method:"POST",
@@ -4031,6 +4036,81 @@ function OfficeConnectorPanel() {
               </div>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OfficeConnectStep3({officeConnectorHost, setOfficeConnectorHost}) {
+  const [o365Email, setO365Email]     = useState("");
+  const [o365Testing, setO365Testing] = useState(false);
+  const [o365Result, setO365Result]   = useState(null);
+  const _domain  = o365Email.includes("@") ? o365Email.split("@").pop().trim().toLowerCase() : "";
+  const _derived = _domain ? _domain.replace(/\./g,"-") + ".mail.protection.outlook.com" : "";
+  useEffect(()=>{ if(_derived) setOfficeConnectorHost(_derived); },[_derived]);
+  async function testConnector() {
+    if(!_derived && !officeConnectorHost) return;
+    setO365Testing(true); setO365Result(null);
+    try {
+      const r = await apiCall("/api/tools/office-verify",{method:"POST",body:JSON.stringify({fromEmail:o365Email.trim(),mxHost:officeConnectorHost||_derived})});
+      setO365Result(await r.json());
+    } catch(e) { setO365Result({ok:false,error:e.message}); }
+    setO365Testing(false);
+  }
+  return (
+    <div className="card mb12" style={{borderLeft:"3px solid #0078d4"}}>
+      <div className="card-title" style={{marginBottom:4}}>Step 3 — Connect &amp; Verify</div>
+      <div className="dim sm mb12">
+        Enter the <strong>from email</strong> you'll send from — the smart host is derived automatically.
+        After adding the IP to your M365 connector, click <strong>Test Connection</strong> to confirm it's live.
+      </div>
+      <label className="lbl">From Email (in your M365 tenant)</label>
+      <input value={o365Email} onChange={e=>{setO365Email(e.target.value);setO365Result(null);}}
+        placeholder="you@contoso.com" style={{fontSize:14,padding:"10px 12px",maxWidth:360}}/>
+      {_derived && (
+        <div className="row ac-center g8 mt8">
+          <span className="dim2 sm">Smart host:</span>
+          <code style={{fontSize:12}}>{_derived}</code>
+          <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(_derived)}>📋</button>
+        </div>
+      )}
+      <div className="row g8 mt12 ac-center" style={{flexWrap:"wrap"}}>
+        <button className="btn btn-p btn-sm" onClick={testConnector} disabled={o365Testing||(!_derived&&!officeConnectorHost)}>
+          {o365Testing ? "Testing…" : "🔗 Test Connection"}
+        </button>
+        {o365Result && o365Result.linked && <span style={{color:"var(--ok)",fontWeight:600,fontSize:13}}>✓ Linked — ready to send</span>}
+        {o365Result && !o365Result.linked && <span style={{color:"var(--err)",fontSize:13}}>✗ Not linked yet</span>}
+      </div>
+      {o365Result && (
+        <div className={`ib mt10 sm ${o365Result.linked?"ib-ok":o365Result.ok===false?"ib-e":"ib-i"}`}>
+          <span className="ib-ic">{o365Result.linked?"✓":"✗"}</span>
+          <div>
+            <div>{o365Result.message || o365Result.error || "No response"}</div>
+            {o365Result.steps && (
+              <div className="col g4 mt8">
+                {o365Result.steps.map((s,i)=>(
+                  <div key={i} className="row g6 ac-center xs">
+                    <span style={{color:s.ok?"var(--ok)":"var(--err)"}}>{s.ok?"✓":"✗"}</span>
+                    <span className="dim2">{s.step}:</span>
+                    <span style={{maxWidth:380,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.msg}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="mt12">
+        <div className="dim2 xs mb4">Override smart host (optional — leave blank to use auto-derived)</div>
+        <input value={officeConnectorHost||""} onChange={e=>{setOfficeConnectorHost(e.target.value);setO365Result(null);}}
+          placeholder={_derived||"yourtenant-com.mail.protection.outlook.com"}
+          style={{fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)",color:"var(--dim)"}}/>
+      </div>
+      {officeConnectorHost && o365Result && o365Result.linked && (
+        <div className="ib ib-ok mt10 sm">
+          <span className="ib-ic">✓</span>
+          Campaigns set to <strong>Office Admin</strong> will relay through <code>{officeConnectorHost}:25</code>
         </div>
       )}
     </div>
@@ -4519,109 +4599,7 @@ function TabMethod({
           </div>
 
           {/* Step 3 — Auto-configure from email */}
-          {(()=>{
-            const [o365Email, setO365Email]     = React.useState("");
-            const [o365Testing, setO365Testing] = React.useState(false);
-            const [o365Result, setO365Result]   = React.useState(null);
-
-            // Derive smart host from email domain
-            const _domain   = o365Email.includes("@") ? o365Email.split("@").pop().trim().toLowerCase() : "";
-            const _derived  = _domain ? _domain.replace(/\./g,"-") + ".mail.protection.outlook.com" : "";
-
-            // When derived host changes, auto-populate the connector host field
-            React.useEffect(()=>{
-              if(_derived) setOfficeConnectorHost(_derived);
-            },[_derived]);
-
-            async function testConnector() {
-              if(!_derived && !officeConnectorHost) return;
-              setO365Testing(true); setO365Result(null);
-              try {
-                const r = await apiCall("/api/tools/office-verify",{
-                  method:"POST",
-                  body: JSON.stringify({
-                    fromEmail:   o365Email.trim(),
-                    mxHost:      officeConnectorHost||_derived,
-                  })
-                });
-                const d = await r.json();
-                setO365Result(d);
-              } catch(e) {
-                setO365Result({ok:false, error:e.message});
-              }
-              setO365Testing(false);
-            }
-
-            return (
-              <div className="card mb12" style={{borderLeft:"3px solid #0078d4"}}>
-                <div className="card-title" style={{marginBottom:4}}>Step 3 — Connect &amp; Verify</div>
-                <div className="dim sm mb12">
-                  Enter the <strong>from email</strong> you'll send from — the smart host is derived automatically.
-                  After adding the IP to your M365 connector, click <strong>Test Connection</strong> to confirm it's live.
-                </div>
-
-                <label className="lbl">From Email (in your M365 tenant)</label>
-                <input value={o365Email} onChange={e=>{setO365Email(e.target.value);setO365Result(null);}}
-                  placeholder="you@contoso.com"
-                  style={{fontSize:14,padding:"10px 12px",maxWidth:360}}/>
-
-                {_derived && (
-                  <div className="row ac-center g8 mt8">
-                    <span className="dim2 sm">Smart host:</span>
-                    <code style={{fontSize:12}}>{_derived}</code>
-                    <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(_derived)}>📋</button>
-                  </div>
-                )}
-
-                <div className="row g8 mt12 ac-center" style={{flexWrap:"wrap"}}>
-                  <button className="btn btn-p btn-sm" onClick={testConnector}
-                    disabled={o365Testing||(!_derived&&!officeConnectorHost)}>
-                    {o365Testing ? "Testing…" : "🔗 Test Connection"}
-                  </button>
-                  {o365Result && o365Result.linked && (
-                    <span style={{color:"var(--ok)",fontWeight:600,fontSize:13}}>✓ Linked — ready to send</span>
-                  )}
-                  {o365Result && !o365Result.linked && (
-                    <span style={{color:"var(--err)",fontSize:13}}>✗ Not linked yet</span>
-                  )}
-                </div>
-
-                {o365Result && (
-                  <div className={`ib mt10 sm ${o365Result.linked?"ib-ok":o365Result.ok===false?"ib-e":"ib-i"}`}>
-                    <span className="ib-ic">{o365Result.linked?"✓":"✗"}</span>
-                    <div>
-                      <div>{o365Result.message || o365Result.error || "No response"}</div>
-                      {o365Result.steps && (
-                        <div className="col g4 mt8">
-                          {o365Result.steps.map((s,i)=>(
-                            <div key={i} className="row g6 ac-center xs">
-                              <span style={{color:s.ok?"var(--ok)":"var(--err)"}}>{s.ok?"✓":"✗"}</span>
-                              <span className="dim2">{s.step}:</span>
-                              <span style={{maxWidth:380,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.msg}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="mt12">
-                  <div className="dim2 xs mb4">Override smart host (optional — leave blank to use auto-derived)</div>
-                  <input value={officeConnectorHost||""} onChange={e=>{setOfficeConnectorHost(e.target.value);setO365Result(null);}}
-                    placeholder={_derived||"yourtenant-com.mail.protection.outlook.com"}
-                    style={{fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)",color:"var(--dim)"}}/>
-                </div>
-
-                {officeConnectorHost && o365Result && o365Result.linked && (
-                  <div className="ib ib-ok mt10 sm">
-                    <span className="ib-ic">✓</span>
-                    Campaigns set to <strong>Office Admin</strong> will relay through <code>{officeConnectorHost}:25</code>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+          <OfficeConnectStep3 officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost} />
         </div>
       )}
 
@@ -5040,7 +5018,7 @@ function TabMethod({
                     disabled={!apiDraft.key||!apiDraft.secret}
                     title={(!apiDraft.key||!apiDraft.secret) ? "Enter IAM Access Key + Secret first" : "Probe every SES region in parallel and pick the one that authorizes"}
                     onClick={async()=>{
-                      showToast("inf","Detecting…","Probing SES in every region — this takes ~5s.");
+                      showToast("i","Detecting…","Probing SES in every region — this takes ~5s.");
                       try {
                         const r = await apiCall("/api/tools/aws-detect-region",{
                           method:"POST",
@@ -5080,6 +5058,10 @@ function TabMethod({
           <div className="row g8 mt12">
             <button className="btn btn-p btn-sm" onClick={()=>{
               if(!apiDraft.key) return;
+              if(apiDraft.provider==="ses-api" && !apiDraft.secret){
+                showPopup({title:"Secret Key Required",msg:"AWS SES requires both an Access Key ID and a Secret Access Key.",ico:"⚠️",type:"alert"});
+                return;
+              }
               if(apiDraft.provider==="mailgun" && !apiDraft.mailgunDomain){
                 showPopup({title:"Domain Required",msg:"Mailgun requires a sending domain (e.g. mg.yourdomain.com). Find it in your Mailgun dashboard → Sending → Domains.",ico:"⚠️",type:"alert"});
                 return;
@@ -5092,11 +5074,14 @@ function TabMethod({
               if(!apiDraft.key) return;
               setApiTestLoading(true); setApiTestResult(null); setApiDetectedSenders([]);
               try {
+                const _espHintMap={sendgrid:"sendgrid","ses-api":"ses",mailgun:"mailgun",postmark:"postmark",sparkpost:"sparkpost",brevo:"brevo",resend:"resend",mandrill:"mandrill",mailchimp:"mailchimp",mailjet:"mailjet"};
                 const r=await apiCall("/api/tools/check-esp",{method:"POST",body:JSON.stringify({
                   key:apiDraft.key, secret:apiDraft.secret||null,
                   region:apiDraft.region||"us-east-1",
                   domain:apiDraft.mailgunDomain||null,
-                  provider_hint: apiDraft.provider==="mandrill"?"mandrill":null,
+                  mailgun_region:apiDraft.mailgunRegion||"us",
+                  sparkpost_region:apiDraft.sparkpostRegion||"us",
+                  provider_hint: _espHintMap[apiDraft.provider]||null,
                 })});
                 const d=await r.json();
                 if(d.error){
@@ -7806,7 +7791,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
 /* ════════════════════════════════════════
    TAB: FILES
 ════════════════════════════════════════ */
-function TabFiles({filesList, uploadFile, deleteFile, renameFile, fileUploadLoading}) {
+function TabFiles({filesList, uploadFile, deleteFile, renameFile, fileUploadLoading, showPopup}) {
   const isMobile = useIsMobile();
   const [cat, setCat] = useState("all");
   const cats=["all","attachments","leads","letters","templates","senders","misc"];
@@ -8569,7 +8554,7 @@ ${lrLog ? '    log.info("REDIRECT → %s", target)' : ''}
           <div className="g2 mb20" style={{alignItems:"start"}}>
             <div className="card">
               <div className="card-title">☁️ AWS Credentials</div>
-              <Info type="i">Credentials are saved to your browser only — never sent to the SynthTel server. Uses AWS S3 to create unique redirect buckets.</Info>
+              <Info type="i">Credentials are sent to your SynthTel server to generate S3 buckets — they are not stored persistently. Uses AWS S3 to create unique redirect buckets.</Info>
               <div className="col g12 mt12">
                 <div><label className="lbl">Access Key ID</label>
                   <input value={s3AccessKey} onChange={e=>setS3AccessKey(e.target.value)} placeholder="AKIA..." style={{fontSize:14,padding:"10px 12px",fontFamily:"var(--font-mono)"}}/>
@@ -10584,7 +10569,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
    TAB: ACCOUNT
 ════════════════════════════════════════ */
 function TabAccount({username, role, doLogout,
-                     updateInfo, updateApplying, updateCheckLoading,
+                     updateInfo, setUpdateInfo, updateApplying, updateCheckLoading,
                      updateAutoCheck, setUpdateAutoCheck,
                      updateAutoApply, setUpdateAutoApply,
                      checkForUpdate, applyUpdate}) {
@@ -11615,8 +11600,9 @@ function App() {
   ]);
 
   // ── New Campaign — reset all campaign fields to defaults ───────────────
-  function newCampaign() {
-    if(!confirm("Start a new campaign? This will clear your current leads, senders, and email body. SMTP servers and settings are kept.")) return;
+  async function newCampaign() {
+    const ok = await showPopup({title:"New Campaign",msg:"Start a new campaign? This will clear your current leads, senders, and email body. SMTP servers and settings are kept.",ico:"🔄",type:"confirm"});
+    if(!ok) return;
     setSubject(""); setExtraSubjects(""); setPreheader(""); setHtmlBody(""); setPlainBody("");
     setLinkRot([]); setLinkRotDraft(""); setLeadsRaw(""); setLeads([]); setCampName("Campaign "+new Date().toLocaleDateString());
     setCampLog([]); setCampStats({total:0,sent:0,failed:0,pending:0});
@@ -12005,10 +11991,11 @@ function App() {
   }
 
   async function clearHistory() {
-    if(!confirm("Clear all campaign history? This cannot be undone.")) return;
+    const ok = await showPopup({title:"Clear History",msg:"Clear all campaign history? This cannot be undone.",ico:"🗑️",type:"confirm"});
+    if(!ok) return;
     try{
       const r=await apiCall("/api/campaigns/clear",{method:"POST"});
-      if(r.ok){ setCampHistory([]); setCampLog([]); }
+      if(r.ok){ setCampHistory([]); if(!campRunning) setCampLog([]); }
     }catch(e){}
   }
 
@@ -12071,7 +12058,7 @@ function App() {
     if(!htmlBody.trim()&&!plainBody.trim()){showPopup({title:"No Email Body",msg:"Write your email in the Compose tab first.",ico:"📝",type:"alert"});return;}
     const senders=sendersRaw.split(/\r?\n/).map(s=>s.trim().split("|")[0].trim()).filter(s=>s.includes("@"));
     if(!senders.length){showPopup({title:"No Senders",msg:"Add at least one sender email in the Senders tab.",ico:"📤",type:"alert"});return;}
-    const expertMode = (localStorage.getItem("st_expert_mode")||"0") === "1";
+    const expertMode = true;
 
     pauseRef.current={paused:false,abort:false};
     setCampRunning(true); setCampPaused(false); setCampLog([]);
@@ -12105,8 +12092,7 @@ function App() {
         fromDomain: px.fromDomain || "",
         smtpFromEmail: px.smtpFromEmail || "",
       }));
-      console.log("ISP tunnels built:", ispTunnels.length, ispTunnels);
-    } catch(e) { console.error("ISP tunnel build error:", e); }
+    } catch(e) { }
 
     // Determine effective method and tunnels
     const effectiveMethod = activeMethod === "isp" ? "tunnel" : activeMethod;
@@ -12767,13 +12753,13 @@ function App() {
       case "b2b":         return <>{isMobile&&<MobTopBar/>}<TabB2B setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
       case "attachments": return <>{isMobile&&<MobTopBar/>}<TabAttachments filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} selectedTypes={selectedTypes} setSelectedTypes={setSelectedTypes} attachConfigs={attachConfigs} setAttachConfigs={setAttachConfigs}/>{isMobile&&<MobSpacer/>}</>;
       case "tags":        return <>{isMobile&&<MobTopBar/>}<TabTagsTemplates setHtmlBody={setHtmlBody} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
-      case "files":       return <>{isMobile&&<MobTopBar/>}<TabFiles filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} fileUploadLoading={fileUploadLoading}/>{isMobile&&<MobSpacer/>}</>;
+      case "files":       return <>{isMobile&&<MobTopBar/>}<TabFiles filesList={filesList} uploadFile={uploadFile} deleteFile={deleteFile} renameFile={renameFile} fileUploadLoading={fileUploadLoading} showPopup={showPopup}/>{isMobile&&<MobSpacer/>}</>;
       case "tools":       return <>{isMobile&&<MobTopBar/>}<TabTools filesList={filesList} uploadFile={uploadFile} setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}
                                           setSubject={setSubject} setHtmlBody={setHtmlBody} setPlainBody={setPlainBody}
                                           showPopup={showPopup} addLog={addLog}/>{isMobile&&<MobSpacer/>}</>;
       case "redirects":   return <>{isMobile&&<MobTopBar/>}<TabRedirects setHtmlBody={setHtmlBody} setTab={setTab} addLog={addLog} showPopup={showPopup}/>{isMobile&&<MobSpacer/>}</>;
       case "account":     return <>{isMobile&&<MobTopBar/>}<TabAccount username={username} role={role} doLogout={doLogout}
-                                          updateInfo={updateInfo} updateApplying={updateApplying}
+                                          updateInfo={updateInfo} setUpdateInfo={setUpdateInfo} updateApplying={updateApplying}
                                           updateCheckLoading={updateCheckLoading}
                                           updateAutoCheck={updateAutoCheck} setUpdateAutoCheck={setUpdateAutoCheck}
                                           updateAutoApply={updateAutoApply} setUpdateAutoApply={setUpdateAutoApply}
