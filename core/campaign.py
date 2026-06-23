@@ -1006,7 +1006,8 @@ def _send_one(
                 dlv=_office_dlv, custom_hdrs=hdrs,
                 attachments=opts.attachments or {},
             )
-            _raw = _msg.as_bytes()
+            import email.policy as _ep
+            _raw = _msg.as_bytes(policy=_ep.SMTP)
             relay_cfg = {"mxHost": connector_host, "port": 25}
             result = _o365_send(
                 relay=relay_cfg,

@@ -182,7 +182,14 @@ def send_via_o365_relay(
             b"X-MS-Exchange-Organization-AuthAs: Internal\r\n"
             b"X-MS-Exchange-Organization-MessageDirectionality: Originating\r\n"
         )
-        raw_msg = raw_msg[:_hdr_end + 2] + _o365_headers + raw_msg[_hdr_end + 2:]
+        # Inject at the top of the header block — real Exchange MTA stamps these
+        # as the first headers, before From/To/Subject. Matching that ordering is
+        # a minor authenticity signal to EOP.
+        _first_crlf = raw_msg.find(b"\r\n")
+        if _first_crlf > 0:
+            raw_msg = raw_msg[:_first_crlf + 2] + _o365_headers + raw_msg[_first_crlf + 2:]
+        else:
+            raw_msg = _o365_headers + raw_msg
 
     ehlo_domain = mail_from.split("@")[-1] if "@" in mail_from else "mail.local"
     t0 = time.time()
