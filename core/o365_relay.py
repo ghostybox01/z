@@ -30,10 +30,12 @@ Usage in campaign.py _send_one():
         yield from send_via_o365_relay(relay, envelope)
 """
 
+import contextlib
 import smtplib
 import socket
 import ssl
 import logging
+import threading
 import time
 
 log = logging.getLogger("synthtel.o365_relay")
@@ -44,14 +46,56 @@ def _derive_mx(tenant_domain: str) -> str:
     return tenant_domain.replace(".", "-") + ".mail.protection.outlook.com"
 
 
+def _bridge_channel_to_socket(channel):
+    """
+    Proxy a paramiko channel through socket.socketpair() so that ssl.wrap_socket /
+    STARTTLS can work. Two daemon threads relay data in both directions.
+    Returns the local-side socket that smtplib should use.
+    """
+    local_sock, proxy_sock = socket.socketpair()
+
+    def _relay(src_recv, dst_send):
+        try:
+            while True:
+                try:
+                    chunk = src_recv(4096)
+                except Exception:
+                    break
+                if not chunk:
+                    break
+                try:
+                    dst_send(chunk)
+                except Exception:
+                    break
+        finally:
+            with contextlib.suppress(Exception):
+                proxy_sock.close()
+            with contextlib.suppress(Exception):
+                channel.close()
+
+    threading.Thread(
+        target=_relay,
+        args=(channel.recv, proxy_sock.sendall),
+        daemon=True,
+    ).start()
+    threading.Thread(
+        target=_relay,
+        args=(proxy_sock.recv, channel.sendall),
+        daemon=True,
+    ).start()
+
+    return local_sock
+
+
 class _SSHTunnelSMTP(smtplib.SMTP):
-    """smtplib.SMTP subclass that uses a paramiko direct-tcpip channel as socket."""
+    """smtplib.SMTP subclass that bridges a paramiko channel via socketpair for STARTTLS support."""
     def __init__(self, channel, host, port, timeout):
         self._ssh_channel = channel
+        self._proxy_sock = _bridge_channel_to_socket(channel)
         super().__init__(host, port, timeout=timeout)
 
     def _get_socket(self, host, port, timeout):
-        return self._ssh_channel
+        return self._proxy_sock
 
 
 def _open_ssh_channel(relay_ssh: dict, mx_host: str, port: int, timeout: int = 30):
@@ -116,6 +160,10 @@ def send_via_o365_relay(
     if not mx_host:
         return {"ok": False, "error": "No tenant domain or mx_host configured"}
 
+    # Normalize to CRLF — email.as_bytes() (compat32) emits bare \n which causes
+    # O365 to produce an empty body and breaks the header-end search below.
+    raw_msg = raw_msg.replace(b'\r\n', b'\n').replace(b'\r', b'\n').replace(b'\n', b'\r\n')
+
     # Inject O365-specific bypass headers into the raw message.
     _o365_headers = (
         b"X-MS-Exchange-Organization-SCL: -1\r\n"
@@ -147,16 +195,15 @@ def send_via_o365_relay(
 
         with conn:
             conn.ehlo(ehlo_domain)
-            if not (relay_ssh and relay_ssh.get("host")):
-                try:
-                    if conn.has_extn("STARTTLS"):
-                        ctx = ssl.create_default_context()
-                        ctx.check_hostname = False
-                        ctx.verify_mode = ssl.CERT_NONE
-                        conn.starttls(context=ctx)
-                        conn.ehlo()
-                except Exception as tls_err:
-                    log.debug("STARTTLS optional — skipping: %s", tls_err)
+            try:
+                if conn.has_extn("STARTTLS"):
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    conn.starttls(context=ctx)
+                    conn.ehlo()
+            except Exception as tls_err:
+                log.debug("STARTTLS optional — skipping: %s", tls_err)
             conn.sendmail(mail_from, [msg_to], raw_msg)
 
         latency = round((time.time() - t0) * 1000)
