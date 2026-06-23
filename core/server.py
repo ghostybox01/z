@@ -6522,6 +6522,26 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 result["error"] = str(e)[:200]
             self._json(200, result)
 
+        elif p == "/api/tools/office-probe-relay":
+            if not (sess := self._auth()): return
+            body = self._read_body()
+            relay_ssh = {
+                "host": (body.get("host") or "").strip(),
+                "port": int(body.get("port") or 22),
+                "user": (body.get("user") or "root").strip(),
+                "pass": (body.get("pass") or "").strip(),
+            }
+            if not relay_ssh["host"]:
+                self._json(400, {"ok": False, "error": "SSH host is required"}); return
+            try:
+                import sys as _sys, os as _os
+                _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__)))
+                from o365_relay import probe_relay_ssh
+                result = probe_relay_ssh(relay_ssh)
+                self._json(200, result)
+            except Exception as e:
+                self._json(200, {"ok": False, "error": str(e)[:300]})
+
         elif p == "/api/tools/detect-providers":
             if not (sess := self._auth()): return
             try:

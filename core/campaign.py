@@ -464,6 +464,7 @@ class CampaignOptions:
         link_method:        int   = 0,
         b2b_cfg:            dict  = None,
         connector_host:     str   = "",
+        office_relay:       dict  = None,
     ):
         self.uid            = uid
         self.inbox_profile  = bool(inbox_profile)
@@ -496,6 +497,7 @@ class CampaignOptions:
         self.link_method      = int(link_method)
         self.b2b_cfg          = b2b_cfg or {}
         self.connector_host   = connector_host or ""
+        self.office_relay     = office_relay or {}
 
     @classmethod
     def _build_proxy_cfg(cls, data: dict) -> dict:
@@ -763,6 +765,7 @@ class CampaignOptions:
             link_method        = int(data.get("linkMethod", 0)),
             b2b_cfg            = data.get("b2bConfig") or data.get("b2b") or {},
             connector_host     = data.get("connectorHost") or "",
+            office_relay       = data.get("officeRelay") or {},
         )
 
 
@@ -982,33 +985,36 @@ def _send_one(
                      server.get("host", method)))
 
     # ─── OFFICE / M365 INBOUND CONNECTOR ────────────────────
-    # Sends via port 25 to the O365 smart host. The VPS IP must already
-    # be whitelisted in an Exchange Online inbound connector (no auth needed).
+    # Sends via port 25 to the O365 smart host. The connector's allowed IP
+    # must match either the SynthTel VPS IP (direct) or the relay VPS IP
+    # (when office_relay SSH config is provided).
     if method == "office":
         connector_host = getattr(opts, "connector_host", "").strip()
         if not connector_host:
             return False, "Office Admin: connector hostname not set — configure it in Method → Office Admin tab", via
-        office_smtp = {
-            "host":       connector_host,
-            "port":       25,
-            "username":   "",
-            "password":   "",
-            "encryption": "NONE",
-        }
+        office_relay = getattr(opts, "office_relay", {}) or {}
         try:
-            send_smtp(
-                smtp_cfg       = office_smtp,
-                sender         = sender,
-                lead           = lead,
-                resolved_html  = html,
-                resolved_plain = plain,
-                resolved_subj  = subject,
-                dlv            = dlv,
-                custom_headers = hdrs,
-                pool           = None,
-                attachments    = opts.attachments or {},
+            from .o365_relay import send_via_o365_relay as _o365_send
+            from .mime_builder import build_message as _build_msg
+            _msg, _meta = _build_msg(
+                lead=lead, sender=sender,
+                subject=subject, html=html, plain=plain,
+                dlv=dlv, custom_hdrs=hdrs,
+                attachments=opts.attachments or {},
             )
-            return True, "", f"office/{connector_host}:25"
+            _raw = _msg.as_bytes()
+            relay_cfg = {"mxHost": connector_host, "port": 25}
+            result = _o365_send(
+                relay=relay_cfg,
+                msg_from=sender.get("email", ""),
+                msg_to=lead.get("email", ""),
+                raw_msg=_raw,
+                relay_ssh=office_relay if office_relay.get("host") else None,
+            )
+            if result["ok"]:
+                _via = f"office-relay/{office_relay['host']}" if office_relay.get("host") else f"office/{connector_host}:25"
+                return True, "", _via
+            return False, result.get("error", "O365 send failed"), via
         except Exception as exc:
             return False, _parse_smtp_error(exc, lead.get("email", "")), via
 

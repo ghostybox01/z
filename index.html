@@ -4042,6 +4042,119 @@ function OfficeConnectorPanel() {
   );
 }
 
+function OfficeRelayCard({officeRelay, setOfficeRelay}) {
+  const [probing, setProbing]   = useState(false);
+  const [probeResult, setProbeResult] = useState(null);
+  const [showPass, setShowPass] = useState(false);
+  const enabled = !!(officeRelay && officeRelay.host);
+
+  async function probeRelay() {
+    if(!officeRelay.host) return;
+    setProbing(true); setProbeResult(null);
+    try {
+      const r = await apiCall("/api/tools/office-probe-relay", {
+        method: "POST",
+        body: JSON.stringify({
+          host: officeRelay.host,
+          port: officeRelay.port || 22,
+          user: officeRelay.user || "root",
+          pass: officeRelay.pass || "",
+        }),
+      });
+      setProbeResult(await r.json());
+    } catch(e) { setProbeResult({ok:false, error:e.message}); }
+    setProbing(false);
+  }
+
+  function upd(k,v) { setOfficeRelay(r=>({...r,[k]:v})); setProbeResult(null); }
+
+  return (
+    <div className="card mb12" style={{borderLeft:"3px solid #22c55e"}}>
+      <div className="row jb ac-center mb8">
+        <div>
+          <div className="card-title" style={{margin:0}}>🔀 Relay VPS (Optional)</div>
+          <div className="dim2 sm mt4">
+            If this VPS's port 25 is blocked or flagged, route O365 sends through an external SSH relay.
+            The relay VPS IP goes in the M365 connector — not this VPS.
+          </div>
+        </div>
+        {enabled && <span style={{color:"var(--ok)",fontSize:12,fontWeight:600}}>● Active</span>}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,marginBottom:8}}>
+        <div>
+          <label className="lbl">SSH Host (IP or hostname)</label>
+          <input value={officeRelay.host||""} onChange={e=>upd("host",e.target.value.trim())}
+            placeholder="1.2.3.4 or relay.example.com"
+            style={{fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)"}}/>
+        </div>
+        <div style={{minWidth:72}}>
+          <label className="lbl">Port</label>
+          <input type="number" value={officeRelay.port||22} onChange={e=>upd("port",parseInt(e.target.value)||22)}
+            min="1" max="65535" style={{fontSize:13,padding:"8px 10px"}}/>
+        </div>
+        <div style={{minWidth:120}}>
+          <label className="lbl">Username</label>
+          <input value={officeRelay.user||"root"} onChange={e=>upd("user",e.target.value.trim())}
+            placeholder="root" style={{fontSize:13,padding:"8px 10px"}}/>
+        </div>
+      </div>
+      <div className="mb12">
+        <label className="lbl">Password</label>
+        <div className="row g6">
+          <input type={showPass?"text":"password"} value={officeRelay.pass||""} onChange={e=>upd("pass",e.target.value)}
+            placeholder="SSH password"
+            style={{fontSize:13,padding:"8px 10px",flex:1,fontFamily:"var(--font-mono)"}}/>
+          <button className="btn btn-g btn-xs" onClick={()=>setShowPass(v=>!v)} title="Show/hide">
+            {showPass?"🙈":"👁"}
+          </button>
+        </div>
+      </div>
+
+      <div className="row g8 ac-center" style={{flexWrap:"wrap"}}>
+        <button className="btn btn-p btn-sm" onClick={probeRelay} disabled={probing||!officeRelay.host}>
+          {probing ? "Probing…" : "🔍 Probe Relay IP"}
+        </button>
+        {enabled && (
+          <button className="btn btn-d btn-xs" onClick={()=>{setOfficeRelay({host:"",port:22,user:"root",pass:""});setProbeResult(null);}}>
+            ✕ Clear Relay
+          </button>
+        )}
+      </div>
+
+      {probeResult && (
+        <div className={`ib mt10 sm ${probeResult.ok?"ib-ok":"ib-e"}`}>
+          <span className="ib-ic">{probeResult.ok?"✓":"✗"}</span>
+          <div>
+            {probeResult.ok ? (
+              <>
+                <div><strong>Public IP: {probeResult.publicIp}</strong></div>
+                <div className="dim2 xs mt4">
+                  {probeResult.port25
+                    ? "✓ Port 25 outbound is open — add this IP to your M365 connector"
+                    : "⚠ Port 25 may be blocked on the relay — try sending anyway, some providers allow it"}
+                </div>
+                <div className="row g8 mt6">
+                  <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(probeResult.publicIp)}>📋 Copy IP</button>
+                </div>
+              </>
+            ) : (
+              <div>SSH connection failed: {probeResult.error}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {enabled && !probeResult && (
+        <div className="ib ib-i mt10 sm">
+          <span className="ib-ic">ℹ</span>
+          <span>Relay active — all Office Admin sends will tunnel through <code>{officeRelay.host}</code>. Make sure its IP is in your M365 connector.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OfficeConnectStep3({officeConnectorHost, setOfficeConnectorHost}) {
   const [o365Email, setO365Email]     = useState("");
   const [o365Testing, setO365Testing] = useState(false);
@@ -4129,6 +4242,7 @@ function TabMethod({
   smtpCooldownSecs, setSmtpCooldownSecs,
   sendersRaw, setSendersRaw,
   officeConnectorHost, setOfficeConnectorHost,
+  officeRelay, setOfficeRelay,
   proxies,
 }) {
   const [mTab, setMTab] = useState("smtp");
@@ -4600,6 +4714,9 @@ function TabMethod({
 
           {/* Step 3 — Auto-configure from email */}
           <OfficeConnectStep3 officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost} />
+
+          {/* Step 4 — Optional external relay VPS */}
+          <OfficeRelayCard officeRelay={officeRelay} setOfficeRelay={setOfficeRelay} />
         </div>
       )}
 
@@ -11452,6 +11569,7 @@ function App() {
   const [activeMethod, setActiveMethod] = useState(_g("activeMethod","smtp"));
   const [smtpList, setSmtpList]       = useState(_g("smtpList",[]));
   const [officeConnectorHost, setOfficeConnectorHost] = useState(_g("officeConnectorHost",""));
+  const [officeRelay, setOfficeRelay] = useState(_g("officeRelay",{host:"",port:22,user:"root",pass:""}));
   // SMTP rotation + failover settings — applied at campaign send time.
   const [smtpRotation,      setSmtpRotation]      = useState(_g("smtpRotation","random"));
   const [smtpAutoDisable,   setSmtpAutoDisable]   = useState(_g("smtpAutoDisable", true));
@@ -11655,6 +11773,7 @@ function App() {
       _s("bccEnabled",setBccEnabled); _s("bccEmail",setBccEmail);
       _s("selectedAttachIds",setSelectedAttachIds);
       _s("rateLimitPause",setRateLimitPause); _s("officeConnectorHost",setOfficeConnectorHost);
+      _s("officeRelay",setOfficeRelay);
       _s("selectedTypes",setSelectedTypes); _s("attachConfigs",setAttachConfigs);
     } catch(e) {}
   }
@@ -12112,6 +12231,7 @@ function App() {
       replyTos:senderReplyTo.split("\n").map(s=>s.trim()).filter(Boolean),
       _uid: (()=>{try{const u=JSON.parse(atob((localStorage.getItem("st_token")||"").split(".")[1]||"{}"));return u.sub||u.id||u.user_id||"";}catch(e){return "";}})(),
       method:effectiveMethod, smtpServers:smtpList, apiKeys:apiList, connectorHost:officeConnectorHost||"",
+      officeRelay: (officeRelay && officeRelay.host) ? officeRelay : null,
       inboxProfile:true,
       owa:owaConfig, crm:crmConfig, tunnels:effectiveTunnels,
       // Only include ispTunnels if actually using ISP method — prevents auto-switch to tunnel
@@ -12748,6 +12868,7 @@ function App() {
                                           smtpFailThreshold={smtpFailThreshold} setSmtpFailThreshold={setSmtpFailThreshold}
                                           smtpCooldownSecs={smtpCooldownSecs} setSmtpCooldownSecs={setSmtpCooldownSecs}
                                           officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost}
+                                          officeRelay={officeRelay} setOfficeRelay={setOfficeRelay}
                                           proxies={proxies}/>{isMobile&&<MobSpacer/>}</>;
       case "proxies":     return <>{isMobile&&<MobTopBar/>}<TabProxies proxies={proxies} setProxies={setProxies} proxyDraft={proxyDraft} setProxyDraft={setProxyDraft} proxyType={proxyType} setProxyType={setProxyType}/>{isMobile&&<MobSpacer/>}</>;
       case "b2b":         return <>{isMobile&&<MobTopBar/>}<TabB2B setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;
