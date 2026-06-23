@@ -4123,9 +4123,9 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
       </div>
 
       {probeResult && (
-        <div className={`ib mt10 sm ${probeResult.ok?"ib-ok":"ib-e"}`}>
-          <span className="ib-ic">{probeResult.ok?"✓":"✗"}</span>
-          <div>
+        <div className={`ib mt10 sm ${probeResult.ok ? (probeResult.blacklist && !probeResult.blacklist.clean ? "ib-e" : "ib-ok") : "ib-e"}`}>
+          <span className="ib-ic">{probeResult.ok ? (probeResult.blacklist && !probeResult.blacklist.clean ? "⚠" : "✓") : "✗"}</span>
+          <div style={{width:"100%"}}>
             {probeResult.ok ? (
               <>
                 <div><strong>Public IP: {probeResult.publicIp}</strong></div>
@@ -4134,7 +4134,36 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
                     ? "✓ Port 25 outbound is open — add this IP to your M365 connector"
                     : "⚠ Port 25 may be blocked on the relay — try sending anyway, some providers allow it"}
                 </div>
-                <div className="row g8 mt6">
+                {probeResult.blacklist && (
+                  <div className="mt6">
+                    <div style={{fontSize:12,fontWeight:600,color:probeResult.blacklist.clean?"var(--ok)":"var(--err)"}}>
+                      {probeResult.blacklist.clean
+                        ? `✓ Clean on all ${probeResult.blacklist.checks.length} blacklists`
+                        : `⚠ Listed on ${probeResult.blacklist.listed_count} of ${probeResult.blacklist.checks.length} blacklists — do not use this IP`}
+                    </div>
+                    {!probeResult.blacklist.clean && (
+                      <div className="mt4" style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                        {probeResult.blacklist.checks.filter(c=>c.listed).map(c=>(
+                          <span key={c.list} title={c.reason} style={{
+                            fontSize:10,padding:"2px 7px",borderRadius:3,
+                            background:"var(--err)",color:"#fff",fontWeight:600
+                          }}>{c.list}</span>
+                        ))}
+                      </div>
+                    )}
+                    {probeResult.blacklist.clean && (
+                      <div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:4}}>
+                        {probeResult.blacklist.checks.map(c=>(
+                          <span key={c.list} title={c.list} style={{
+                            fontSize:9,padding:"1px 5px",borderRadius:2,
+                            background:"var(--ok)",color:"#fff",opacity:0.75
+                          }}>✓</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="row g8 mt8">
                   <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(probeResult.publicIp)}>📋 Copy IP</button>
                 </div>
               </>

@@ -6537,7 +6537,14 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 import sys as _sys, os as _os
                 _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__)))
                 from o365_relay import probe_relay_ssh
+                from suppression_list import check_ip_blacklists
                 result = probe_relay_ssh(relay_ssh)
+                if result.get("ok") and result.get("publicIp"):
+                    try:
+                        bl = check_ip_blacklists([result["publicIp"]])
+                        result["blacklist"] = bl["results"][0] if bl.get("results") else None
+                    except Exception:
+                        result["blacklist"] = None
                 self._json(200, result)
             except Exception as e:
                 self._json(200, {"ok": False, "error": str(e)[:300]})
