@@ -1473,9 +1473,10 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         _html_list = opts.html_bodies or ([opts.html_body] if opts.html_body else [""])
         _total = min(len(opts.leads), max_emails)
 
+        _prefix_display = repr(_prefix) if _prefix else "(random)"
         yield {"type": "info", "msg": (
             f"cPanel rotating sender: {_cp_n} account(s), "
-            f"prefix={_prefix!r or '(random)'}  — "
+            f"prefix={_prefix_display}  — "
             f"sending {_total:,} email(s)"
         )}
 
