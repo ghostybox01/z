@@ -2415,6 +2415,7 @@ function TabCampaign({
               {activeMethod==="mx"&&<>📡 Direct MX</>}
               {activeMethod==="office"&&<>🏢 Office Admin</>}
               {activeMethod==="cpanel"&&<>🔄 cPanel Rotating</>}
+              {activeMethod==="cpanel"&&<>🔄 cPanel Rotating</>}
               <button className="btn btn-g btn-xs" onClick={()=>setTab("method")} style={{marginLeft:"auto"}}>Change →</button>
             </div>
           </div>
@@ -4781,6 +4782,7 @@ function TabMethod({
             {id:"b2b",    ico:"🔒", name:"B2B Inbox",       desc:"Send from extracted inboxes"},
             {id:"mx",     ico:"📡", name:"Direct MX",       desc:"Port 25 via SOCKS5 proxy list"},
             {id:"isp",    ico:"🌐", name:"ISP Proxy SMTP",  desc:"Residential ISP routing"},
+            {id:"cpanel", ico:"🔄", name:"cPanel Rotating", desc:"Auto-create & rotate cPanel accounts"},
           ].map(m=>(
             <div key={m.id} className={`mc ${activeMethod===m.id?"sel":""}`} onClick={()=>setActiveMethod(m.id)}>
               <div className="mc-ic">{m.ico}</div>
