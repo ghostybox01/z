@@ -127,7 +127,7 @@ MS_RATE_DOMAINS = frozenset({
     "hotmail.co.uk", "hotmail.fr", "outlook.co.uk",
 })
 
-VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b", "office", "mx"})
+VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b", "office", "mx", "cpanel"})
 
 
 def _check_socks5(host: str, port: int, timeout: int = 5) -> tuple:
@@ -465,6 +465,8 @@ class CampaignOptions:
         b2b_cfg:            dict  = None,
         connector_host:     str   = "",
         office_relay:       dict  = None,
+        cpanels:            list  = None,
+        cpanel_prefix:      str   = "",
     ):
         self.uid            = uid
         self.inbox_profile  = bool(inbox_profile)
@@ -498,6 +500,8 @@ class CampaignOptions:
         self.b2b_cfg          = b2b_cfg or {}
         self.connector_host   = connector_host or ""
         self.office_relay     = office_relay or {}
+        self.cpanels          = cpanels or []
+        self.cpanel_prefix    = cpanel_prefix or ""
 
     @classmethod
     def _build_proxy_cfg(cls, data: dict) -> dict:
@@ -766,6 +770,8 @@ class CampaignOptions:
             b2b_cfg            = data.get("b2bConfig") or data.get("b2b") or {},
             connector_host     = data.get("connectorHost") or "",
             office_relay       = data.get("officeRelay") or {},
+            cpanels            = [c for c in (data.get("cpanels") or []) if isinstance(c, dict)],
+            cpanel_prefix      = data.get("cpanelPrefix") or "",
         )
 
 
@@ -1438,6 +1444,141 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             plain       = opts.plain_body or "",
             attachments = list(opts.attachments.values()) if isinstance(opts.attachments, dict) else (opts.attachments or []),
         )
+        return
+
+    # ─── CPANEL rotating sender ──────────────────────────────
+    if method == "cpanel":
+        from .cpanel_sender import (
+            make_local_part, make_smtp_password,
+            create_email_account, delete_email_account,
+            detect_smtp_port, send_smtp_cpanel,
+        )
+        import string as _str_cp
+        if not opts.cpanels:
+            yield {"type": "error", "msg": "No cPanel accounts configured — add one in Method → cPanel tab"}
+            yield {"type": "done", "sent": 0, "failed": 0, "total": len(opts.leads)}
+            return
+        if not opts.leads:
+            yield {"type": "error", "msg": "No leads to send to."}
+            yield {"type": "done", "sent": 0, "failed": 0, "total": 0}
+            return
+
+        _cp_from_name = opts.senders[0].get("fromName", "") if opts.senders else ""
+        _cp_reply_to  = opts.senders[0].get("replyTo",  "") if opts.senders else ""
+        _cp_n      = len(opts.cpanels)
+        _cp_idx    = 0
+        _smtp_cache: dict = {}   # cpanel host → (smtp_host, port, mode)
+        _created: list    = []   # (cpanel_dict, local_part) for cleanup
+        _prefix = opts.cpanel_prefix or ""
+        _html_list = opts.html_bodies or ([opts.html_body] if opts.html_body else [""])
+        _total = min(len(opts.leads), max_emails)
+
+        yield {"type": "info", "msg": (
+            f"cPanel rotating sender: {_cp_n} account(s), "
+            f"prefix={_prefix!r or '(random)'}  — "
+            f"sending {_total:,} email(s)"
+        )}
+
+        sent = failed = 0
+        try:
+            for _ci, lead in enumerate(opts.leads[:max_emails]):
+                if _campaign_abort_requested(campaign_uid):
+                    break
+
+                lead_email = (lead.get("email") or "").strip()
+                if not lead_email:
+                    continue
+
+                cp     = opts.cpanels[_cp_idx % _cp_n]
+                _cp_idx += 1
+                domain = (cp.get("domain") or "").strip()
+
+                local_part = make_local_part(_prefix)
+                smtp_pass  = make_smtp_password()
+                from_email = f"{local_part}@{domain}"
+
+                # Subject / html rotation
+                _subj_list = opts.subjects or [""]
+                subj  = _pick(_subj_list, "random", _ci) or ""
+                html  = _pick(_html_list, html_rotate_mode, _ci) or ""
+                plain = opts.plain_body or ""
+
+                # Build MIME message with the generated From address
+                try:
+                    from .mime_builder import build_message as _build_cp
+                    import email.policy as _ep_cp
+                    _cp_sender = {
+                        "fromEmail": from_email,
+                        "fromName":  _cp_from_name,
+                        "replyTo":   _cp_reply_to,
+                    }
+                    _msg, _ = _build_cp(
+                        lead=lead, sender=_cp_sender,
+                        subject=subj, html=html, plain=plain,
+                        dlv=dlv, custom_hdrs=opts.custom_headers,
+                        attachments=opts.attachments or {},
+                    )
+                    raw_msg = _msg.as_bytes(policy=_ep_cp.SMTP)
+                except Exception as _be:
+                    failed += 1
+                    yield {"type": "error", "email": lead_email,
+                           "message": f"Message build error: {_be}",
+                           "progress": {"sent": sent, "failed": failed, "total": _total}}
+                    continue
+
+                # Create email account via cPanel API
+                cr = create_email_account(cp, local_part, smtp_pass)
+                if not cr["ok"]:
+                    failed += 1
+                    yield {"type": "error", "email": lead_email,
+                           "message": f"cPanel create {from_email} failed: {cr['error']}",
+                           "progress": {"sent": sent, "failed": failed, "total": _total}}
+                    continue
+                _created.append((cp, local_part))
+
+                # SMTP params — cached per cPanel host to avoid re-probing every send
+                _cp_key = cp.get("host", "")
+                if _cp_key not in _smtp_cache:
+                    _smtp_host = (cp.get("smtpHost") or f"mail.{domain}").strip()
+                    _sp, _sm   = detect_smtp_port(_smtp_host, timeout=8)
+                    _smtp_cache[_cp_key] = (_smtp_host, _sp, _sm)
+                smtp_host, smtp_port, smtp_mode = _smtp_cache[_cp_key]
+
+                result = send_smtp_cpanel(
+                    smtp_host=smtp_host, smtp_port=smtp_port, smtp_mode=smtp_mode,
+                    msg_from=from_email, smtp_pass=smtp_pass,
+                    msg_to=lead_email, raw_msg=raw_msg,
+                )
+
+                via = f"cpanel/{cp.get('host','?')} {from_email} → {smtp_host}:{smtp_port}"
+                if result["ok"]:
+                    sent += 1
+                    yield {"type": "sent", "email": lead_email, "via": via,
+                           "progress": {"sent": sent, "failed": failed, "total": _total}}
+                else:
+                    failed += 1
+                    yield {"type": "error", "email": lead_email,
+                           "message": result["error"], "via": via,
+                           "progress": {"sent": sent, "failed": failed, "total": _total}}
+
+                _d = _base_delay()
+                if _d > 0:
+                    time.sleep(_d)
+
+        finally:
+            if _created:
+                _del_ok = _del_fail = 0
+                for _cpd, _lp in _created:
+                    if delete_email_account(_cpd, _lp).get("ok"):
+                        _del_ok += 1
+                    else:
+                        _del_fail += 1
+                _del_msg = f"cPanel cleanup: {_del_ok} account(s) deleted"
+                if _del_fail:
+                    _del_msg += f", {_del_fail} failed to delete"
+                yield {"type": "info", "msg": _del_msg}
+
+        yield {"type": "done", "sent": sent, "failed": failed, "total": _total}
         return
 
     # ─── DIRECT MX via proxy list ────────────────────────────

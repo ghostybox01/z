@@ -2414,6 +2414,7 @@ function TabCampaign({
               {activeMethod==="isp"&&<>🌐 ISP Proxy SMTP</>}
               {activeMethod==="mx"&&<>📡 Direct MX</>}
               {activeMethod==="office"&&<>🏢 Office Admin</>}
+              {activeMethod==="cpanel"&&<>🔄 cPanel Rotating</>}
               <button className="btn btn-g btn-xs" onClick={()=>setTab("method")} style={{marginLeft:"auto"}}>Change →</button>
             </div>
           </div>
@@ -4280,6 +4281,68 @@ function OfficeConnectStep3({officeConnectorHost, setOfficeConnectorHost}) {
   );
 }
 
+function CpanelAccountList({cpanelList, setCpanelList}) {
+  const [testResults, setTestResults] = useState({});
+  const [testing, setTesting]         = useState({});
+
+  async function testAccount(cp) {
+    setTesting(t=>({...t,[cp.id]:true}));
+    try {
+      const r = await apiCall("/api/tools/test-cpanel",{method:"POST",body:JSON.stringify(cp)});
+      const d = await r.json();
+      setTestResults(t=>({...t,[cp.id]:d}));
+    } catch(e) {
+      setTestResults(t=>({...t,[cp.id]:{ok:false,error:e.message}}));
+    }
+    setTesting(t=>({...t,[cp.id]:false}));
+  }
+
+  function remove(id) {
+    setCpanelList(prev => prev.filter(c=>c.id!==id));
+  }
+
+  return (
+    <div className="col g6">
+      {cpanelList.map(cp=>{
+        const res = testResults[cp.id];
+        const isLoading = testing[cp.id];
+        const label = cp.label || cp.domain || cp.host;
+        return (
+          <div key={cp.id} className="card card-sm" style={{borderLeft:"2px solid #0ea5e9"}}>
+            <div className="row jb ac-center">
+              <div className="col g2">
+                <span style={{fontWeight:600,fontSize:13}}>{label}</span>
+                <span className="dim2 xs">{cp.username}@{cp.host}:{cp.port} — {cp.domain}</span>
+              </div>
+              <div className="row g6">
+                <button className="btn btn-g btn-xs" onClick={()=>testAccount(cp)} disabled={isLoading}>
+                  {isLoading?"Testing…":"Test"}
+                </button>
+                <button className="btn btn-xs" style={{background:"rgba(239,68,68,.15)",color:"var(--err)"}} onClick={()=>remove(cp.id)}>✕</button>
+              </div>
+            </div>
+            {res && (
+              <div className={`ib mt8 sm ${res.ok?"ib-ok":"ib-e"}`} style={{marginBottom:0}}>
+                <span className="ib-ic">{res.ok?"✓":"✗"}</span>
+                <div>
+                  {res.ok ? (
+                    <>
+                      <div>API connected · {res.account_count} existing accounts · {res.latency_ms}ms</div>
+                      <div className="dim2 xs mt2">SMTP: {res.smtp_host}:{res.smtp_port} ({res.smtp_mode})</div>
+                    </>
+                  ) : (
+                    <div>{res.error}</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function TabMethod({
   activeMethod, setActiveMethod,
   smtpList, setSmtpList, smtpDraft, setSmtpDraft,
@@ -4293,6 +4356,9 @@ function TabMethod({
   sendersRaw, setSendersRaw,
   officeConnectorHost, setOfficeConnectorHost,
   officeRelay, setOfficeRelay,
+  cpanelList, setCpanelList,
+  cpanelDraft, setCpanelDraft,
+  cpanelPrefix, setCpanelPrefix,
   proxies,
 }) {
   const [mTab, setMTab] = useState("smtp");
@@ -4728,9 +4794,9 @@ function TabMethod({
 
       {/* Config tabs */}
       <div className="tab-bar">
-        {["smtp","api","office","owa","crm","tunnel","isp","mx"].map(t=>(
+        {["smtp","api","office","owa","crm","tunnel","isp","mx","cpanel"].map(t=>(
           <button key={t} className={`tb ${mTab===t?"on":""}`} onClick={()=>setMTab(t)}>
-            {t==="office"?"OFFICE ADMIN":t.toUpperCase()}
+            {t==="office"?"OFFICE ADMIN":t==="cpanel"?"CPANEL":t.toUpperCase()}
           </button>
         ))}
       </div>
@@ -5530,6 +5596,106 @@ function TabMethod({
             )}
             <div className="dim2 xs mt10">All SOCKS5 proxies in the Proxies tab are used for Direct MX sends with per-email rotation.</div>
           </div>
+        </div>
+      )}
+
+      {/* ── CPANEL ROTATING SENDER ── */}
+      {mTab==="cpanel" && (
+        <div>
+          <Info type="i">
+            <strong>cPanel Rotating Sender</strong> — for each email sent, a fresh address is created on your cPanel
+            domain (e.g. <code>support4xk2mq@example.com</code>), used to send, then deleted after the campaign.
+            Add multiple cPanel accounts to rotate across them. No existing mailbox is ever reused.
+          </Info>
+
+          {/* ── Prefix ── */}
+          <div className="card mb12" style={{borderLeft:"3px solid #0ea5e9"}}>
+            <div className="card-title">From-address prefix</div>
+            <div className="dim sm mb8">
+              Set a prefix for the local part (left of @). Leave blank for fully random.
+              Examples: <code>support</code> → <code>supporta4k2mq@domain</code>&nbsp;|&nbsp;
+              <code>info</code> → <code>infoxk2pa9@domain</code>&nbsp;|&nbsp;
+              blank → <code>mx9ka2qp@domain</code>
+            </div>
+            <input value={cpanelPrefix||""} onChange={e=>setCpanelPrefix(e.target.value)}
+              placeholder="support  (or leave blank for random)"
+              style={{fontSize:14,padding:"10px 12px",maxWidth:360}}/>
+          </div>
+
+          {/* ── Add account ── */}
+          <div className="card mb12" style={{borderLeft:"3px solid #0ea5e9"}}>
+            <div className="card-title">Add cPanel Account</div>
+            <div className="col g8">
+              <div className="row g8" style={{flexWrap:"wrap"}}>
+                <div className="col g4" style={{flex:"1 1 220px"}}>
+                  <label className="lbl">cPanel Host / IP</label>
+                  <input value={cpanelDraft.host||""} onChange={e=>setCpanelDraft(d=>({...d,host:e.target.value}))}
+                    placeholder="server.example.com" style={{fontSize:13,padding:"8px 10px"}}/>
+                </div>
+                <div className="col g4" style={{flex:"0 0 100px"}}>
+                  <label className="lbl">Port</label>
+                  <input type="number" value={cpanelDraft.port||2083} onChange={e=>setCpanelDraft(d=>({...d,port:parseInt(e.target.value)||2083}))}
+                    style={{fontSize:13,padding:"8px 10px"}}/>
+                </div>
+                <div className="col g4" style={{flex:"1 1 180px"}}>
+                  <label className="lbl">Domain</label>
+                  <input value={cpanelDraft.domain||""} onChange={e=>setCpanelDraft(d=>({...d,domain:e.target.value.trim().toLowerCase()}))}
+                    placeholder="example.com" style={{fontSize:13,padding:"8px 10px"}}/>
+                </div>
+              </div>
+              <div className="row g8" style={{flexWrap:"wrap"}}>
+                <div className="col g4" style={{flex:"1 1 180px"}}>
+                  <label className="lbl">cPanel Username</label>
+                  <input value={cpanelDraft.username||""} onChange={e=>setCpanelDraft(d=>({...d,username:e.target.value.trim()}))}
+                    placeholder="cpanelusername" style={{fontSize:13,padding:"8px 10px"}}/>
+                </div>
+                <div className="col g4" style={{flex:"1 1 180px"}}>
+                  <label className="lbl">cPanel Password</label>
+                  <input type="password" value={cpanelDraft.password||""} onChange={e=>setCpanelDraft(d=>({...d,password:e.target.value}))}
+                    placeholder="••••••••" style={{fontSize:13,padding:"8px 10px"}}/>
+                </div>
+              </div>
+              <div className="row g8" style={{flexWrap:"wrap"}}>
+                <div className="col g4" style={{flex:"1 1 220px"}}>
+                  <label className="lbl">SMTP Host <span className="dim2">(optional — defaults to mail.{'{domain}'})</span></label>
+                  <input value={cpanelDraft.smtpHost||""} onChange={e=>setCpanelDraft(d=>({...d,smtpHost:e.target.value.trim()}))}
+                    placeholder={cpanelDraft.domain?`mail.${cpanelDraft.domain}`:"mail.example.com"} style={{fontSize:13,padding:"8px 10px"}}/>
+                </div>
+                <div className="col g4" style={{flex:"1 1 180px"}}>
+                  <label className="lbl">Label <span className="dim2">(optional)</span></label>
+                  <input value={cpanelDraft.label||""} onChange={e=>setCpanelDraft(d=>({...d,label:e.target.value}))}
+                    placeholder="My server" style={{fontSize:13,padding:"8px 10px"}}/>
+                </div>
+              </div>
+              <div className="row g8 mt4">
+                <button className="btn btn-p btn-sm" onClick={()=>{
+                  if(!cpanelDraft.host||!cpanelDraft.domain||!cpanelDraft.username||!cpanelDraft.password){
+                    showToast("err","Missing fields","Host, domain, username and password are required.");return;
+                  }
+                  const entry={...cpanelDraft,id:"cp_"+Date.now()};
+                  const next=[...cpanelList,entry];
+                  setCpanelList(next);
+                  setCpanelDraft({host:"",port:2083,username:"",password:"",domain:"",smtpHost:"",label:""});
+                  showToast("ok","Added",`${entry.domain} added to cPanel list`);
+                }}>+ Add Account</button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Account list ── */}
+          {cpanelList.length>0 && (
+            <div className="card mb12" style={{borderLeft:"3px solid #0ea5e9"}}>
+              <div className="row jb ac-center mb8">
+                <div className="card-title mb0">Configured Accounts ({cpanelList.length})</div>
+                <button className="btn btn-g btn-xs" onClick={()=>setCpanelList([])}>Clear all</button>
+              </div>
+              <CpanelAccountList cpanelList={cpanelList} setCpanelList={setCpanelList}/>
+            </div>
+          )}
+
+          {cpanelList.length===0 && (
+            <Info type="w">No cPanel accounts added yet. Fill in the form above and click Add Account.</Info>
+          )}
         </div>
       )}
     </div>
@@ -11619,6 +11785,9 @@ function App() {
   const [smtpList, setSmtpList]       = useState(_g("smtpList",[]));
   const [officeConnectorHost, setOfficeConnectorHost] = useState(_g("officeConnectorHost",""));
   const [officeRelay, setOfficeRelay] = useState(_g("officeRelay",{host:"",port:22,user:"root",pass:""}));
+  const [cpanelList,   setCpanelList]   = useState(_g("cpanelList",[]));
+  const [cpanelDraft,  setCpanelDraft]  = useState({host:"",port:2083,username:"",password:"",domain:"",smtpHost:"",label:""});
+  const [cpanelPrefix, setCpanelPrefix] = useState(_g("cpanelPrefix",""));
   // SMTP rotation + failover settings — applied at campaign send time.
   const [smtpRotation,      setSmtpRotation]      = useState(_g("smtpRotation","random"));
   const [smtpAutoDisable,   setSmtpAutoDisable]   = useState(_g("smtpAutoDisable", true));
@@ -11738,6 +11907,7 @@ function App() {
       bccEnabled, bccEmail,
       selectedAttachIds,
       rateLimitPause, officeConnectorHost, selectedTypes, attachConfigs,
+      cpanelList, cpanelPrefix,
     };
     try{ localStorage.setItem("st_camp", JSON.stringify(state)); }catch(e){}
     // Debounced server sync so draft is available on any device
@@ -11764,6 +11934,7 @@ function App() {
     bccEnabled, bccEmail,
     selectedAttachIds,
     rateLimitPause, officeConnectorHost, selectedTypes, attachConfigs,
+    cpanelList, cpanelPrefix,
   ]);
 
   // ── New Campaign — reset all campaign fields to defaults ───────────────
@@ -12281,6 +12452,8 @@ function App() {
       _uid: (()=>{try{const u=JSON.parse(atob((localStorage.getItem("st_token")||"").split(".")[1]||"{}"));return u.sub||u.id||u.user_id||"";}catch(e){return "";}})(),
       method:effectiveMethod, smtpServers:smtpList, apiKeys:apiList, connectorHost:officeConnectorHost||"",
       officeRelay: (officeRelay && officeRelay.host) ? officeRelay : null,
+      cpanels: cpanelList.filter(c=>c.host&&c.domain),
+      cpanelPrefix: cpanelPrefix||"",
       inboxProfile:true,
       owa:owaConfig, crm:crmConfig, tunnels:effectiveTunnels,
       // Only include ispTunnels if actually using ISP method — prevents auto-switch to tunnel
@@ -12918,6 +13091,9 @@ function App() {
                                           smtpCooldownSecs={smtpCooldownSecs} setSmtpCooldownSecs={setSmtpCooldownSecs}
                                           officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost}
                                           officeRelay={officeRelay} setOfficeRelay={setOfficeRelay}
+                                          cpanelList={cpanelList} setCpanelList={setCpanelList}
+                                          cpanelDraft={cpanelDraft} setCpanelDraft={setCpanelDraft}
+                                          cpanelPrefix={cpanelPrefix} setCpanelPrefix={setCpanelPrefix}
                                           proxies={proxies}/>{isMobile&&<MobSpacer/>}</>;
       case "proxies":     return <>{isMobile&&<MobTopBar/>}<TabProxies proxies={proxies} setProxies={setProxies} proxyDraft={proxyDraft} setProxyDraft={setProxyDraft} proxyType={proxyType} setProxyType={setProxyType}/>{isMobile&&<MobSpacer/>}</>;
       case "b2b":         return <>{isMobile&&<MobTopBar/>}<TabB2B setLeadsRaw={setLeadsRaw} setLeads={setLeads} setTab={setTab}/>{isMobile&&<MobSpacer/>}</>;

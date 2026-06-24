@@ -6576,6 +6576,27 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             except Exception as e:
                 self._json(200, {"ok": False, "error": str(e)[:300]})
 
+        elif p == "/api/tools/test-cpanel":
+            if not (sess := self._auth()): return
+            body = self._read_body()
+            cpanel = {
+                "host":     (body.get("host") or "").strip(),
+                "port":     int(body.get("port") or 2083),
+                "username": (body.get("username") or "").strip(),
+                "password": (body.get("password") or "").strip(),
+                "domain":   (body.get("domain") or "").strip(),
+                "smtpHost": (body.get("smtpHost") or "").strip(),
+            }
+            if not cpanel["host"] or not cpanel["domain"]:
+                self._json(400, {"ok": False, "error": "host and domain are required"}); return
+            try:
+                import sys as _sys2, os as _os2
+                _sys2.path.insert(0, _os2.path.dirname(__file__))
+                from cpanel_sender import probe_cpanel
+                self._json(200, probe_cpanel(cpanel))
+            except Exception as e:
+                self._json(200, {"ok": False, "error": str(e)[:300]})
+
         elif p == "/api/tools/detect-providers":
             if not (sess := self._auth()): return
             try:
