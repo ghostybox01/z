@@ -870,7 +870,7 @@ class CampaignOptions:
                 "msExchangeHeaders": data.get("msExchangeHeaders", False),
                 "feedbackIdAuto":    data.get("feedbackIdAuto", False),
                 "listIdAuto":        data.get("listIdAuto", False),
-                "xMailer":           data.get("xMailer", "outlook16"),
+                "xMailer":           data.get("xMailer", "random"),
                 "sensitivity":       data.get("sensitivity", ""),
                 # FIX-F: originatingIpAuto default changed True → False
                 "originatingIpAuto": data.get("originatingIpAuto", False),
@@ -2491,17 +2491,32 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             # get the token injected there; owa/crm/api send HTML straight to
             # the provider without going through the MIME builder.
             if method in ("api", "owa", "crm") and resolved_html:
-                _uniq_tok = hashlib.sha256(f"{email_addr}|{i}".encode()).hexdigest()[:16]
-                _uniq_div = (
+                _uhash = hashlib.sha256(f"{email_addr}|{i}".encode()).hexdigest()
+                _tok_a = _uhash[:8]
+                _tok_b = _uhash[8:16]
+                # Top: invisible comment after <body>
+                _top_cmt = f'<!--r:{_tok_a}-->'
+                if re.search(r'<body[^>]*>', resolved_html, re.I):
+                    resolved_html = re.sub(
+                        r'(<body(?:[^>]*)>)', rf'\1{_top_cmt}', resolved_html, count=1, flags=re.I
+                    )
+                else:
+                    resolved_html = _top_cmt + resolved_html
+                # Bottom: hidden div before </body>
+                _bot_div = (
                     f'<div style="display:none;font-size:1px;line-height:1px;'
-                    f'max-height:0;max-width:0;opacity:0;overflow:hidden"><!--m:{_uniq_tok}--></div>'
+                    f'max-height:0;max-width:0;opacity:0;overflow:hidden"><!--m:{_tok_b}--></div>'
                 )
                 if re.search(r'</body>', resolved_html, re.I):
                     resolved_html = re.sub(
-                        r'</body>', f'{_uniq_div}</body>', resolved_html, count=1, flags=re.I
+                        r'</body>', f'{_bot_div}</body>', resolved_html, count=1, flags=re.I
                     )
                 else:
-                    resolved_html += _uniq_div
+                    resolved_html += _bot_div
+                # Plain text: zero-width non-joiner at hash-derived position
+                if resolved_plain:
+                    _pt_pos = int(_uhash[16:20], 16) % max(1, len(resolved_plain))
+                    resolved_plain = resolved_plain[:_pt_pos] + '‌' + resolved_plain[_pt_pos:]
 
             link_url = ""
             if opts.links_cfg and opts.links_cfg.get("links"):
