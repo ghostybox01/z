@@ -1453,7 +1453,6 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # explicitly enabled by expert flags in the payload.
     if not dlv.get("allowSyntheticHeaders", False):
         dlv["threadSimulate"] = False
-        dlv["arcSimulate"] = False
         dlv["msExchangeHeaders"] = False
         dlv["hideFromEmail"] = False
         dlv["antiDetect"] = False
@@ -1476,7 +1475,6 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         dlv["antiDetect"] = False
         dlv["hideFromEmail"] = False
         dlv["threadSimulate"] = False
-        dlv["arcSimulate"] = False
         dlv["msExchangeHeaders"] = False
         if dlv.get("unsubUrl") or dlv.get("unsubEmail"):
             dlv["listUnsub"] = True

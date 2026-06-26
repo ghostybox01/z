@@ -1898,35 +1898,13 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     if dlv.get("bimiSelector") and from_domain:
         msg["BIMI-Selector"] = f"v=BIMI1; s={dlv['bimiSelector']}; d={from_domain}"
 
-    # ── ARC simulation (Authenticated Received Chain) ─────────────────────────
-    # ARC is a chain of cryptographic headers that lets forwarded mail preserve
-    # its authentication results. Gmail and Outlook both read ARC headers.
-    # We can't sign them cryptographically without a private key, but
-    # injecting plausible ARC-Authentication-Results signals the message
-    # passed through a trusted intermediary.
-    # Disabled by default — only useful if your SMTP provider supports ARC.
-    if dlv.get("allowSyntheticHeaders", False) and dlv.get("arcSimulate") and not msg.get("ARC-Authentication-Results"):
-        _arc_i   = "1"
-        _arc_ts  = str(int(datetime.now().timestamp()))
-        _arc_dom = _eff_domain
-        msg["ARC-Authentication-Results"] = (
-            f"i={_arc_i}; mx.google.com;"
-            f" dkim=pass header.i=@{_arc_dom} header.s=default;"
-            f" spf=pass (google.com: domain of {from_email} designates"
-            f" {random.randint(24,130)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}"
-            f" as permitted sender) smtp.mailfrom={from_email};"
-            f" dmarc=pass (p=NONE) header.from={_arc_dom}"
-        )
-        msg["ARC-Message-Signature"] = (
-            f"i={_arc_i}; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20160816;"
-            f" h=to:subject:message-id:date:from:mime-version:dkim-signature;"
-            f" bh={_rand_alphanum(22)}==; b={_rand_alphanum(88)}=="
-        )
-        msg["ARC-Seal"] = (
-            f"i={_arc_i}; a=rsa-sha256; t={_arc_ts}; cv=none;"
-            f" d=google.com; s=arc-20160816;"
-            f" b={_rand_alphanum(88)}=="
-        )
+    # ARC (Authenticated Received Chain) headers are intentionally NOT injected.
+    # ARC-Message-Signature and ARC-Seal are RSA-SHA256 signed — Gmail and Outlook
+    # cryptographically verify the signature. Injecting them with random/fake bytes
+    # FAILS the verification check, which is worse than having no ARC headers at all
+    # and can cause hard rejection. ARC is only valid when added by a legitimate
+    # forwarding service (Google Groups, mailing lists) that actually signs with
+    # its own private key.
 
     # ── Enhanced Exchange/O365 trust chain ────────────────────────────────────
     # Additional Exchange headers that appear on mail from trusted connectors
