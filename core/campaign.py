@@ -2085,11 +2085,25 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             "aup#mxrt", "temporarily unavailable",
         ])
 
+    def _is_recipient_error(err_str: str) -> bool:
+        """True if the failure is the recipient's fault, not the sender's."""
+        s = (err_str or "").lower()
+        return any(x in s for x in [
+            "policy block", "invalid recipient", "user unknown", "no such user",
+            "mailbox not found", "does not exist", "recipient rejected", "undeliverable",
+            "5.1.1", "5.1.2", "5.1.3", "account disabled", "mailbox full",
+            "content filter", "content rejected", "spam", "junk",
+            "ip blocked", "blacklist", "blocklist", "poor reputation",
+        ])
+
     def _record_sender_fail(from_email: str, err_str: str) -> bool:
         """Deduct health score. Returns True if sender just died."""
         if not from_email or _is_infrastructure_error(err_str):
             return False
         if from_email in _dead_senders:
+            return False
+        # Recipient-side failures are not the sender's fault — don't penalize health score.
+        if _is_recipient_error(err_str):
             return False
         cur = _get_score(from_email)
         if _is_auth_error(err_str):
@@ -2097,7 +2111,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         elif _is_soft_error(err_str):
             deduct = 15    # soft — demote but keep alive longer
         else:
-            deduct = 30    # unknown SMTP error
+            deduct = 20    # unknown SMTP error (reduced from 30 — less aggressive)
         new_score = max(0, cur - deduct)
         _sender_scores[from_email] = new_score
         if new_score <= 0:
@@ -2257,7 +2271,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # for `cooldown_secs * 2**fails_over_threshold` seconds.  A successful
     # send halves the fail count; sustained successes recover full health.
     _smtp_health: dict = {}
-    SMTP_FAIL_THRESHOLD  = int(sending.get("smtpFailThreshold", 3) or 3)
+    SMTP_FAIL_THRESHOLD  = int(sending.get("smtpFailThreshold", 5) or 5)
     SMTP_COOLDOWN_SECS   = float(sending.get("smtpCooldownSecs", 60) or 60)
     SMTP_AUTO_DISABLE    = bool(sending.get("smtpAutoDisable", True))
 
@@ -2277,11 +2291,21 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         k = _smtp_key(srv)
         if not k: return False
         h = _smtp_health.setdefault(k, {"fails":0,"success":0,"dead":False,"cooldown_until":0})
-        h["fails"] += 1
-        # Connection-level errors warrant longer cooldowns than transient
-        # 4xx greylists; auth errors are basically permanent until the
-        # campaign ends.
         es = (err_str or "").lower()
+        # Recipient-side and policy errors are NOT server failures — the SMTP server
+        # accepted our connection fine; the remote MTA or SES sandbox rejected the
+        # specific recipient.  Don't penalize the server for these.
+        if any(x in es for x in [
+            "policy block", "invalid recipient", "user unknown", "no such user",
+            "mailbox not found", "does not exist", "recipient rejected", "undeliverable",
+            "5.1.1", "5.1.2", "5.1.3", "account disabled",
+            "content filter", "content rejected", "spam", "junk",
+            "mailbox full", "over quota",
+            "ip blocked", "blacklist", "blocklist", "poor reputation",
+        ]):
+            return False
+        h["fails"] += 1
+        # Auth errors are basically permanent until the campaign ends.
         if any(x in es for x in ("auth", "535", "530", "credentials", "username")):
             h["fails"] += 5    # treat as terminal
         if h["fails"] >= SMTP_FAIL_THRESHOLD:
