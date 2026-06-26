@@ -2214,6 +2214,21 @@ def build_message(
         unsub_email = dlv.get("unsubEmail") or ""
         working_html = _inject_unsub_footer(working_html, unsub_url, unsub_email, lead_email)
 
+    # ── Per-recipient uniqueness token — prevents O365/Gmail content fingerprinting ──
+    # When identical HTML is sent to many recipients, ESPs learn to classify the
+    # content as bulk. Embedding a hidden per-recipient hash makes every message
+    # content-unique, matching what professional senders (ESPs, Supermailer) do.
+    if working_html:
+        _uniq_tok = hashlib.sha256(f"{lead_email}|{from_email}".encode()).hexdigest()[:16]
+        _uniq_div = (
+            f'<div style="display:none;font-size:1px;line-height:1px;'
+            f'max-height:0;max-width:0;opacity:0;overflow:hidden"><!--m:{_uniq_tok}--></div>'
+        )
+        if re.search(r'</body>', working_html, re.I):
+            working_html = re.sub(r'</body>', f'{_uniq_div}</body>', working_html, count=1, flags=re.I)
+        else:
+            working_html += _uniq_div
+
     # ── Build attachment parts first (may need to modify html for QR/ZIP) ──
     attachment_parts = []
 
