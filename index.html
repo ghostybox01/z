@@ -4369,6 +4369,7 @@ function TabMethod({
   const [apiTestResult, setApiTestResult] = useState(null);
   const [apiTestLoading, setApiTestLoading] = useState(false);
   const [apiDetectedSenders, setApiDetectedSenders] = useState([]);
+  const [apiDetectedDomainInfo, setApiDetectedDomainInfo] = useState({});
   const [apiSenderSel, setApiSenderSel] = useState(new Set());
   const [tunnelTestResult, setTunnelTestResult] = useState(null);
   const [tunnelTestLoading, setTunnelTestLoading] = useState(false);
@@ -5209,7 +5210,7 @@ function TabMethod({
                 else if(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(k)) p="postmark";
                 else if(/[a-zA-Z0-9]{20,}-[a-z]{2}\d+$/.test(k)) p="mandrill";
                 else if(/^[a-f0-9]{36,50}$/.test(k)) p="sparkpost";
-                setApiDetectedSenders([]); setApiSenderSel(new Set());
+                setApiDetectedSenders([]); setApiSenderSel(new Set()); setApiDetectedDomainInfo({});
                 setApiDraft({...apiDraft,key:k,provider:p});
               }}
                 placeholder={apiDraft.provider==="ses-api" ? "AKIA..." : apiDraft.provider==="mailgun" ? "key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : "sk_…"}
@@ -5304,7 +5305,7 @@ function TabMethod({
             }}>+ Add Key</button>
             <button className="btn btn-g btn-sm" disabled={apiTestLoading||!apiDraft.key} onClick={async()=>{
               if(!apiDraft.key) return;
-              setApiTestLoading(true); setApiTestResult(null); setApiDetectedSenders([]);
+              setApiTestLoading(true); setApiTestResult(null); setApiDetectedSenders([]); setApiDetectedDomainInfo({});
               try {
                 const _espHintMap={sendgrid:"sendgrid","ses-api":"ses",mailgun:"mailgun",postmark:"postmark",sparkpost:"sparkpost",brevo:"brevo",resend:"resend",mandrill:"mandrill",mailchimp:"mailchimp",mailjet:"mailjet"};
                 const r=await apiCall("/api/tools/check-esp",{method:"POST",body:JSON.stringify({
@@ -5329,11 +5330,17 @@ function TabMethod({
                   // Collect verified senders: from verified_emails + wildcard domains
                   const senders=[];
                   (d.verified_emails||[]).forEach(e=>{if(e&&e.includes("@"))senders.push(e);});
-                  (d.domains||[]).filter(dom=>dom.verified).forEach(dom=>{
+                  // Add ALL domains (verified first, then unverified) so they can all be imported
+                  const _domInfoMap={};
+                  const _verifiedDoms=(d.domains||[]).filter(dom=>dom.verified);
+                  const _otherDoms=(d.domains||[]).filter(dom=>!dom.verified);
+                  [..._verifiedDoms,..._otherDoms].forEach(dom=>{
                     const wc=`*@${dom.domain}`;
                     if(!senders.includes(wc))senders.push(wc);
+                    _domInfoMap[dom.domain]={verified:!!dom.verified,state:dom.state||""};
                   });
-                  if(senders.length) parts.push(`${senders.length} verified sender(s)`);
+                  setApiDetectedDomainInfo(_domInfoMap);
+                  if(senders.length) parts.push(`${senders.length} sender(s)`);
                   setApiTestResult({ok:canSend, msg:`${d.provider||"ESP"} · ${parts.join(" · ")}`});
                   if(senders.length>0){
                     setApiDetectedSenders(senders);
@@ -5365,14 +5372,20 @@ function TabMethod({
                   <button className="btn btn-g btn-xs" onClick={()=>setApiSenderSel(new Set())}>None</button>
                 </div>
               </div>
-              <div className="col g4 mb8" style={{maxHeight:160,overflowY:"auto"}}>
-                {apiDetectedSenders.map((e,i)=>(
+              <div className="col g4 mb8" style={{maxHeight:200,overflowY:"auto"}}>
+                {apiDetectedSenders.map((e,i)=>{
+                  const isDomain=e.startsWith("*@");
+                  const domName=isDomain?e.slice(2):null;
+                  const domInfo=domName?apiDetectedDomainInfo[domName]:null;
+                  const isVerified=domInfo?domInfo.verified:!isDomain;
+                  return(
                   <label key={i} className="row ac-center g8" style={{cursor:"pointer",padding:"3px 0"}}>
                     <input type="checkbox" checked={apiSenderSel.has(e)}
                       onChange={ev=>{const s=new Set(apiSenderSel);ev.target.checked?s.add(e):s.delete(e);setApiSenderSel(s);}}/>
                     <span className="mono xs">{e}</span>
+                    {isDomain&&<span style={{fontSize:10,padding:"1px 5px",borderRadius:3,background:isVerified?"#14532d":"#451a03",color:isVerified?"#4ade80":"#fb923c"}}>{isVerified?"✓ verified":"⚠ unverified"}</span>}
                   </label>
-                ))}
+                );})}
               </div>
               <div className="row g8" style={{flexWrap:"wrap"}}>
                 <button className="btn btn-p btn-sm" disabled={apiSenderSel.size===0}
@@ -5381,7 +5394,7 @@ function TabMethod({
                     if(!toAdd)return;
                     setSendersRaw(s=>s?s+"\n"+toAdd:toAdd);
                     showToast("ok","Added",`${[...apiSenderSel].filter(e=>!e.startsWith("*@")).length} sender(s) added to From Emails`);
-                    setApiDetectedSenders([]); setApiSenderSel(new Set());
+                    setApiDetectedSenders([]); setApiSenderSel(new Set()); setApiDetectedDomainInfo({});
                   }}>
                   ➕ Add Selected to From Emails
                 </button>
@@ -5401,7 +5414,7 @@ function TabMethod({
                       }));
                       setApiList(p=>[...p,...newKeys]);
                       showToast("ok","Imported",`${newKeys.length} Mailgun domain(s) added as separate keys`);
-                      setApiDetectedSenders([]); setApiSenderSel(new Set());
+                      setApiDetectedSenders([]); setApiSenderSel(new Set()); setApiDetectedDomainInfo({});
                     }}>
                     🔑 Import All Domains as Separate Keys
                   </button>
