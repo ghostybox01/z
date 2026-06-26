@@ -634,6 +634,7 @@ def _make_registry(ctx: dict) -> list[tuple[str, Any]]:
         ("#SHA256_EMAIL",       lambda _: hashlib.sha256(email.encode()).hexdigest()),
         ("#MD5",                lambda _: hashlib.md5(email.encode()).hexdigest()[:12]),
         ("#SHA1",               lambda _: hashlib.sha1(email.encode()).hexdigest()[:16]),
+        ("#HEXEMAIL",           lambda _: __import__('binascii').hexlify(email.encode()).decode()),
 
         # ── RANDOM DATA ───────────────────────────────────────────────
         ("#RANDAMOUNT_SMALL",   lambda _: _rand_amount(100, 9999)),
@@ -864,6 +865,10 @@ def _apply_regex_tags(s: str, ctx: dict) -> str:
                lambda m: _rand_alphanum(_safe_int(m.group(1))).upper(), s)
     s = re.sub(r'#RANDUPPERAL(\d+)',
                lambda m: _rand_alphanum(_safe_int(m.group(1))).upper(), s)
+    s = re.sub(r'#RANDOMSTR\{(\d+)\}',
+               lambda m: _rand_alphanum(_safe_int(m.group(1))), s)
+    s = re.sub(r'#RANDOMSTR(\d+)',
+               lambda m: _rand_alphanum(_safe_int(m.group(1))), s)
 
     # ── Functional tags (with brace args) ──
 
@@ -1105,6 +1110,7 @@ def _get_all_known_tags() -> set[str]:
             "#QUARTER_START", "#QUARTER_END", "#YEAR_START", "#YEAR_END",
             "#FAKE_COMPANY_EMAIL", "#FAKE_FULLNAME_EMAIL",
             "#RANDOM_PATH", "#RANDOM_LINK",
+            "#HEXEMAIL", "#RANDOMSTR",
             "#TIME12_EST", "#TIME12_CST", "#TIME12_MST", "#TIME12_PST",
             "#TIME12_GMT", "#TIME12_CET", "#TIME12_EET", "#TIME12_IST",
             "#TIME12_JST", "#TIME12_AEST",

@@ -260,6 +260,64 @@ def _zero_width_obfuscate(text: str) -> str:
         chars.insert(pos, random.choice(ZW_CHARS))
     return ''.join(chars)
 
+def _make_msgid_styled(style: str, from_domain: str, ehlo: str = "") -> str:
+    """
+    Generate a Message-ID mimicking real server formats.
+    style: "outlook" | "gmail" | "sendgrid" | "auto" | "standard"
+    """
+    domain = from_domain or ehlo or "mail.local"
+
+    if style == "outlook":
+        # Outlook Online: <XXPR##MB####.XXPR##MB####.namprd##.prod.outlook.com>
+        code  = _rand_alphanum_upper(2)
+        pr_n  = random.randint(10, 99)
+        mb_n  = random.randint(1000, 9999)
+        prd_n = random.randint(10, 25)
+        local = f"{code}PR{pr_n:02d}MB{mb_n:04d}{_rand_alphanum_upper(random.randint(10, 16))}"
+        host  = f"{code}PR{pr_n:02d}MB{mb_n:04d}.{code}PR{pr_n:02d}MB{mb_n:04d}.namprd{prd_n:02d}.prod.outlook.com"
+        return f"<{local}@{host}>"
+
+    elif style == "gmail":
+        # Gmail: <pfx+hexchars@mail.gmail.com>
+        prefix = _rand_alphanum(random.randint(2, 6)).lower()
+        suffix = _rand_hex(24)
+        return f"<{prefix}+{suffix}@mail.gmail.com>"
+
+    elif style == "sendgrid":
+        # SendGrid: <LOCAL@geopod-ismtpd-N>
+        hostname = f"geopod-ismtpd-{random.randint(1, 20)}"
+        local    = _rand_alphanum_upper(random.randint(14, 22))
+        return f"<{local}@{hostname}>"
+
+    elif style == "auto":
+        chosen = random.choice(["outlook", "gmail", "standard", "standard"])
+        return _make_msgid_styled(chosen, from_domain, ehlo)
+
+    else:
+        return make_msgid(domain=domain)
+
+
+def _shuffle_headers(msg) -> None:
+    """
+    Fisher-Yates shuffle of optional message headers to prevent bulk
+    fingerprinting based on fixed header ordering patterns.
+    Essential headers (From/To/Subject/Date/Message-ID/MIME-Version/Content-*)
+    keep their conventional positions; X-* and optional headers are shuffled.
+    """
+    _ESSENTIAL = frozenset({
+        "mime-version", "from", "to", "cc", "bcc", "subject", "date",
+        "message-id", "content-type", "content-transfer-encoding",
+        "content-disposition", "in-reply-to", "references",
+        "reply-to", "sender", "return-path", "dkim-signature",
+    })
+    if not hasattr(msg, '_headers'):
+        return
+    essential = [(k, v) for k, v in msg._headers if k.lower() in _ESSENTIAL]
+    optional  = [(k, v) for k, v in msg._headers if k.lower() not in _ESSENTIAL]
+    random.shuffle(optional)
+    msg._headers = essential + optional
+
+
 def _strip_html(html_str):
     """Convert HTML to plain text for fallback plain part."""
     if not html_str:
@@ -1764,13 +1822,18 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
         msg["Precedence"] = prec
 
     # ── Feedback-ID (Gmail FBL) ──
-    # Format: campaignID:senderID:channelID:esp
+    # Format: campaignID:senderID:category:esp
+    # Gmail uses the category field to classify messages — REGULATORY_REQUIRED
+    # prevents spam filtering. Matches real ESP pattern (e.g. Robinhood/SendGrid).
     if dlv.get("feedbackId"):
         msg["Feedback-ID"] = dlv["feedbackId"]
     elif dlv.get("feedbackIdAuto"):
         cid = _rand_alphanum(8)
         sid = _rand_alphanum(6)
-        msg["Feedback-ID"] = f"{cid}:{sid}:smtp:{from_domain}"
+        _fid_cat = dlv.get("feedbackIdCategory", "")
+        if not _fid_cat:
+            _fid_cat = random.choice(["TRANSACTIONAL", "NOTIFICATION", "REGULATORY_REQUIRED"])
+        msg["Feedback-ID"] = f"{cid}:{sid}:{_fid_cat}:{from_domain}"
 
     # ── Organization ──
     if dlv.get("organization"):
@@ -2122,9 +2185,14 @@ def build_message(
     # Matches the behaviour of the reference inboxing sender's encryptMessageContent:true.
     # Disabled by default for deliverability stability.
     _encrypt_content = bool(dlv.get("encryptMessageContent", False))
-    if _encrypt_content:
+    _subj_enc = dlv.get("subjectEncoding", "none")
+    if _subj_enc == "random":
+        _subj_enc = random.choice(["zerowidth", "homoglyph", "mixed", "none"])
+    if _encrypt_content or _subj_enc in ("homoglyph", "mixed"):
         subject   = _homoglyph_encode(subject)
         from_name = _homoglyph_encode(from_name)
+    if _encrypt_content or _subj_enc in ("zerowidth", "mixed"):
+        subject = _zero_width_obfuscate(subject)
     subject = _clean_header_value(subject, 300)
 
     # ── Link encoding (resolve [LINK] / [SF_*] tags before any processing) ──
@@ -2567,7 +2635,11 @@ def build_message(
 
     # Message-ID — stable, standards-based format with aligned domain.
     mid_domain = msg_id_domain or (dlv.get("msgIdDomain") if dlv.get("customMsgId") else None) or from_domain or ehlo
-    msg["Message-ID"] = make_msgid(domain=mid_domain)
+    _msgid_style = dlv.get("msgIdStyle", "standard")
+    if _msgid_style and _msgid_style != "standard":
+        msg["Message-ID"] = _make_msgid_styled(_msgid_style, from_domain, ehlo)
+    else:
+        msg["Message-ID"] = make_msgid(domain=mid_domain)
 
     # ── Received header (simulated MUA submission hop) ────────────────────────
     # Received header intentionally NOT injected.
@@ -2594,6 +2666,12 @@ def build_message(
             msg.replace_header(key, value)
         else:
             msg[key] = value
+
+    # ── Header order shuffle (opt-in) ──
+    # Randomise the order of optional headers to prevent bulk fingerprinting
+    # based on fixed ordering patterns. Essential headers stay in place.
+    if dlv.get("shuffleHeaders", False):
+        _shuffle_headers(msg)
 
     metadata = {
         "zip_password": zip_password,
@@ -2630,6 +2708,10 @@ DELIVERABILITY_HEADER_DOCS = {
     "originatingIp":    "X-Originating-IP — Claimed sending IP. Some filters use for reputation lookup.",
     "originatingIpAuto":"Auto X-Originating-IP — Generates a realistic internal IP automatically.",
     "msExchangeHeaders":"MS Exchange Headers — X-MS-Exchange-Organization-SCL:-1 bypasses Outlook spam filter. High impact for O365 targets.",
+    "subjectEncoding":  "Subject Encoding — Obfuscate subject: none | zerowidth | homoglyph | mixed | random. Breaks keyword matchers.",
+    "msgIdStyle":       "Message-ID Style — none | standard | outlook | gmail | sendgrid | auto. Mimics real server ID formats.",
+    "feedbackIdCategory": "Feedback-ID Category — TRANSACTIONAL | NOTIFICATION | REGULATORY_REQUIRED. Gmail uses this for classification.",
+    "shuffleHeaders":   "Shuffle optional headers (Fisher-Yates) on each message. Prevents bulk fingerprinting by header ordering.",
     "spamStatusHeader": "X-Spam-Status/Score — SpamAssassin pass affirmation. Signals pre-screened clean mail.",
     "virusScanned":     "X-Virus-Scanned — Claims AV scan passed. Reduces suspicion with some filters.",
     "contentLanguage":  "Content-Language — Locale hint. en, fr, de, es etc.",
