@@ -1981,7 +1981,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # Runs for smtp / api / tunnel when preflight DNS is not skipped.
     # Warns on missing SPF, strict DMARC, or free-email via API ESP.
     # Fatal senders (free email + API) are removed before the loop starts.
-    if method in ("smtp", "api", "tunnel") and opts.senders and not opts.skip_preflight_dns:
+    if method in ("smtp", "api", "tunnel", "office", "cpanel") and opts.senders and not opts.skip_preflight_dns:
         _auth_checks = _preflight_sender_auth(opts.senders, method, servers)
         _auth_fatal  = set()
         for _ac in _auth_checks:
@@ -2485,24 +2485,23 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 if not resolved_html or not resolved_html.strip():
                     resolved_html = f"<p>{resolved_plain}</p>"
 
-            # For API sends: build_message() is never called, so inject the
-            # per-recipient uniqueness token here directly into resolved_html.
-            # This prevents content fingerprinting when identical HTML goes to
-            # multiple recipients through ESP relays (O365 adaptive filter).
-            if method == "api" and resolved_html:
-                _api_tok = hashlib.sha256(
-                    f"{email_addr}|{resolved_sender.get('fromEmail', '')}".encode()
-                ).hexdigest()[:16]
-                _api_uniq = (
+            # For methods that bypass build_message(), inject the per-recipient
+            # uniqueness token directly into resolved_html here. Methods that
+            # DO call build_message (smtp, mx, tunnel, office, cpanel) already
+            # get the token injected there; owa/crm/api send HTML straight to
+            # the provider without going through the MIME builder.
+            if method in ("api", "owa", "crm") and resolved_html:
+                _uniq_tok = hashlib.sha256(f"{email_addr}|{i}".encode()).hexdigest()[:16]
+                _uniq_div = (
                     f'<div style="display:none;font-size:1px;line-height:1px;'
-                    f'max-height:0;max-width:0;opacity:0;overflow:hidden"><!--m:{_api_tok}--></div>'
+                    f'max-height:0;max-width:0;opacity:0;overflow:hidden"><!--m:{_uniq_tok}--></div>'
                 )
                 if re.search(r'</body>', resolved_html, re.I):
                     resolved_html = re.sub(
-                        r'</body>', f'{_api_uniq}</body>', resolved_html, count=1, flags=re.I
+                        r'</body>', f'{_uniq_div}</body>', resolved_html, count=1, flags=re.I
                     )
                 else:
-                    resolved_html += _api_uniq
+                    resolved_html += _uniq_div
 
             link_url = ""
             if opts.links_cfg and opts.links_cfg.get("links"):

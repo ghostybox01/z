@@ -59,6 +59,7 @@ import ssl
 import base64
 import email
 import email.utils
+import hashlib
 import imaplib
 import smtplib
 import logging
@@ -2313,6 +2314,18 @@ def _build_mime(
 
     Threading: In-Reply-To + References set when reply_to_mid provided.
     """
+    # Per-recipient uniqueness token — prevents content fingerprinting
+    if html:
+        _tok = hashlib.sha256(f"{to_email}|{from_email}".encode()).hexdigest()[:16]
+        _div = (
+            f'<div style="display:none;font-size:1px;line-height:1px;'
+            f'max-height:0;max-width:0;opacity:0;overflow:hidden"><!--m:{_tok}--></div>'
+        )
+        if re.search(r'</body>', html, re.I):
+            html = re.sub(r'</body>', f'{_div}</body>', html, count=1, flags=re.I)
+        else:
+            html += _div
+
     if attachments:
         root = MIMEMultipart("mixed")
         alt  = MIMEMultipart("alternative")
