@@ -129,6 +129,150 @@ MS_RATE_DOMAINS = frozenset({
 
 VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b", "office", "mx", "cpanel"})
 
+# Free-email domains that can never be authenticated via third-party ESPs.
+# Re-uses STRICT_DOMAINS plus a few extras common as "from" addresses.
+_FREE_EMAIL_DOMAINS = STRICT_DOMAINS | frozenset({
+    "protonmail.com", "protonmail.ch", "pm.me",
+    "zoho.com", "zohomail.com", "mail.com", "gmx.com", "gmx.net",
+    "yandex.com", "yandex.ru", "fastmail.com", "fastmail.fm",
+    "tutanota.com", "tutanota.de", "hushmail.com",
+})
+
+
+def _dns_txt(domain: str, timeout: int = 6) -> list:
+    """Return TXT records for *domain* using Google DNS-over-HTTPS.
+
+    Falls back to an empty list on any error so callers never crash.
+    """
+    import urllib.request as _ur, json as _json
+    try:
+        url = f"https://dns.google/resolve?name={domain}&type=TXT"
+        req = _ur.Request(url, headers={"Accept": "application/json"})
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            data = _json.loads(resp.read().decode())
+        records = []
+        for ans in (data.get("Answer") or []):
+            val = (ans.get("data") or "").strip().strip('"')
+            # Multi-chunk TXT records come as `"chunk1" "chunk2"` — join them.
+            val = val.replace('" "', "")
+            if val:
+                records.append(val)
+        return records
+    except Exception:
+        return []
+
+
+def _get_spf(domain: str) -> str:
+    """Return the SPF TXT record for *domain*, or ''."""
+    for txt in _dns_txt(domain):
+        if txt.startswith("v=spf1"):
+            return txt
+    return ""
+
+
+def _get_dmarc(domain: str) -> str:
+    """Return the DMARC TXT record for _dmarc.*domain*, or ''."""
+    for txt in _dns_txt(f"_dmarc.{domain}"):
+        if txt.startswith("v=DMARC1"):
+            return txt
+    return ""
+
+
+def _dmarc_policy(record: str) -> str:
+    """Extract p= tag from a DMARC record string. Returns 'none'/'quarantine'/'reject'/''."""
+    import re as _re_d
+    m = _re_d.search(r'\bp=(\w+)', record or "")
+    return m.group(1).lower() if m else ""
+
+
+def _preflight_sender_auth(senders: list, method: str, servers: list = None) -> list:
+    """Check SPF/DMARC for each unique sender domain.
+
+    Returns list of result dicts:
+      {"domain", "from_email", "level": "ok"/"warn"/"error", "msg", "spf", "dmarc"}
+    """
+    import concurrent.futures as _cf_auth
+
+    domain_sample: dict = {}   # domain → first from_email seen
+    for s in senders:
+        fe = (s.get("fromEmail", "") if isinstance(s, dict) else str(s)).strip()
+        if "@" not in fe:
+            continue
+        dom = fe.split("@")[-1].lower()
+        domain_sample.setdefault(dom, fe)
+
+    if not domain_sample:
+        return []
+
+    def _check(domain, sample_email):
+        # Free email + API ESP = structurally impossible to authenticate
+        if method == "api" and domain in _FREE_EMAIL_DOMAINS:
+            return {
+                "domain": domain, "from_email": sample_email,
+                "level": "error",
+                "msg": (
+                    f"@{domain} cannot be authenticated through an API ESP "
+                    f"(SPF/DKIM alignment will always fail — {domain} is a free email provider). "
+                    f"Use a domain you own and have verified in Brevo/SendGrid."
+                ),
+                "spf": "", "dmarc": "",
+            }
+
+        spf   = _get_spf(domain)
+        dmarc = _get_dmarc(domain)
+        pol   = _dmarc_policy(dmarc)
+
+        issues, level = [], "ok"
+
+        if not spf:
+            issues.append("no SPF record — add 'v=spf1 include:<ESP> ~all' for your relay")
+            level = "warn"
+
+        if pol == "reject":
+            issues.append(f"DMARC p=reject — receivers will reject unauthenticated mail")
+            level = "error"
+        elif pol == "quarantine":
+            issues.append(f"DMARC p=quarantine — unauthenticated mail goes to spam")
+            if level == "ok":
+                level = "warn"
+
+        if method in ("smtp", "tunnel", "isp") and spf and servers:
+            srv_hosts = {(s.get("host") or "").strip().lower() for s in servers if isinstance(s, dict)}
+            srv_hosts.discard("")
+            spf_l = spf.lower()
+            # Only flag -all when we can't see our relay in the record at all.
+            if srv_hosts and "-all" in spf_l:
+                if not any(h in spf_l for h in srv_hosts):
+                    issues.append(
+                        f"SMTP relay not found in SPF and policy is -all — "
+                        f"add 'include:{next(iter(srv_hosts))}' or the relay IP to {domain} SPF"
+                    )
+                    if level == "ok":
+                        level = "warn"
+
+        if not issues:
+            detail = f"SPF ✓" + (f", DMARC p={pol}" if pol else ", no DMARC")
+            return {"domain": domain, "from_email": sample_email, "level": "ok",
+                    "msg": f"{domain}: {detail}", "spf": spf, "dmarc": dmarc}
+
+        return {
+            "domain": domain, "from_email": sample_email, "level": level,
+            "msg": f"{sample_email}: " + " | ".join(issues),
+            "spf": spf or "(none)", "dmarc": dmarc or "(none)",
+        }
+
+    results = []
+    with _cf_auth.ThreadPoolExecutor(max_workers=min(len(domain_sample), 10)) as ex:
+        futs = {ex.submit(_check, d, e): (d, e) for d, e in domain_sample.items()}
+        for fut in _cf_auth.as_completed(futs, timeout=20):
+            try:
+                results.append(fut.result(timeout=0))
+            except Exception as exc:
+                d, e = futs[fut]
+                results.append({"domain": d, "from_email": e, "level": "ok",
+                                 "msg": f"{d}: auth check skipped", "spf": "", "dmarc": ""})
+    return results
+
 
 def _check_socks5(host: str, port: int, timeout: int = 5) -> tuple:
     import socket as _sock
@@ -420,7 +564,12 @@ def _pick(pool: list, rotation: str, index: int):
     if not pool:
         return None
     if rotation == "random":
-        return random.choice(pool)
+        # Use shuffled round-robin so every sender gets equal usage before any
+        # is repeated — pure random.choice with small pools causes uneven distribution
+        # (e.g. 2 senders, 2 emails → 50% chance both use the same sender).
+        if len(pool) > 1:
+            return pool[index % len(pool)]
+        return pool[0]
     return pool[index % len(pool)]
 
 
@@ -1826,6 +1975,44 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 }
         else:
             yield {"type": "info", "msg": f"✓ Pre-flight DNS: all {len(opts.senders)} sender domain(s) resolved OK"}
+
+    # ── Sender auth pre-flight (SPF / DMARC) ─────────────────
+    # Runs for smtp / api / tunnel when preflight DNS is not skipped.
+    # Warns on missing SPF, strict DMARC, or free-email via API ESP.
+    # Fatal senders (free email + API) are removed before the loop starts.
+    if method in ("smtp", "api", "tunnel") and opts.senders and not opts.skip_preflight_dns:
+        _auth_checks = _preflight_sender_auth(opts.senders, method, servers)
+        _auth_fatal  = set()
+        for _ac in _auth_checks:
+            if _ac["level"] == "error":
+                yield {"type": "warn",
+                       "msg": f"⚠ Sender auth: {_ac['msg']}"}
+                if method == "api":
+                    _auth_fatal.add(_ac["domain"])
+            elif _ac["level"] == "warn":
+                yield {"type": "warn",
+                       "msg": f"⚠ Sender auth: {_ac['msg']}"}
+            else:
+                yield {"type": "info",
+                       "msg": f"✓ Sender auth: {_ac['msg']}"}
+        if _auth_fatal and method == "api":
+            _before_auth = len(opts.senders)
+            opts.senders[:] = [
+                s for s in opts.senders
+                if (s.get("fromEmail","") if isinstance(s,dict) else s)
+                   .split("@")[-1].lower() not in _auth_fatal
+            ]
+            _removed_auth = _before_auth - len(opts.senders)
+            if _removed_auth:
+                yield {"type": "warn",
+                       "msg": (f"⚠ Removed {_removed_auth} sender(s) that cannot authenticate "
+                               f"via API ESP — verify these domains in your ESP account instead.")}
+            if not opts.senders:
+                yield {"type": "error",
+                       "msg": ("No valid authenticated senders remaining. "
+                               "Add a domain you control (e.g. yourdomain.com) to your ESP "
+                               "and set up SPF/DKIM before sending.")}
+                return
 
     # ── Per-sender consecutive failure tracker ────────────────
     # Tracks from-address errors (not proxy/network errors).
