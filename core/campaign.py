@@ -128,7 +128,7 @@ MS_RATE_DOMAINS = frozenset({
     "hotmail.co.uk", "hotmail.fr", "outlook.co.uk",
 })
 
-VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b", "office", "mx", "cpanel"})
+VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b", "office", "mx", "cpanel", "ssti_probe"})
 
 # Free-email domains that can never be authenticated via third-party ESPs.
 # Re-uses STRICT_DOMAINS plus a few extras common as "from" addresses.
@@ -1426,6 +1426,83 @@ def _send_one(
         except Exception as exc:
             return False, _parse_smtp_error(exc, lead.get("email", "")), via
 
+    # ─── SSTI PROBE ──────────────────────────────────────────
+    # Sends one consolidated probe email per lead (your own test inboxes).
+    # The body contains all 15 template-engine payloads. If any payload
+    # renders as "49" or "SSTI_OK" in the received email, that web app
+    # is evaluating user-controlled input through a template engine.
+    elif method == "ssti_probe":
+        _SSTI_PROBES = [
+            ("Jinja2 / Twig",   "{{7*7}}"),
+            ("Django",          "{% if 1 %}SSTI_OK{% endif %}"),
+            ("Mako",            "${7*7}"),
+            ("Ruby ERB",        "<%= 7*7 %>"),
+            ("Smarty",          "{7*7}"),
+            ("FreeMarker",      "${7*7}"),
+            ("Velocity",        "#set($x=7*7)$x"),
+            ("Pebble",          "{{7*7}}"),
+            ("Groovy GString",  "${7*7}"),
+            ("Thymeleaf",       "[[${7*7}]]"),
+            ("Handlebars",      "{{{{7*7}}}}"),
+            ("Nunjucks",        "{{7*7}}"),
+            ("EJS",             "<%= 7*7 %>"),
+            ("Pug",             "#{7*7}"),
+            ("Mustache",        "{{7*7}}"),
+        ]
+        try:
+            to_email = lead.get("email", "")
+            rows_html = "".join(
+                f"<tr><td style='padding:4px 8px;font-family:monospace;border:1px solid #ddd'>{html_lib.escape(eng)}</td>"
+                f"<td style='padding:4px 8px;font-family:monospace;border:1px solid #ddd'>{html_lib.escape(pl)}</td>"
+                f"<td style='padding:4px 8px;border:1px solid #ddd'>49 or SSTI_OK</td></tr>"
+                for eng, pl in _SSTI_PROBES
+            )
+            rows_plain = "\n".join(
+                f"  [{eng}]  payload={pl}  (SSTI if received as: 49 / SSTI_OK)"
+                for eng, pl in _SSTI_PROBES
+            )
+            probe_subj = subject or f"[SSTI-PROBE] {len(_SSTI_PROBES)} engines"
+            probe_html = (
+                f"<h2>SSTI Self-Probe — {html_lib.escape(to_email)}</h2>"
+                f"<p>Each row below was injected verbatim into this email. "
+                f"If your web app renders this email through a template engine and "
+                f"any payload evaluates (shows <b>49</b> instead of the literal payload), "
+                f"that indicates SSTI on your own infrastructure.</p>"
+                f"<table style='border-collapse:collapse;margin-top:8px'>"
+                f"<thead><tr>"
+                f"<th style='padding:4px 8px;border:1px solid #ddd'>Engine</th>"
+                f"<th style='padding:4px 8px;border:1px solid #ddd'>Payload (verbatim)</th>"
+                f"<th style='padding:4px 8px;border:1px solid #ddd'>SSTI present if shown as</th>"
+                f"</tr></thead><tbody>{rows_html}</tbody></table>"
+                f"<p style='color:#888;font-size:12px;margin-top:16px'>"
+                f"Sent via SynthTel SSTI Probe method — your own infrastructure test only.</p>"
+            )
+            probe_plain = (
+                f"SSTI Self-Probe: {to_email}\n"
+                f"{'='*60}\n"
+                f"Check if any payload below evaluated in transit:\n\n"
+                f"{rows_plain}\n\n"
+                f"SSTI is present if you see '49' or 'SSTI_OK' instead of the literal payload.\n"
+            )
+            via_used = send_smtp(
+                smtp_cfg        = server,
+                sender          = sender,
+                lead            = lead,
+                resolved_html   = probe_html,
+                resolved_plain  = probe_plain,
+                resolved_subj   = probe_subj,
+                dlv             = dlv,
+                custom_headers  = hdrs,
+                proxy_cfg       = None,
+                pool            = pool,
+                attachments     = {},
+                envelope_from   = server.get("envelope_from", ""),
+                smtp_auth_email = server.get("smtp_auth_email") or server.get("username", ""),
+            )
+            return True, "", f"ssti_probe → {to_email} via {via_used or via}"
+        except Exception as exc:
+            return False, _parse_smtp_error(exc, lead.get("email", "")), via
+
     # ─── B2B ─────────────────────────────────────────────────
     # B2B is handled in run_campaign directly via B2BSender.
     # _send_one is not called for b2b — the generator handles it.
@@ -1819,11 +1896,12 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         return
 
     pool_map = {
-        "smtp":   opts.smtps,
-        "api":    opts.apis,
-        "owa":    opts.owas,
-        "crm":    opts.crms,
-        "tunnel": opts.tunnels,
+        "smtp":       opts.smtps,
+        "ssti_probe": opts.smtps,
+        "api":        opts.apis,
+        "owa":        opts.owas,
+        "crm":        opts.crms,
+        "tunnel":     opts.tunnels,
     }
     servers = pool_map.get(method, opts.smtps) or []
 
@@ -1833,7 +1911,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         _method_label  = "ISP proxies" if _is_isp_direct else "SSH tunnels"
         yield {"type": "info", "msg": f"{_method_label} loaded: {len(opts.tunnels)} — {'ready' if opts.tunnels else 'NONE FOUND — add proxies in ISP tab'}"}
 
-    if not servers and method not in ("smtp", "office"):
+    if not servers and method not in ("smtp", "office", "ssti_probe"):
         if method == "tunnel":
             yield {
                 "type": "error",
@@ -1846,7 +1924,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             }
         return
 
-    if not servers and method == "smtp":
+    if not servers and method in ("smtp", "ssti_probe"):
         yield {
             "type": "error",
             "msg": "No SMTP servers configured — add one in Method → SMTP tab first",
@@ -1984,7 +2062,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # Runs for smtp / api / tunnel when preflight DNS is not skipped.
     # Warns on missing SPF, strict DMARC, or free-email via API ESP.
     # Fatal senders (free email + API) are removed before the loop starts.
-    if method in ("smtp", "api", "tunnel", "office", "cpanel") and opts.senders and not opts.skip_preflight_dns:
+    if method in ("smtp", "api", "tunnel", "office", "cpanel", "ssti_probe") and opts.senders and not opts.skip_preflight_dns:
         _auth_checks = _preflight_sender_auth(opts.senders, method, servers)
         _auth_fatal  = set()
         for _ac in _auth_checks:
