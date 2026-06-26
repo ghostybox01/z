@@ -294,6 +294,79 @@ INDUSTRIES = [
 
 DOMAIN_EXTENSIONS = [".com", ".io", ".co", ".net", ".org", ".ai", ".app", ".dev"]
 
+# ── International name pools (romanized) ──────────────────────
+_NAMES_CHINESE = [
+    "Wei Zhang", "Jing Li", "Fang Wang", "Yang Liu", "Na Chen",
+    "Lei Zhao", "Min Huang", "Tao Zhou", "Yan Wu", "Juan Xu",
+    "Hao Sun", "Xin Ma", "Rui Hu", "Hui Luo", "Ting Lin",
+    "Yu He", "Yong Gao", "Xiang Zheng", "Bo Tang", "Mei Liang",
+]
+_NAMES_JAPANESE = [
+    "Hiroshi Tanaka", "Yuki Suzuki", "Kenji Watanabe", "Akiko Yamamoto", "Takashi Nakamura",
+    "Emi Kobayashi", "Ryota Ito", "Sakura Saito", "Daisuke Kato", "Nao Yamada",
+    "Taro Hayashi", "Hana Ishikawa", "Sota Ogawa", "Yumi Shimizu", "Kei Fujii",
+]
+_NAMES_KOREAN = [
+    "Min-jun Kim", "Ji-yeon Lee", "Sung-ho Park", "Yuna Choi", "Jae-won Jung",
+    "Hyun-soo Kang", "Soo-jin Han", "Dong-hyun Oh", "Mi-rae Lim", "Tae-yang Yoon",
+    "Ji-ho Jung", "Eun-seo Shin", "Jun-seo Kwon", "Yu-jin Seo", "Ha-eun Kim",
+]
+_NAMES_ARABIC = [
+    "Ahmed Al-Rashid", "Fatima Al-Mansouri", "Omar Al-Hassan", "Layla Al-Saeed", "Mohammed Al-Qasim",
+    "Aisha Saleh", "Khalid Al-Sayed", "Maryam Al-Zahrani", "Youssef Al-Amiri", "Sara Al-Khalidi",
+    "Ibrahim Al-Farsi", "Noor Al-Rashid", "Ali Al-Hamdan", "Rania Al-Amin", "Hassan Al-Maliki",
+]
+_NAMES_THAI = [
+    "Somchai Jaidee", "Nattaporn Sukhumvit", "Malee Siriporn", "Chai Wongkham", "Prae Thaisong",
+    "Kanchana Boonmee", "Siriporn Yodying", "Nattawut Chaiwong", "Wilai Sombat", "Boonchai Srithai",
+    "Pimchan Rattana", "Suree Kongdee", "Tawan Phukham", "Kanokwan Siripat", "Apinya Thongsuk",
+]
+_NAMES_HINDI = [
+    "Priya Sharma", "Rahul Gupta", "Anjali Singh", "Vikram Patel", "Sunita Yadav",
+    "Arjun Verma", "Kavya Reddy", "Amit Kumar", "Pooja Mishra", "Rohit Agarwal",
+    "Divya Nair", "Suresh Pillai", "Neha Bose", "Ankit Joshi", "Riya Mehta",
+]
+_NAMES_GREEK = [
+    "Nikos Papadopoulos", "Maria Georgiou", "Dimitris Alexiou", "Anna Konstantinou", "Kostas Stavros",
+    "Elena Christodoulou", "Giorgos Nikolaou", "Sophia Petrou", "Yannis Antoniou", "Katerina Demetriou",
+    "Petros Stefanidis", "Despina Vasiliou", "Christos Andreou", "Irini Oikonomou", "Stamatis Kyriakidis",
+]
+_NAMES_TURKISH = [
+    "Ahmet Yilmaz", "Ayse Kaya", "Mehmet Demir", "Fatma Arslan", "Mustafa Celik",
+    "Zeynep Sahin", "Ali Ozdemir", "Elif Yildiz", "Hasan Aslan", "Hatice Dogan",
+    "Ibrahim Ozturk", "Gulsen Aydin", "Yusuf Kurt", "Merve Aktas", "Emre Tekin",
+]
+_NAMES_HEBREW = [
+    "Yael Cohen", "Noam Levi", "Maya Shapiro", "Eitan Mizrahi", "Tamar Katz",
+    "Avi Goldstein", "Shira Berkowitz", "Daniel Perez", "Noa Friedman", "Itai Rosenberg",
+    "Liron Ben-David", "Gal Shapira", "Amir Gabay", "Dana Schwartz", "Roi Haskel",
+]
+_NAMES_VIETNAMESE = [
+    "Nguyen Thi Lan", "Tran Van Minh", "Le Thi Hoa", "Pham Van Duc", "Hoang Thi Mai",
+    "Vo Van Thanh", "Dao Thi Thu", "Bui Van Nam", "Ngo Thi Huong", "Dang Van Long",
+    "Trinh Thi Oanh", "Luong Van Hai", "Dinh Thi Linh", "Chu Van Tuan", "Do Thi Nga",
+]
+_NAMES_BRAZILIAN = [
+    "Joao Silva", "Ana Oliveira", "Carlos Santos", "Fernanda Costa", "Pedro Almeida",
+    "Mariana Sousa", "Rafael Ferreira", "Juliana Rodrigues", "Lucas Lima", "Camila Pereira",
+    "Gustavo Martins", "Larissa Gomes", "Felipe Carvalho", "Beatriz Ribeiro", "Rodrigo Mendes",
+]
+_NAMES_UKRAINIAN = [
+    "Oleksiy Kovalenko", "Oksana Melnyk", "Andriy Shevchenko", "Tetyana Bondar", "Ivan Kovalchuk",
+    "Natalia Petrenko", "Dmytro Savchenko", "Iryna Tkachenko", "Vasyl Moroz", "Halyna Kravchenko",
+    "Mykola Boyko", "Olena Marchenko", "Serhiy Klymenko", "Svitlana Rudenko", "Taras Lysenko",
+]
+_NAMES_PERSIAN = [
+    "Ali Ahmadi", "Maryam Hosseini", "Mohammad Karimi", "Zahra Moradi", "Reza Tehrani",
+    "Fateme Mousavi", "Amir Rezaei", "Narges Shirazi", "Hassan Rahimi", "Leila Ghorbani",
+    "Mohsen Sadeghi", "Shirin Nazari", "Mehdi Rostami", "Sara Ebrahimi", "Davood Mohammadi",
+]
+_ALL_INTL_NAMES = (
+    _NAMES_CHINESE + _NAMES_JAPANESE + _NAMES_KOREAN + _NAMES_ARABIC + _NAMES_THAI +
+    _NAMES_HINDI + _NAMES_GREEK + _NAMES_TURKISH + _NAMES_HEBREW + _NAMES_VIETNAMESE +
+    _NAMES_BRAZILIAN + _NAMES_UKRAINIAN + _NAMES_PERSIAN
+)
+
 # Max characters allowed from a numeric/length argument in tags
 MAX_TAG_ARG = 512
 
@@ -764,6 +837,31 @@ def _make_registry(ctx: dict) -> list[tuple[str, Any]]:
         ("#IS_GMAIL",           "true" if "gmail" in domain.lower() else "false"),
         ("#IS_OUTLOOK",         "true" if any(x in domain.lower() for x in ["outlook","hotmail","live.com"]) else "false"),
         ("#IS_CORPORATE",       "true" if domain.lower() not in _FREE_PROVIDERS else "false"),
+
+        # ── INTERNATIONAL NAME GENERATORS ────────────────────────────
+        ("#NAME_RANDOM_INTL",   lambda _: random.choice(_ALL_INTL_NAMES)),
+        ("#NAME_BRAZILIAN",     lambda _: random.choice(_NAMES_BRAZILIAN)),
+        ("#NAME_UKRAINIAN",     lambda _: random.choice(_NAMES_UKRAINIAN)),
+        ("#NAME_VIETNAMESE",    lambda _: random.choice(_NAMES_VIETNAMESE)),
+        ("#NAME_JAPANESE",      lambda _: random.choice(_NAMES_JAPANESE)),
+        ("#NAME_CHINESE",       lambda _: random.choice(_NAMES_CHINESE)),
+        ("#NAME_TURKISH",       lambda _: random.choice(_NAMES_TURKISH)),
+        ("#NAME_PERSIAN",       lambda _: random.choice(_NAMES_PERSIAN)),
+        ("#NAME_ARABIC",        lambda _: random.choice(_NAMES_ARABIC)),
+        ("#NAME_HEBREW",        lambda _: random.choice(_NAMES_HEBREW)),
+        ("#NAME_KOREAN",        lambda _: random.choice(_NAMES_KOREAN)),
+        ("#NAME_HINDI",         lambda _: random.choice(_NAMES_HINDI)),
+        ("#NAME_GREEK",         lambda _: random.choice(_NAMES_GREEK)),
+        ("#NAME_THAI",          lambda _: random.choice(_NAMES_THAI)),
+
+        # ── URGENCY DATE TAGS ─────────────────────────────────────────
+        ("#EXPIRES_DATE",       _fmt_date(now + timedelta(days=3))),
+        ("#DEADLINE_DATE",      _fmt_date(now + timedelta(days=7))),
+
+        # ── WORDSNUM TOKENS ───────────────────────────────────────────
+        ("#WORDSNUM1",          lambda _: _rand_alphanum(20)),
+        ("#WORDSNUM2",          lambda _: _rand_alphanum(30)),
+        ("#WORDSNUM3",          lambda _: _rand_alphanum(40)),
 
         # ── META ──────────────────────────────────────────────────────
         ("#COUNTER",            str(counter)),

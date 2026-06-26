@@ -1056,6 +1056,8 @@ const TAG_SECTIONS = [
     {tag:"#DATE_PLUS{N}",          desc:"Full date N days from now (alias for DATE_IN)"},
     {tag:"#DATESHORT_IN{N}",       desc:"Short date N days from now — MM/DD/YYYY"},
     {tag:"#DATEISO_IN{N}",         desc:"ISO date N days from now — YYYY-MM-DD"},
+    {tag:"#EXPIRES_DATE",          desc:"Expiration date — 3 days from now (urgency)"},
+    {tag:"#DEADLINE_DATE",         desc:"Deadline date — 7 days from now (urgency)"},
   ]},
   { label:"RANDOM GENERATORS", tags:[
     {tag:"#RANDNUM{N}",            desc:"N random digits — #RANDNUM{6} → 839201"},
@@ -1072,6 +1074,9 @@ const TAG_SECTIONS = [
     {tag:"#SHORT_ID",              desc:"8-char alphanumeric ID"},
     {tag:"#HEX8",                  desc:"8-char lowercase hex string"},
     {tag:"#UUID",                  desc:"Random UUID v4"},
+    {tag:"#WORDSNUM1",             desc:"Random 20-char alphanumeric token — unique tracking code"},
+    {tag:"#WORDSNUM2",             desc:"Random 30-char alphanumeric token — longer unique code"},
+    {tag:"#WORDSNUM3",             desc:"Random 40-char alphanumeric token — maximum length code"},
   ]},
   { label:"ENCODING & HASHING", tags:[
     {tag:"#B64EMAIL",              desc:"Base64-encoded recipient email"},
@@ -1215,6 +1220,22 @@ const TAG_SECTIONS = [
     {tag:"#PREF_URL",              desc:"Email preferences page URL (per-recipient).  Falls back to #UNSUB if no preferences URL is configured."},
     {tag:"#VIEW_ONLINE",           desc:"View-online / web-version URL.  Useful in the email header (\"Trouble viewing? View it online\")."},
     {tag:"#LIST_ID",               desc:"List-ID identifier for List-Unsubscribe header (auto-derived from sender domain when empty)."},
+  ]},
+  { label:"INTL NAMES", tags:[
+    {tag:"#NAME_CHINESE",          desc:"Random Chinese name (romanized) — Wei Zhang, Na Chen…"},
+    {tag:"#NAME_JAPANESE",         desc:"Random Japanese name (romanized) — Hiroshi Tanaka, Yuki Suzuki…"},
+    {tag:"#NAME_KOREAN",           desc:"Random Korean name (romanized) — Min-jun Kim, Ji-yeon Lee…"},
+    {tag:"#NAME_ARABIC",           desc:"Random Arabic name (romanized) — Ahmed Al-Rashid, Fatima Al-Mansouri…"},
+    {tag:"#NAME_THAI",             desc:"Random Thai name (romanized) — Somchai Jaidee, Malee Siriporn…"},
+    {tag:"#NAME_HINDI",            desc:"Random Hindi/Indian name — Priya Sharma, Rahul Gupta…"},
+    {tag:"#NAME_GREEK",            desc:"Random Greek name — Nikos Papadopoulos, Maria Georgiou…"},
+    {tag:"#NAME_TURKISH",          desc:"Random Turkish name — Ahmet Yilmaz, Ayse Kaya…"},
+    {tag:"#NAME_HEBREW",           desc:"Random Hebrew name — Yael Cohen, Noam Levi…"},
+    {tag:"#NAME_VIETNAMESE",       desc:"Random Vietnamese name — Nguyen Thi Lan, Tran Van Minh…"},
+    {tag:"#NAME_BRAZILIAN",        desc:"Random Brazilian name — Joao Silva, Ana Oliveira…"},
+    {tag:"#NAME_UKRAINIAN",        desc:"Random Ukrainian name — Oleksiy Kovalenko, Oksana Melnyk…"},
+    {tag:"#NAME_PERSIAN",          desc:"Random Persian/Iranian name — Ali Ahmadi, Maryam Hosseini…"},
+    {tag:"#NAME_RANDOM_INTL",      desc:"Random name from any international pool (14 languages)"},
   ]},
   { label:"FUNCTIONAL / SMART", tags:[
     {tag:"#SHUF{A|B|C}",           desc:"Pick random option from pipe-separated list"},
@@ -7390,6 +7411,148 @@ function TemplateBuilder({setHtmlBody, setTab}) {
   );
 }
 
+function AIGeneratePanel({setHtmlBody, setTab}) {
+  const LS_KEY = "synthtel_together_api_key";
+  const [apiKey,   setApiKey]   = useState(()=>localStorage.getItem(LS_KEY)||"");
+  const [model,    setModel]    = useState("mistralai/Mixtral-8x7B-Instruct-v0.1");
+  const [theme,    setTheme]    = useState("");
+  const [category, setCategory] = useState("business");
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState("");
+  const [result,   setResult]   = useState(null);
+
+  const MODELS = [
+    {id:"mistralai/Mixtral-8x7B-Instruct-v0.1",  label:"Mixtral 8x7B (default)"},
+    {id:"mistralai/Mistral-7B-Instruct-v0.2",    label:"Mistral 7B"},
+    {id:"meta-llama/Llama-3-70b-chat-hf",        label:"Llama 3 70B"},
+    {id:"meta-llama/Llama-3-8b-chat-hf",         label:"Llama 3 8B"},
+    {id:"Qwen/Qwen2-72B-Instruct",               label:"Qwen2 72B"},
+  ];
+  const CATEGORIES = [
+    {id:"business",  label:"Business / B2B"},
+    {id:"marketing", label:"Marketing / Promo"},
+    {id:"security",  label:"Security / Account"},
+    {id:"finance",   label:"Finance / Banking"},
+    {id:"ecommerce", label:"E-Commerce / Orders"},
+    {id:"personal",  label:"Personal / Casual"},
+  ];
+
+  function saveKey(k) { setApiKey(k); localStorage.setItem(LS_KEY, k); }
+
+  async function generate() {
+    if (!apiKey.trim()) { setError("Enter your Together.ai API key first."); return; }
+    if (!theme.trim())  { setError("Enter a theme or prompt."); return; }
+    setError(""); setResult(null); setLoading(true);
+    try {
+      const r = await apiCall("/api/ai/generate", {
+        method:"POST",
+        body: JSON.stringify({api_key:apiKey.trim(), theme:theme.trim(), category, model}),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error||"Generation failed");
+      setResult(d);
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div>
+      <Info type="i">
+        <strong>AI Template Generator</strong> — Uses <a href="https://together.ai" target="_blank" rel="noreferrer" style={{color:"var(--accent)"}}>Together.ai</a> to generate a complete HTML email template plus 5 subject lines and 5 sender names from your prompt. Bring your own API key (free tier available).
+      </Info>
+
+      <div className="card mb12">
+        <div className="card-title mb8">Configuration</div>
+        <div className="row g8 mb8" style={{flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div style={{flex:"1 1 280px"}}>
+            <div className="dim2 xs mb4">Together.ai API Key</div>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={e=>saveKey(e.target.value)}
+              placeholder="e.g. a1b2c3d4e5f6…"
+              style={{width:"100%",fontFamily:"var(--font-mono)",fontSize:13}}
+            />
+            <div className="dim2 xs mt2">Saved in browser localStorage — never sent to the VPS except when generating.</div>
+          </div>
+          <div style={{flex:"0 0 220px"}}>
+            <div className="dim2 xs mb4">Model</div>
+            <select value={model} onChange={e=>setModel(e.target.value)} style={{width:"100%"}}>
+              {MODELS.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          </div>
+          <div style={{flex:"0 0 180px"}}>
+            <div className="dim2 xs mb4">Category</div>
+            <select value={category} onChange={e=>setCategory(e.target.value)} style={{width:"100%"}}>
+              {CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="mb8">
+          <div className="dim2 xs mb4">Theme / Prompt</div>
+          <textarea
+            value={theme}
+            onChange={e=>setTheme(e.target.value)}
+            rows={3}
+            placeholder="e.g. 'Invoice payment reminder from an accounting firm' or 'Password reset confirmation from a SaaS product'"
+            style={{width:"100%",resize:"vertical"}}
+          />
+        </div>
+        <button className="btn btn-p" onClick={generate} disabled={loading}>
+          {loading ? "Generating…" : "✨ Generate Template"}
+        </button>
+        {error && <div className="err mt8">{error}</div>}
+      </div>
+
+      {result && (
+        <div>
+          <div className="card mb12">
+            <div className="row jb ac-center mb8">
+              <div className="card-title" style={{margin:0}}>Generated HTML Template</div>
+              <div className="row g6">
+                <button className="btn btn-sm btn-g" onClick={()=>copyToClipboard(result.html)}>Copy HTML</button>
+                <button className="btn btn-sm btn-p" onClick={()=>{setHtmlBody(result.html);setTab("compose");}}>Use in Compose</button>
+              </div>
+            </div>
+            <div style={{border:"1px solid var(--border)",borderRadius:6,overflow:"hidden",height:340}}>
+              <iframe
+                srcDoc={result.html}
+                sandbox="allow-same-origin"
+                title="AI Generated Preview"
+                style={{width:"100%",height:"100%",border:"none"}}
+              />
+            </div>
+          </div>
+
+          {result.subjects && result.subjects.length > 0 && (
+            <div className="card mb12">
+              <div className="card-title mb8">Subject Lines</div>
+              {result.subjects.map((s,i)=>(
+                <div key={i} className="row jb ac-center mb6" style={{gap:8}}>
+                  <span className="sm" style={{flex:1}}>{s}</span>
+                  <button className="btn btn-xs btn-g" onClick={()=>copyToClipboard(s)}>Copy</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {result.from_names && result.from_names.length > 0 && (
+            <div className="card mb12">
+              <div className="card-title mb8">Sender Names</div>
+              {result.from_names.map((n,i)=>(
+                <div key={i} className="row jb ac-center mb6" style={{gap:8}}>
+                  <span className="sm" style={{flex:1}}>{n}</span>
+                  <button className="btn btn-xs btn-g" onClick={()=>copyToClipboard(n)}>Copy</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TabTagsTemplates({setHtmlBody, setTab}) {
   const [tTab, setTTab] = useState("tags");
   const [tagSearch, setTagSearch] = useState("");
@@ -7404,6 +7567,7 @@ function TabTagsTemplates({setHtmlBody, setTab}) {
       <div className="tab-bar">
         <button className={`tb ${tTab==="tags"?"on":""}`} onClick={()=>setTTab("tags")}>Tag Reference</button>
         <button className={`tb ${tTab==="tpls"?"on":""}`} onClick={()=>setTTab("tpls")}>Template Builder</button>
+        <button className={`tb ${tTab==="ai"?"on":""}`} onClick={()=>setTTab("ai")}>✨ AI Generate</button>
       </div>
 
       {tTab==="tags" && (
@@ -7439,6 +7603,7 @@ function TabTagsTemplates({setHtmlBody, setTab}) {
       )}
 
       {tTab==="tpls" && <TemplateBuilder setHtmlBody={setHtmlBody} setTab={setTab}/>}
+      {tTab==="ai"   && <AIGeneratePanel setHtmlBody={setHtmlBody} setTab={setTab}/>}
     </div>
   );
 }

@@ -8315,6 +8315,30 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 ),
             })
 
+        elif p == "/api/ai/generate":
+            if not (sess := self._auth()): return
+            try:
+                data = self._read_body()
+            except Exception:
+                self._json(400, {"error": "Invalid JSON"}); return
+            api_key = (data.get("api_key") or "").strip()
+            if not api_key:
+                self._json(400, {"error": "api_key required"}); return
+            theme = (data.get("theme") or "").strip()
+            if not theme:
+                self._json(400, {"error": "theme required"}); return
+            category = (data.get("category") or "business").strip()
+            model    = (data.get("model") or "mistralai/Mixtral-8x7B-Instruct-v0.1").strip()
+            try:
+                from core.ai_generator import generate_template
+                result = generate_template(api_key, theme, category, model)
+                self._json(200, {"ok": True, **result})
+            except ValueError as e:
+                self._json(502, {"error": str(e)})
+            except Exception as e:
+                log.exception("AI generate error")
+                self._json(500, {"error": f"Internal error: {e}"})
+
         else:
             self._json(404, {"error": "Not found"})
 
