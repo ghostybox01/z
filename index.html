@@ -5217,14 +5217,14 @@ function TabMethod({
                 style={{fontSize:14,padding:"10px 12px"}}/>
             </div>
 
-            {/* Mailgun — domain (required) + region */}
+            {/* Mailgun — domain (optional, auto-detected) + region */}
             {apiDraft.provider==="mailgun" && (
               <div style={{gridColumn:"1/-1"}}>
-                <label className="lbl">Mailgun Sending Domain <span style={{color:"var(--err)",fontSize:11}}>required</span></label>
+                <label className="lbl">Mailgun Sending Domain <span style={{color:"var(--t2)",fontSize:11}}>optional — auto-detected from sender email</span></label>
                 <input value={apiDraft.mailgunDomain||""} onChange={e=>setApiDraft({...apiDraft,mailgunDomain:e.target.value})}
-                  placeholder="mg.yourdomain.com  or  yourdomain.com"
+                  placeholder="Leave blank to auto-detect, or enter mg.yourdomain.com"
                   style={{fontSize:14,padding:"10px 12px"}}/>
-                <div className="dim2 xs mt4">Found in Mailgun dashboard → Sending → Domains</div>
+                <div className="dim2 xs mt4">Use "Test &amp; Fetch Senders" to auto-import all domains as separate keys</div>
               </div>
             )}
             {apiDraft.provider==="mailgun" && (
