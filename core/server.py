@@ -8184,6 +8184,137 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 conn.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
                 conn.commit(); conn.close()
             self._json(200, {"status": "ok"})
+
+        # ── SSTI security probe ───────────────────────────────────────────
+        # POST /api/security/ssti_probe
+        # Tests whether SynthTel's own template engine executes injected payloads.
+        # Sends probe emails to user-supplied test addresses via their SMTP config;
+        # if the received email shows "49" instead of "{{7*7}}", SSTI is confirmed.
+        elif p == "/api/security/ssti_probe":
+            if not (sess := self._auth()): return
+            try:
+                data = self._read_body()
+            except Exception:
+                self._json(400, {"error": "Invalid JSON"}); return
+
+            smtp_cfg  = data.get("smtp") or {}
+            from_email = (data.get("fromEmail") or "").strip()
+            from_name  = (data.get("fromName") or "SynthTel Probe").strip()
+            to_emails  = [e.strip() for e in (data.get("emails") or []) if e.strip()]
+
+            if not smtp_cfg.get("host"):
+                self._json(400, {"error": "smtp.host required"}); return
+            if not from_email:
+                self._json(400, {"error": "fromEmail required"}); return
+            if not to_emails:
+                self._json(400, {"error": "emails list required"}); return
+
+            # SSTI payloads covering the most common template engines.
+            # If ANY of these are evaluated and the result shows the computed
+            # value (e.g. 49 for 7*7) the engine has an injection vulnerability.
+            PROBES = [
+                ("Jinja2/Twig",   "{{7*7}}",                       "{{7*7}}"),
+                ("Jinja2 filter", "{{7|int*7}}",                   "{{7|int*7}}"),
+                ("Django",        "{% if 1 %}SSTI_OK{% endif %}",  "{% if 1 %}SSTI_OK{% endif %}"),
+                ("Mako",          "${7*7}",                         "${7*7}"),
+                ("Ruby ERB",      "<%= 7*7 %>",                    "<%= 7*7 %>"),
+                ("Smarty",        "{7*7}",                          "{7*7}"),
+                ("FreeMarker",    "${7*7}",                         "${7*7}"),
+                ("Velocity",      "#set($x=7*7)$x",               "#set($x=7*7)$x"),
+                ("Pebble",        "{{7*7}}",                        "{{7*7}}"),
+                ("Tornado",       "{{7*7}}",                        "{{7*7}}"),
+                ("OGNL/Struts",   "%{7*7}",                         "%{7*7}"),
+                ("Handlebars",    "{{#each this}}{{/each}}",       "{{#each this}}{{/each}}"),
+                ("Nunjucks",      "{{7*7}}",                        "{{7*7}}"),
+                ("SynthTel tags", "#RANDOMSTR{7*7}",               "#RANDOMSTR{7*7}"),
+                ("Math eval",     "#{7*7}",                         "#{7*7}"),
+            ]
+
+            import smtplib, ssl as _ssl, email.mime.multipart, email.mime.text
+            from email.utils import formatdate, make_msgid
+
+            host    = smtp_cfg.get("host", "")
+            port    = int(smtp_cfg.get("port", 587) or 587)
+            user    = smtp_cfg.get("user") or smtp_cfg.get("username") or ""
+            pw      = smtp_cfg.get("pass") or smtp_cfg.get("password") or ""
+            use_tls = str(smtp_cfg.get("encryption", "starttls")).lower()
+
+            sent = []
+            errors = []
+
+            for engine, subj_payload, body_payload in PROBES:
+                try:
+                    # Build probe email with payload in subject, from-name, and body
+                    subject = f"[SSTI-Probe:{engine}] {subj_payload}"
+                    html_body = (
+                        f"<html><body>"
+                        f"<h2>SSTI Probe: {engine}</h2>"
+                        f"<p><b>Payload in subject:</b> <code>{subj_payload}</code></p>"
+                        f"<p><b>Payload in body:</b> {body_payload}</p>"
+                        f"<p><b>Payload in from-name:</b> {subj_payload}</p>"
+                        f"<hr><p style='color:#999;font-size:11px'>SynthTel security self-test — "
+                        f"if this email shows '49' anywhere above instead of the literal payload, "
+                        f"template injection is active.</p>"
+                        f"</body></html>"
+                    )
+                    plain_body = (
+                        f"SSTI Probe: {engine}\n"
+                        f"Payload: {subj_payload}\n"
+                        f"If this shows '49' instead of the literal payload, SSTI is present.\n"
+                    )
+
+                    msg = email.mime.multipart.MIMEMultipart("alternative")
+                    msg["From"]       = f'"{from_name} | {subj_payload}" <{from_email}>'
+                    msg["To"]         = ", ".join(to_emails)
+                    msg["Subject"]    = subject
+                    msg["Date"]       = formatdate(localtime=False)
+                    msg["Message-ID"] = make_msgid(domain=from_email.split("@")[-1] if "@" in from_email else "probe.local")
+                    msg.attach(email.mime.text.MIMEText(plain_body, "plain", "utf-8"))
+                    msg.attach(email.mime.text.MIMEText(html_body, "html", "utf-8"))
+
+                    raw = msg.as_bytes()
+
+                    ctx = _ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = _ssl.CERT_NONE
+
+                    if use_tls == "ssl" or port == 465:
+                        conn = smtplib.SMTP_SSL(host, port, timeout=20, context=ctx)
+                    else:
+                        conn = smtplib.SMTP(host, port, timeout=20)
+                        conn.ehlo()
+                        if conn.has_extn("STARTTLS"):
+                            conn.starttls(context=ctx)
+                            conn.ehlo()
+
+                    with conn:
+                        if user and pw:
+                            conn.login(user, pw)
+                        conn.sendmail(from_email, to_emails, raw)
+
+                    sent.append({
+                        "engine":  engine,
+                        "payload": subj_payload,
+                        "subject": subject,
+                        "to":      to_emails,
+                        "note":    f"If received email shows '49' anywhere, {engine} SSTI is present",
+                    })
+                    log.info("[ssti_probe] sent %s probe to %s", engine, to_emails)
+
+                except Exception as ex:
+                    errors.append({"engine": engine, "error": str(ex)[:200]})
+
+            self._json(200, {
+                "ok":     len(sent) > 0,
+                "sent":   sent,
+                "errors": errors,
+                "summary": (
+                    f"Sent {len(sent)}/{len(PROBES)} probe emails to {to_emails}. "
+                    f"Check each inbox: if any email displays '49' instead of the literal "
+                    f"payload (e.g. {{{{7*7}}}}), that template engine is vulnerable to SSTI."
+                ),
+            })
+
         else:
             self._json(404, {"error": "Not found"})
 
