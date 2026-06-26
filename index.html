@@ -5297,10 +5297,7 @@ function TabMethod({
                 showPopup({title:"Secret Key Required",msg:"AWS SES requires both an Access Key ID and a Secret Access Key.",ico:"⚠️",type:"alert"});
                 return;
               }
-              if(apiDraft.provider==="mailgun" && !apiDraft.mailgunDomain){
-                showPopup({title:"Domain Required",msg:"Mailgun requires a sending domain (e.g. mg.yourdomain.com). Find it in your Mailgun dashboard → Sending → Domains.",ico:"⚠️",type:"alert"});
-                return;
-              }
+              // Mailgun domain is now optional — auto-derived from FROM email at send time
               setApiList(p=>[...p,{...apiDraft,id:Date.now()}]);
               setApiDraft({provider:"sendgrid",key:"",secret:"",region:"us-east-1",mailgunDomain:"",mailgunRegion:"us",sparkpostRegion:"us"});
               setApiTestResult(null);
@@ -5377,16 +5374,39 @@ function TabMethod({
                   </label>
                 ))}
               </div>
-              <button className="btn btn-p btn-sm" disabled={apiSenderSel.size===0}
-                onClick={()=>{
-                  const toAdd=[...apiSenderSel].filter(e=>!e.startsWith("*@")).join("\n");
-                  if(!toAdd)return;
-                  setSendersRaw(s=>s?s+"\n"+toAdd:toAdd);
-                  showToast("ok","Added",`${[...apiSenderSel].filter(e=>!e.startsWith("*@")).length} sender(s) added to From Emails`);
-                  setApiDetectedSenders([]); setApiSenderSel(new Set());
-                }}>
-                ➕ Add Selected to From Emails
-              </button>
+              <div className="row g8" style={{flexWrap:"wrap"}}>
+                <button className="btn btn-p btn-sm" disabled={apiSenderSel.size===0}
+                  onClick={()=>{
+                    const toAdd=[...apiSenderSel].filter(e=>!e.startsWith("*@")).join("\n");
+                    if(!toAdd)return;
+                    setSendersRaw(s=>s?s+"\n"+toAdd:toAdd);
+                    showToast("ok","Added",`${[...apiSenderSel].filter(e=>!e.startsWith("*@")).length} sender(s) added to From Emails`);
+                    setApiDetectedSenders([]); setApiSenderSel(new Set());
+                  }}>
+                  ➕ Add Selected to From Emails
+                </button>
+                {apiDraft.provider==="mailgun" && [...apiSenderSel].some(e=>e.startsWith("*@")) && (
+                  <button className="btn btn-g btn-sm"
+                    onClick={()=>{
+                      const domains=[...apiSenderSel].filter(e=>e.startsWith("*@")).map(e=>e.slice(2));
+                      const newKeys=domains.map(dom=>({
+                        id:Date.now()+Math.random(),
+                        provider:"mailgun",
+                        key:apiDraft.key,
+                        secret:null,
+                        region:"us-east-1",
+                        mailgunDomain:dom,
+                        mailgunRegion:apiDraft.mailgunRegion||"us",
+                        sparkpostRegion:"us",
+                      }));
+                      setApiList(p=>[...p,...newKeys]);
+                      showToast("ok","Imported",`${newKeys.length} Mailgun domain(s) added as separate keys`);
+                      setApiDetectedSenders([]); setApiSenderSel(new Set());
+                    }}>
+                    🔑 Import All Domains as Separate Keys
+                  </button>
+                )}
+              </div>
             </div>
           )}
           {apiList.length>0 && (

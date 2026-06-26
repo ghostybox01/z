@@ -670,6 +670,12 @@ def _send_mailgun(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
     key           = api_cfg.get("apiKey", "")
     mailgun_domain = api_cfg.get("mailgunDomain") or api_cfg.get("domain") or ""
     if not mailgun_domain:
+        # Auto-derive sending domain from the FROM email address so callers
+        # don't have to store a separate domain per API key.
+        _fe = sender.get("fromEmail", "")
+        if "@" in _fe:
+            mailgun_domain = _fe.split("@")[-1]
+    if not mailgun_domain:
         raise Exception(
             "Mailgun: mailgunDomain not configured. "
             "Set it to your Mailgun sending domain (e.g. mg.yourco.com)."
