@@ -791,8 +791,21 @@ def _gh_request(path: str, accept: str = "application/vnd.github+json"):
             if he.code == 401:
                 # Token is revoked or expired — fall back to anonymous
                 return _do_request(use_token=False)
+            if he.code == 403:
+                raise ValueError(
+                    "GitHub rate limit exceeded — set SYNTHTEL_GH_TOKEN env var "
+                    "to raise the limit from 60/hr to 5000/hr"
+                ) from he
             raise
-    return _do_request(use_token=False)
+    try:
+        return _do_request(use_token=False)
+    except HTTPError as he:
+        if he.code == 403:
+            raise ValueError(
+                "GitHub rate limit exceeded — set SYNTHTEL_GH_TOKEN env var "
+                "to raise the limit from 60/hr to 5000/hr"
+            ) from he
+        raise
 
 
 def _gh_raw(path: str) -> bytes:
@@ -2833,6 +2846,14 @@ if(code && window.opener){{
         # ── GitHub update: check for newer commit on tracked branch ───
         elif p == "/api/update/check":
             if not (sess := self._auth()): return
+            _now = int(time.time())
+            if (UPDATE_STATE.get("last_result") and
+                    UPDATE_STATE.get("last_check", 0) > _now - 60):
+                self._json(200, {"ok": True,
+                                 **UPDATE_STATE["last_result"],
+                                 "in_progress": UPDATE_STATE.get("in_progress", False),
+                                 "cached": True})
+                return
             try:
                 info = _check_for_update()
                 UPDATE_STATE["last_check"]  = int(time.time())

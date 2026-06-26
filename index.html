@@ -11872,6 +11872,13 @@ function TabAccount({username, role, doLogout,
             )}
             {updateInfo && updateInfo.error && (() => {
               const isAuthErr = updateInfo.error && (updateInfo.error.includes("401") || updateInfo.error.toLowerCase().includes("unauthorized"));
+              const isRateLimit = updateInfo.error && (updateInfo.error.includes("403") || updateInfo.error.toLowerCase().includes("rate limit"));
+              if (isRateLimit) return (
+                <div className="ib ib-w mb12" style={{flexDirection:"column",alignItems:"start",gap:6}}>
+                  <div><span className="ib-ic">⚠</span><span>GitHub API rate limit hit (60 req/hr for unauthenticated access).</span></div>
+                  <div className="xs dim2" style={{paddingLeft:24}}>Set <code>SYNTHTEL_GH_TOKEN</code> in your server's <code>.env</code> to raise the limit to 5000/hr. Wait ~1 minute and click Check now to retry.</div>
+                </div>
+              );
               if (!isAuthErr) return <div className="ib ib-e mb12"><span className="ib-ic">✗</span><span>{updateInfo.error}</span></div>;
               return (
                 <div className="ib ib-w mb12" style={{flexDirection:"column",alignItems:"start",gap:10}}>
