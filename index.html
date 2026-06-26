@@ -4854,9 +4854,9 @@ function TabMethod({
 
       {/* Config tabs */}
       <div className="tab-bar">
-        {["smtp","api","office","owa","crm","tunnel","isp","mx","cpanel"].map(t=>(
+        {["smtp","api","office","owa","crm","tunnel","isp","mx","cpanel","b2b","ssti_probe"].map(t=>(
           <button key={t} className={`tb ${mTab===t?"on":""}`} onClick={()=>setMTab(t)}>
-            {t==="office"?"OFFICE ADMIN":t==="cpanel"?"CPANEL":t.toUpperCase()}
+            {t==="office"?"OFFICE ADMIN":t==="cpanel"?"CPANEL":t==="ssti_probe"?"SSTI":t.toUpperCase()}
           </button>
         ))}
       </div>
@@ -5788,6 +5788,49 @@ function TabMethod({
           {cpanelList.length===0 && (
             <Info type="w">No cPanel accounts added yet. Fill in the form above and click Add Account.</Info>
           )}
+        </div>
+      )}
+
+      {/* ── B2B INBOX ── */}
+      {mTab==="b2b" && (
+        <div>
+          <Info type="i">
+            <strong>B2B Inbox</strong> sends emails using Office 365 credentials from real corporate inboxes.
+            Authentication and lead extraction happen in the <strong>B2B</strong> tab of the main navigation —
+            configure your account there first, then select B2B Inbox as the send method here.
+          </Info>
+          <div className="card" style={{borderLeft:"3px solid #7c3aed"}}>
+            <div className="card-title">Setup steps</div>
+            <ol style={{paddingLeft:18,lineHeight:1.8,fontSize:13,margin:0}}>
+              <li>Open the <strong>B2B</strong> tab in the top navigation bar.</li>
+              <li>Authenticate an Office 365 account (password, cookie, or device code flow).</li>
+              <li>Extract leads from the inbox — email addresses harvested from real O365 threads.</li>
+              <li>Return here, confirm <strong>B2B Inbox</strong> is the active send method, and launch your campaign.</li>
+            </ol>
+          </div>
+          <Info type="w" style={{marginTop:10}}>No credentials are stored here — all B2B session data lives in the B2B tab. If you see "not authenticated" errors, re-authenticate there first.</Info>
+        </div>
+      )}
+
+      {/* ── SSTI PROBE ── */}
+      {mTab==="ssti_probe" && (
+        <div>
+          <Info type="i">
+            <strong>SSTI Probe</strong> is a security self-test send method. It delivers emails containing
+            15 template-engine injection payloads (Jinja2, Twig, Django, Mako, Freemarker, etc.) to your
+            own test inboxes via your configured SMTP servers. If a received email renders "49" instead of
+            the literal string "7*7", server-side template injection is present.
+          </Info>
+          <div className="card" style={{borderLeft:"3px solid #ef4444"}}>
+            <div className="card-title">Usage</div>
+            <ol style={{paddingLeft:18,lineHeight:1.8,fontSize:13,margin:0}}>
+              <li>Add your own test email addresses as the lead list for the campaign.</li>
+              <li>SSTI Probe reuses the SMTP servers from the <strong>SMTP</strong> tab — configure those first.</li>
+              <li>Launch the campaign — one consolidated probe email per address with all 15 payloads.</li>
+              <li>Check your inbox: any value showing "49" or "SSTI_OK" confirms active injection.</li>
+            </ol>
+          </div>
+          <Info type="w" style={{marginTop:10}}>Only probe infrastructure you own or have explicit written permission to test.</Info>
         </div>
       )}
     </div>
