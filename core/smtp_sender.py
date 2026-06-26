@@ -147,7 +147,7 @@ def smtp_error_type(exc: Exception) -> str:
 
     if any(x in err for x in [
         "spamhaus", "blacklist", "blocklist", "spam", "policy", "blocked",
-        "not authorized", "5.7.1", "5.7.0", "5.7.26", "content rejected",
+        "not authorized", "5.7.26", "content rejected",
     ]):
         return SmtpErrorKind.PERMANENT_POLICY
 
@@ -561,6 +561,8 @@ class SmtpPool:
         _from_dom = from_email.split("@")[-1] if from_email and "@" in from_email else ""
         entry = self._get_entry(key, smtp_cfg, ehlo_domain, proxy_cfg, from_domain=_from_dom)
 
+        _post_delay = 0.0
+        _send_succeeded = False
         for attempt in range(2):
             with entry.lock:
                 try:
@@ -579,7 +581,7 @@ class SmtpPool:
                     if _reply_to_val:
                         # Serialize message to bytes WITHOUT Reply-To
                         import io, email.generator, copy
-                        _msg_copy = copy.copy(msg)
+                        _msg_copy = copy.deepcopy(msg)
                         # Remove Bcc from copy (standard practice)
                         del _msg_copy['Bcc']
                         del _msg_copy['Resent-Bcc']
@@ -614,15 +616,11 @@ class SmtpPool:
                     log.debug("[SmtpPool] %s: sent → %s (session #%d)",
                               key, to_email, stats.session_sent)
 
-                    # ── Inter-send delay (human-like pacing) ──────────────────
-                    # Gaussian jitter prevents constant-cadence bulk fingerprinting.
-                    # Mirrors the reference sender's sleep/pauseAfter config.
+                    # Capture delay but sleep AFTER releasing entry.lock so
+                    # concurrent workers on different servers aren't serialized.
                     if self.send_delay > 0:
-                        _delay = _gaussian_delay(self.send_delay)
-                        log.debug("[SmtpPool] inter-send delay %.2fs", _delay)
-                        time.sleep(_delay)
-
-                    return key
+                        _post_delay = _gaussian_delay(self.send_delay)
+                    _send_succeeded = True
 
                 except smtplib.SMTPAuthenticationError as exc:
                     # Permanent — wrong credentials — disable server entirely
@@ -661,6 +659,12 @@ class SmtpPool:
                         stats.record_fail()
                         raise Exception(f"Connection error after reconnect [{key}]: {exc}") from exc
                     log.warning("[SmtpPool] %s connection error, reconnecting: %s", key, exc)
+
+            if _send_succeeded:
+                if _post_delay > 0:
+                    log.debug("[SmtpPool] inter-send delay %.2fs", _post_delay)
+                    time.sleep(_post_delay)
+                return key
 
             # ── Reconnect before attempt 1 ──
             # (Lock released above — reconnect outside lock so we don't

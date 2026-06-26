@@ -903,7 +903,7 @@ class CampaignOptions:
                 # & Failover card).  Defaults match what the campaign code
                 # used before the option existed.
                 "smtpAutoDisable":   bool(data.get("smtpAutoDisable", True)),
-                "smtpFailThreshold": int(data.get("smtpFailThreshold", 3) or 3),
+                "smtpFailThreshold": int(data.get("smtpFailThreshold", 5) or 5),
                 "smtpCooldownSecs":  float(data.get("smtpCooldownSecs", 60) or 60),
             },
             links_cfg      = cls._build_links_cfg_from_data(data),
@@ -2035,7 +2035,6 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             "sending policy",
             "sender policy",
             "5.7.1 sender",   # 5.7.1 specifically about the sender address
-            "address rejected",
             "from address rejected",
             "sender address rejected",
             "sender rejected",  # Shaw/ISP envelope rejection of bad sender domain
@@ -2057,9 +2056,13 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         """True for hard sender-credential failures — instant kill appropriate."""
         s = (err_str or "").lower()
         # Core SMTP auth failures — credentials are definitely wrong
+        # Use specific auth-failure phrases — bare "authentication" matches DMARC
+        # rejection messages ("DMARC authentication check failed") and would
+        # instant-kill the sender incorrectly.  "relay denied" is an IP restriction
+        # at the relay, not a credential failure — don't treat it as auth.
         cred_fail = any(x in s for x in [
-            "authentication", "535", "530", "username", "password",
-            "relay denied", "relay not permitted",
+            "authentication failed", "authentication unsuccessful",
+            "535", "530", "username", "password",
         ])
         if cred_fail:
             return True
@@ -2092,6 +2095,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             "5.1.1", "5.1.2", "5.1.3", "account disabled", "mailbox full",
             "content filter", "content rejected", "spam", "junk",
             "ip blocked", "blacklist", "blocklist", "poor reputation",
+            "email address is not verified", "is not verified",
         ])
 
     def _record_sender_fail(from_email: str, err_str: str) -> bool:
@@ -2290,6 +2294,12 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         if not k: return False
         h = _smtp_health.setdefault(k, {"fails":0,"success":0,"dead":False,"cooldown_until":0})
         es = (err_str or "").lower()
+        # Infrastructure/network failures (TLS reconnect, connection dropped, proxy errors)
+        # are not the SMTP server's fault — reconnect errors from SES/AWS sandbox rejection
+        # look like "SSL/TLS ERROR — Reconnect failed" but are caused by the previous
+        # recipient rejection, not a broken server.
+        if _is_infrastructure_error(err_str):
+            return False
         # Recipient-side and policy errors are NOT server failures — the SMTP server
         # accepted our connection fine; the remote MTA or SES sandbox rejected the
         # specific recipient.  Don't penalize the server for these.
@@ -2300,11 +2310,13 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             "content filter", "content rejected", "spam", "junk",
             "mailbox full", "over quota",
             "ip blocked", "blacklist", "blocklist", "poor reputation",
+            "email address is not verified", "is not verified",
         ]):
             return False
         h["fails"] += 1
         # Auth errors are basically permanent until the campaign ends.
-        if any(x in es for x in ("auth", "535", "530", "credentials", "username")):
+        # Use specific phrases — bare 'auth' matches DMARC rejection messages.
+        if any(x in es for x in ("535 ", "530 ", "authentication failed", "authentication unsuccessful", "bad credentials", "invalid credentials")):
             h["fails"] += 5    # treat as terminal
         if h["fails"] >= SMTP_FAIL_THRESHOLD:
             over = h["fails"] - SMTP_FAIL_THRESHOLD
@@ -2618,7 +2630,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
 
             fut = _executor.submit(_execute_send, (i, lead, resolved_sender, server,
                                                     resolved_subject, resolved_html, resolved_plain, link_url))
-            return fut, resolved_sender, resolved_html, resolved_plain
+            return fut, resolved_sender, server, resolved_html, resolved_plain
 
         # Submit initial batch
         _qi = 0
@@ -2626,8 +2638,8 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             i, lead = _work_queue[_qi]; _qi += 1
             result = _submit_next(i, lead)
             if result:
-                fut, rsen, rhtml, rplain = result
-                _pending_futures[fut] = (i, lead, rsen, rhtml, rplain)
+                fut, rsen, rsrv, rhtml, rplain = result
+                _pending_futures[fut] = (i, lead, rsen, rsrv, rhtml, rplain)
 
         # Process completions and submit more work
         import concurrent.futures as _cf
@@ -2655,7 +2667,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 continue   # nothing finished this tick, re-check abort
             for fut in done:
                 work_meta = _pending_futures.pop(fut)
-                i, lead, pre_sender, resolved_html, resolved_plain = work_meta
+                i, lead, pre_sender, _srv_used, resolved_html, resolved_plain = work_meta
                 email_addr = (lead.get("email") or "").strip()
 
                 try:
@@ -2671,7 +2683,11 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 # re-picking the canonical server label from the via.
                 if method in ("smtp", "tunnel"):
                     try:
-                        _picked_srv = _pick(servers, srv_rot, i) if servers else None
+                        # Use the server that actually handled this send (stored at submit time)
+                        # rather than re-picking by index — srv_rot may have advanced by the
+                        # time the future completes in concurrent mode.
+                        _picked_srv = (_srv_used if (isinstance(_srv_used, dict) and _srv_used)
+                                       else (_pick(servers, srv_rot, i) if servers else None))
                         if _picked_srv and isinstance(_picked_srv, dict):
                             if ok:
                                 _record_smtp_ok(_picked_srv)
@@ -2987,8 +3003,8 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     i_n, lead_n = _work_queue[_qi]; _qi += 1
                     result_n = _submit_next(i_n, lead_n)
                     if result_n:
-                        fut_n, rsen_n, rhtml_n, rplain_n = result_n
-                        _pending_futures[fut_n] = (i_n, lead_n, rsen_n, rhtml_n, rplain_n)
+                        fut_n, rsen_n, rsrv_n, rhtml_n, rplain_n = result_n
+                        _pending_futures[fut_n] = (i_n, lead_n, rsen_n, rsrv_n, rhtml_n, rplain_n)
 
         # On stop: shutdown without waiting + cancel pending futures
         # (cancel_futures was added in 3.9; safe to use as we require 3.10+).
