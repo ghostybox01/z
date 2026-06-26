@@ -1915,9 +1915,14 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # (most ISPs 421 after ~50–100 messages on one session).
     _isp_tunnels_active = [t for t in opts.tunnels if t.get("tunnelType") == "isp"]
     if _isp_tunnels_active:
+        # ISPs 421 after ~50 messages on one session
         _smtp_reset_pool(campaign_uid, max_sends_per_conn=50, idle_timeout=120)
     else:
-        _smtp_reset_pool(campaign_uid)
+        # Fresh TCP+TLS+AUTH per email — eliminates bulk-session fingerprint.
+        # Sending multiple emails on one authenticated SMTP session is the #1
+        # cause of "first email inboxes, subsequent go to spam/blocked."
+        # Real MUAs (Outlook, Gmail) open a new connection for each send.
+        _smtp_reset_pool(campaign_uid, max_sends_per_conn=1, idle_timeout=30)
     pool   = _smtp_get_pool(campaign_uid)
     _mx_reset_ctx(campaign_uid)
     mx_ctx = _mx_get_ctx(campaign_uid)
@@ -2345,12 +2350,51 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             return _pick(_live, sender_rot, i), _pick(_live_srv, srv_rot, i)
         return _pick(_live, sender_rot, i), {}
 
+    # Per-domain last-send timestamp — enforces minimum inter-email delay even
+    # in concurrent mode.  Each worker checks this before sending so we never
+    # burst two emails to the same receiving domain within the throttle window.
+    _domain_throttle_lock = threading.Lock()
+    _domain_last_send: dict = {}
+
+    def _domain_min_delay(lead_email_addr: str, lead_domain: str) -> float:
+        """Minimum seconds between consecutive emails to the same receiving domain."""
+        if not dlv.get("domainThrottle", True):
+            return 0.0
+        if lead_domain in MS_RATE_DOMAINS:
+            return float(dlv.get("msDelay", 8) or 8)
+        if lead_domain in STRICT_DOMAINS:
+            return float(dlv.get("gmailDelay", 5) or 5)
+        # Per-provider extra delay from email sorter (keyed by full email)
+        _prov = _provider_map.get(lead_email_addr.lower(), "generic") if _provider_map else "generic"
+        _extras = {"o365": 3.0, "outlook": 2.0, "gmail": 1.0,
+                   "mimecast": 4.0, "proofpoint": 4.0, "barracuda": 2.0}
+        return _extras.get(_prov, 0.0)
+
     def _execute_send(work_item):
         """
         Run in a thread. Does ONLY the network IO — no state mutation.
         Returns (i, lead, ok, err, via, resolved_sender, link_url).
         """
         i, lead, sender, server, subj, html, plain, link_url = work_item
+
+        # Per-domain throttle (works in both sequential and concurrent mode).
+        # Each worker serializes on the domain lock only long enough to claim
+        # its send slot, then sleeps outside the lock.
+        _lead_email = (lead.get("email") or "").strip()
+        if "@" in _lead_email:
+            _ld = _lead_email.split("@")[-1].lower()
+            _min_d = _domain_min_delay(_lead_email, _ld)
+            if _min_d > 0:
+                with _domain_throttle_lock:
+                    _last_t = _domain_last_send.get(_ld, 0.0)
+                    _elapsed = time.time() - _last_t
+                    _sleep_t = max(0.0, _min_d - _elapsed)
+                    # Claim this domain's next send slot so concurrent workers
+                    # stagger rather than all sleeping for the same window.
+                    _domain_last_send[_ld] = time.time() + _sleep_t
+                if _sleep_t > 0:
+                    time.sleep(_sleep_t)
+
         try:
             ok, err, via = _send_one(
                 opts=opts, i=i, lead=lead, sender=sender,
@@ -2831,6 +2875,23 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     fail += 1
                     _append_fail(email_addr)
                     yield {"type":"error","index":i+1,"total":total_cap,"email":email_addr,"error":err}
+                    # Auto-suppress hard bounces — permanent recipient rejections
+                    # (550/5.1.1/user unknown) indicate the address doesn't exist.
+                    # Adding to suppression list prevents future campaigns from
+                    # sending to dead addresses, protecting sender reputation.
+                    if err and any(s in err.lower() for s in (
+                        "recipient rejected", "user unknown", "no such user",
+                        "mailbox not found", "does not exist", "mailbox unavailable",
+                        "address rejected", "5.1.1", "5.1.2", "5.1.3",
+                        "550 5.1.1", "550 5.7.1",
+                    )):
+                        try:
+                            from core.suppression_list import add_suppressed as _add_supp
+                            _added = _add_supp(email_addr, reason="hard_bounce")
+                            if _added:
+                                yield {"type":"info","msg":f"🚫 Hard bounce — {email_addr} added to suppression list"}
+                        except Exception:
+                            pass
                     if err and err.startswith("API_RATE_LIMIT:"):
                         parts = err.split(":",2)
                         pause = float(parts[1]) if len(parts)>1 else 60.0
@@ -2880,8 +2941,9 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                         stopped = True
                         break
                 elif _workers <= 1:
-                    # Sequential mode only — in concurrent mode the network I/O
-                    # provides natural pacing; sleeping here would serialize workers
+                    # Base delay / jitter in sequential mode.
+                    # Domain throttle is handled inside _execute_send (concurrent-safe)
+                    # so we don't duplicate it here.
                     if dlv.get("delayJitter"):
                         if not _sleep_interruptible(max(0.1, random.uniform(0.3, 1.5 + jitter_range * 0.3)), campaign_uid):
                             stopped = True
@@ -2890,24 +2952,6 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                         if not _sleep_interruptible(base_delay, campaign_uid):
                             stopped = True
                             break
-                    if dlv.get("domainThrottle"):
-                        lead_domain = email_addr.split("@")[-1].lower() if "@" in email_addr else ""
-                        if lead_domain in MS_RATE_DOMAINS:
-                            ms_delay = _safe_float(dlv.get("msDelay", 8), 8.0)
-                            if not _sleep_interruptible(ms_delay + random.uniform(0, 4), campaign_uid):
-                                stopped = True
-                                break
-                        elif lead_domain in STRICT_DOMAINS:
-                            extra = _safe_float(dlv.get("gmailDelay", 5), 5.0)
-                            if not _sleep_interruptible(extra, campaign_uid):
-                                stopped = True
-                                break
-                        # Per-provider extra delay from email sorter
-                        _prov_extra = _get_provider_delay(email_addr)
-                        if _prov_extra > 0:
-                            if not _sleep_interruptible(_prov_extra + random.uniform(0, _prov_extra * 0.3), campaign_uid):
-                                stopped = True
-                                break
 
                 # Check senders still alive
                 with _send_lock:

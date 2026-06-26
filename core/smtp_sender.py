@@ -460,6 +460,7 @@ class _PoolEntry:
     password:        str  = ""
     encryption:      str  = "TLS"
     ehlo:            str  = ""
+    from_domain:     str  = ""   # sender domain — used to rotate EHLO per reconnect
     proxy_cfg:       Optional[dict] = None
     connect_timeout: int  = 10
     data_timeout:    int  = 60
@@ -470,8 +471,12 @@ class _PoolEntry:
 # ═══════════════════════════════════════════════════════════════
 
 # Defaults — override in SmtpPool() constructor
-DEFAULT_MAX_SENDS_PER_CONN = 500   # reconnect after N sends per connection
-DEFAULT_IDLE_TIMEOUT       = 180   # reconnect if idle > N seconds
+DEFAULT_MAX_SENDS_PER_CONN = 1     # fresh TCP+TLS+AUTH connection per email
+# WHY 1: sending multiple emails on one authenticated SMTP session is the
+# #1 bulk-sender fingerprint. Real MUAs (Outlook, Thunderbird, Gmail) open
+# a new connection per Send. Setting this to 1 eliminates the "first email
+# inboxes, subsequent don't" pattern caused by session-level bulk detection.
+DEFAULT_IDLE_TIMEOUT       = 30    # reconnect if idle > 30s (session tracking window)
 DEFAULT_MAX_PER_HOUR       = 0     # 0 = unlimited per-server hourly cap
 DEFAULT_SEND_DELAY         = 0.0   # seconds between sends (0 = no delay)
 # Human-like delay: actual sleep is Gaussian(mean=send_delay, sigma=send_delay/4)
@@ -553,7 +558,8 @@ class SmtpPool:
                 f"{stats.sends_this_hour()}/{self.max_per_hour} this hour"
             )
 
-        entry = self._get_entry(key, smtp_cfg, ehlo_domain, proxy_cfg)
+        _from_dom = from_email.split("@")[-1] if from_email and "@" in from_email else ""
+        entry = self._get_entry(key, smtp_cfg, ehlo_domain, proxy_cfg, from_domain=_from_dom)
 
         for attempt in range(2):
             with entry.lock:
@@ -664,10 +670,12 @@ class SmtpPool:
                 entry.conn = None
             stats.record_reconnect()
             try:
+                _retry_ehlo = _get_ehlo_domain(entry.from_domain or entry.host or "")
                 new_conn = _open_connection(
                     entry.host, entry.port, entry.username, entry.password,
-                    entry.encryption, entry.ehlo, entry.proxy_cfg,
+                    entry.encryption, _retry_ehlo, entry.proxy_cfg,
                     entry.connect_timeout, entry.data_timeout,
+                    from_domain=entry.from_domain,
                 )
                 with entry.lock:
                     entry.conn = new_conn
@@ -743,13 +751,16 @@ class SmtpPool:
 
     def _get_entry(
         self,
-        key:       str,
-        smtp_cfg:  dict,
-        ehlo:      str,
-        proxy_cfg: Optional[dict],
+        key:        str,
+        smtp_cfg:   dict,
+        ehlo:       str,
+        proxy_cfg:  Optional[dict],
+        from_domain: str = "",
     ) -> _PoolEntry:
         with self._lock:
             if key not in self._entries:
+                _from_dom = from_domain or (ehlo.split(".")[-2] + "." + ehlo.split(".")[-1]
+                                            if ehlo and ehlo.count(".") >= 1 else ehlo or "")
                 self._entries[key] = _PoolEntry(
                     host            = smtp_cfg.get("host", ""),
                     port            = int(smtp_cfg.get("port") or 587),
@@ -757,6 +768,7 @@ class SmtpPool:
                     password        = smtp_cfg.get("password", ""),
                     encryption      = smtp_cfg.get("encryption", "TLS"),
                     ehlo            = ehlo or smtp_cfg.get("host", "mail.example.com"),
+                    from_domain     = _from_dom,
                     proxy_cfg       = proxy_cfg,
                     connect_timeout = self.connect_timeout,
                     data_timeout    = self.data_timeout,
@@ -790,6 +802,12 @@ class SmtpPool:
             or (self.max_sends_per_conn > 0 and stats.session_sent >= self.max_sends_per_conn)
         )
 
+        def _fresh_ehlo() -> str:
+            # Generate a new EHLO domain each time we open a fresh connection.
+            # Rotating the greeting hostname prevents session-correlation by
+            # inbound filters that fingerprint the EHLO string across messages.
+            return _get_ehlo_domain(entry.from_domain or entry.host or "")
+
         if must_reconnect:
             if entry.conn is not None:
                 _safe_close(entry.conn)
@@ -798,10 +816,12 @@ class SmtpPool:
                 log.debug("[SmtpPool] %s: voluntary reconnect "
                           "(idle=%.0fs, session_sent=%d)",
                           key, now - entry.last_used, stats.session_sent)
+            _ehlo = _fresh_ehlo()
             entry.conn      = _open_connection(
                 entry.host, entry.port, entry.username, entry.password,
-                entry.encryption, entry.ehlo, entry.proxy_cfg,
+                entry.encryption, _ehlo, entry.proxy_cfg,
                 entry.connect_timeout, entry.data_timeout,
+                from_domain=entry.from_domain,
             )
             entry.last_used = now
             return entry.conn
@@ -812,10 +832,12 @@ class SmtpPool:
             _safe_close(entry.conn)
             entry.conn = None
             stats.record_reconnect()
+            _ehlo = _fresh_ehlo()
             entry.conn      = _open_connection(
                 entry.host, entry.port, entry.username, entry.password,
-                entry.encryption, entry.ehlo, entry.proxy_cfg,
+                entry.encryption, _ehlo, entry.proxy_cfg,
                 entry.connect_timeout, entry.data_timeout,
+                from_domain=entry.from_domain,
             )
             entry.last_used = now
             return entry.conn
@@ -828,10 +850,12 @@ class SmtpPool:
             _safe_close(entry.conn)
             entry.conn = None
             stats.record_reconnect()
+            _ehlo = _fresh_ehlo()
             entry.conn      = _open_connection(
                 entry.host, entry.port, entry.username, entry.password,
-                entry.encryption, entry.ehlo, entry.proxy_cfg,
+                entry.encryption, _ehlo, entry.proxy_cfg,
                 entry.connect_timeout, entry.data_timeout,
+                from_domain=entry.from_domain,
             )
             entry.last_used = now
 
