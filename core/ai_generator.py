@@ -136,7 +136,7 @@ def _parse_response(text: str) -> dict:
         lines = [l.strip().lstrip("0123456789.-) ") for l in names_match.group(1).splitlines()]
         from_names = [l for l in lines if l][:5]
 
-    if not html and not subjects:
+    if not html:
         raise ValueError("AI response did not contain recognizable HTML or subject lines")
 
     return {

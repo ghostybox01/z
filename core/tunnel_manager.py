@@ -315,10 +315,12 @@ def _build_ssh_cmd(cfg: dict, local_port: int) -> tuple:
             # Path to existing key file
             cmd = cmd[:1] + ["-i", ssh_key] + cmd[1:]
         else:
-            # Treat as password — prepend sshpass
-            cmd = ["sshpass", "-p", ssh_key] + cmd
+            # Treat as password — use sshpass -e (env var) to avoid leaking
+            # the password via /proc/*/cmdline
+            cmd = ["sshpass", "-e"] + cmd
+            return cmd, tmp_keyfile, ssh_key
 
-    return cmd, tmp_keyfile
+    return cmd, tmp_keyfile, None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -468,14 +470,15 @@ class TunnelManager:
                 preflight = self._run_preflight("127.0.0.1", local_port)
                 return local_port, preflight
 
-        cmd, tmp_keyfile = _build_ssh_cmd(cfg, local_port)
+        cmd, tmp_keyfile, sshpass_pw = _build_ssh_cmd(cfg, local_port)
+        _popen_env = {**os.environ, "SSHPASS": sshpass_pw} if sshpass_pw else os.environ.copy()
 
         try:
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
-                env=os.environ.copy(),
+                env=_popen_env,
             )
         except FileNotFoundError as exc:
             _cleanup_keyfile(tmp_keyfile)
@@ -648,12 +651,13 @@ class TunnelManager:
         info.tmp_keyfile = None
 
         try:
-            cmd, tmp_keyfile = _build_ssh_cmd(info.cfg, info.local_port)
+            cmd, tmp_keyfile, sshpass_pw = _build_ssh_cmd(info.cfg, info.local_port)
+            _popen_env = {**os.environ, "SSHPASS": sshpass_pw} if sshpass_pw else os.environ.copy()
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
-                env=os.environ.copy(),
+                env=_popen_env,
             )
             ready = _wait_for_socks_port(info.local_port)
             if not ready or proc.poll() is not None:

@@ -12712,6 +12712,7 @@ function App() {
   }
 
   async function startCampaign() {
+    if(campRunning) return;
     const pLeads = parseLeads(leadsRaw, allowDupes);
     if(!pLeads.length){showPopup({title:"No Leads",msg:"No valid leads loaded. Add emails in the Leads tab.",ico:"👥",type:"alert"});return;}
     if(!subject.trim()){showPopup({title:"Missing Subject",msg:"Subject line is required before launching.",ico:"✉️",type:"alert"});return;}

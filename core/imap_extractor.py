@@ -390,11 +390,12 @@ def _extract_imap(conn, prov, limit, filter_generic):
                         if filter_generic and _is_generic(addr): continue
                         results.append({"addr":addr,"name":name or "","date":(msg.get("Date") or "")[:30],"subject":(msg.get("Subject") or "")[:80]})
                     except Exception: pass
-        try: conn.close(); conn.logout()
-        except Exception: pass
         return _build_result(results,total_inbox,prov,f"{prov.get('host','')}:{prov.get('port',993)}")
     except Exception as exc:
         return {"ok":False,"error":str(exc)[:200]}
+    finally:
+        try: conn.close(); conn.logout()
+        except Exception: pass
 
 
 # ── Backwards-compat alias ──────────────────────────────────────────
