@@ -61,6 +61,11 @@ log = logging.getLogger(__name__)
 
 from core.tags import resolve_tags, build_context
 try:
+    from core.suppression_list import is_suppressed as _is_suppressed
+except Exception:
+    _is_suppressed = None
+
+try:
     from core.link_encoder import (
         resolve_link_tags, build_redirect_attachment,
         get_method_from_tag, METHOD_HTML_ATTACHMENT, METHOD_CF_SECURITY_CHECK,
@@ -1714,6 +1719,8 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 lead_email = (lead.get("email") or "").strip()
                 if not lead_email:
                     continue
+                if _is_suppressed and _is_suppressed(lead_email):
+                    continue
 
                 cp     = opts.cpanels[_cp_idx % _cp_n]
                 _cp_idx += 1
@@ -1824,6 +1831,9 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         failed  = 0
         for i, lead in enumerate(opts.leads):
             lead_email = lead.get("email", "") if isinstance(lead, dict) else str(lead)
+            if _is_suppressed and _is_suppressed(lead_email):
+                failed += 1
+                continue
             sender     = opts.senders[i % len(opts.senders)] if opts.senders else {}
             subject    = opts.subjects[i % len(opts.subjects)] if opts.subjects else ""
             html       = opts.html_bodies[i % len(opts.html_bodies)] if opts.html_bodies else opts.html_body
@@ -1902,6 +1912,10 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         "owa":        opts.owas,
         "crm":        opts.crms,
         "tunnel":     opts.tunnels,
+        "office":     [],   # office sends via o365_relay, no server pool needed
+        "mx":         [],   # mx resolves its own servers via DNS
+        "b2b":        [],   # b2b uses its own session manager
+        "cpanel":     opts.cpanels if hasattr(opts, "cpanels") else [],
     }
     servers = pool_map.get(method, opts.smtps) or []
 
@@ -2531,6 +2545,10 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             if not email_addr:
                 skip += 1
                 yield {"type":"skip","index":i+1,"total":total_cap,"email":"(empty)","msg":"Lead has no email address"}
+                continue
+            if _is_suppressed and _is_suppressed(email_addr):
+                skip += 1
+                yield {"type":"skip","index":i+1,"total":total_cap,"email":email_addr,"msg":"Suppressed"}
                 continue
             lead.setdefault("name","")
             lead.setdefault("company","")

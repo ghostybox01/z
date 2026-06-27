@@ -1631,14 +1631,15 @@ def init_db():
 
         # Seed default admin if no users exist
         if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
+            _rand_pw = secrets.token_urlsafe(16)
             salt = secrets.token_hex(16)
-            pw   = hash_password("admin") if HAS_BCRYPT else hash_password("admin", salt)
+            pw   = hash_password(_rand_pw) if HAS_BCRYPT else hash_password(_rand_pw, salt)
             conn.execute(
                 "INSERT INTO users (username, password_hash, salt, role) VALUES (?,?,?,?)",
                 ("admin", pw, salt, "admin"),
             )
-            print("✦ Default admin: username=admin / password=admin")
-            print("✦ CHANGE THIS PASSWORD IMMEDIATELY!")
+            print(f"✦ Default admin created: username=admin / password={_rand_pw}")
+            print("✦ Save this password — it will not be shown again.")
 
         # Purge expired sessions
         conn.execute("DELETE FROM sessions WHERE expires < ?", (datetime.now().isoformat(),))
@@ -2397,7 +2398,8 @@ if(code && window.opener){{
             self.send_response(200)
             self._cors()
             self.send_header("Content-Type", row[2])
-            self.send_header("Content-Disposition", f'attachment; filename="{row[1]}"')
+            _safe_dl_name = re.sub(r'[^\w.\-]', '_', row[1])[:200]
+            self.send_header("Content-Disposition", f'attachment; filename="{_safe_dl_name}"')
             self.send_header("Content-Length", str(len(data_bytes)))
             self.end_headers()
             self.wfile.write(data_bytes)
@@ -2727,7 +2729,7 @@ if(code && window.opener){{
 
         # ── Server log tail ─────────────────────────────────────────
         elif p.startswith("/api/logs"):
-            if not (sess := self._auth()): return
+            if not (sess := self._admin()): return
             try:
                 from urllib.parse import parse_qs, urlparse
                 qs = parse_qs(urlparse(self.path).query)
@@ -6345,6 +6347,14 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             host = smtp.get("host", "")
             if not host:
                 self._json(400, {"error": "SMTP host required"}); return
+            try:
+                import ipaddress, socket as _sock
+                _resolved = _sock.gethostbyname(host)
+                _ip = ipaddress.ip_address(_resolved)
+                if _ip.is_private or _ip.is_loopback or _ip.is_link_local:
+                    self._json(400, {"error": "SMTP host resolves to a private/loopback address"}); return
+            except (ValueError, OSError):
+                pass
             self._json(200, _smtp_probe(smtp, timeout=20))
 
         # ── Hosted Redirects: create / update / delete ────────
