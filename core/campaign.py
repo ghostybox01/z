@@ -2073,10 +2073,11 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             yield {"type": "info", "msg": f"✓ Pre-flight DNS: all {len(opts.senders)} sender domain(s) resolved OK"}
 
     # ── Sender auth pre-flight (SPF / DMARC) ─────────────────
-    # Runs for smtp / api / tunnel when preflight DNS is not skipped.
-    # Warns on missing SPF, strict DMARC, or free-email via API ESP.
+    # Runs for api / tunnel when preflight DNS is not skipped.
     # Fatal senders (free email + API) are removed before the loop starts.
-    if method in ("smtp", "api", "tunnel", "office", "cpanel", "ssti_probe") and opts.senders and not opts.skip_preflight_dns:
+    # smtp is excluded: the relay authenticates via SMTP AUTH; SPF/DKIM
+    # on the sender domain doesn't block the relay from accepting the message.
+    if method in ("api", "tunnel", "office", "cpanel", "ssti_probe") and opts.senders and not opts.skip_preflight_dns:
         _auth_checks = _preflight_sender_auth(opts.senders, method, servers)
         _auth_fatal  = set()
         for _ac in _auth_checks:
