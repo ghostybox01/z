@@ -14010,6 +14010,139 @@ WARMUP MODE:
   Enable in Deliverability → Warmup and set the current day number.
       `},
 
+      {id:"speed", title:"⚙️ Campaign Speed & Throttling", body:`
+All settings are in Campaign → ▼ Deliverability & Sending dropdown.
+
+DELAY (seconds between sends)
+  How long to wait between each individual send.
+  2s = ~30 emails/min | 1s = ~60/min | 0.5s = ~120/min
+  Set to 0 for max speed (not recommended — triggers rate limits quickly).
+
+JITTER (random delay ±N seconds)
+  Adds randomness to the delay so sends don't arrive at a perfectly regular interval.
+  Example: Delay 2s + Jitter ±3s → actual gap is 0–5s, random each time.
+  Recommended: ON with ±2–5s. Makes traffic look human to rate-limit detection.
+
+BATCH SIZE + BATCH PAUSE
+  Send N emails in a burst, then pause for X seconds, then repeat.
+  Example: Batch 50, Pause 120s → send 50, rest 2 min, send 50, rest 2 min...
+  Use for: respecting per-hour or per-burst limits on SMTP servers.
+
+CONCURRENT SENDS
+  How many emails to send in parallel (simultaneous threads).
+  Default 1 = sequential. Set 2–5 for faster throughput with multiple SMTP servers.
+  Warning: too many concurrent sends on a single SMTP server causes auth errors.
+
+COOLDOWN EVERY / COOLDOWN SECS
+  Pause for X seconds after every N sends.
+  Example: Cooldown every 100 / 60s → pause 1 minute after every 100 sends.
+  Different from Batch Pause: cooldown tracks total sends, batch tracks current burst.
+
+EMAIL PRIORITY (URGENCY)
+  Sets X-Priority / Importance headers on the message.
+  Normal = no priority header. High = urgent marker. Low = low-priority marker.
+  Warning: High priority on bulk mail often triggers spam filters. Leave on Normal.
+
+DOMAIN THROTTLING
+  Limits how many sends go to the same recipient domain per minute.
+  Example: max 5/min to @gmail.com, 2/min to @yahoo.com.
+  Prevents hammering a single provider and hitting their per-IP rate limits.
+
+IP WARMUP MODE
+  Gradually ramps volume up over days to build sender IP/domain reputation.
+  Day 1: 20 max | Day 2: 100 | Day 3: 500 | Day 4: 2,000 | Day 5+: unlimited
+  Set the current warmup day number. Campaign stops when the daily cap is hit.
+  Use for new IPs or domains — jumping straight to 10K/day will land you in spam.
+
+RATE LIMIT AUTO-PAUSE
+  When the SMTP server returns a rate-limit error (451/452 / "too many recipients"),
+  the campaign pauses automatically and waits before retrying.
+  Recommended: always leave ON.
+
+PERSONAL BCC
+  Sends a blind carbon copy of every email to an address you specify.
+  Use for QA — confirm what recipients actually receive.
+  Warning: at high volume your BCC inbox fills up fast. Use Test Email instead.
+
+TEST EMAIL / SEND TEST EVERY N
+  Sends a copy to your test address every N sends.
+  Example: Test every 50 → you get a sample at send #50, #100, #150, etc.
+  Lets you monitor live deliverability without reviewing every single message.
+      `},
+
+      {id:"bypass", title:"🔒 Bypass Mode & Anti-Detection", body:`
+All settings are in Campaign → ▼ Deliverability & Sending dropdown.
+These are advanced. Leave OFF unless you know why you need them.
+
+━━━ 🔓 ADVANCED BYPASS MODE (master switch) ━━━
+Enables the five bypass sub-options. All are inactive when this is OFF.
+
+  Zero-Font Noise
+    Inserts invisible zero-width / zero-font characters inside the HTML body.
+    Content scanners read garbled text; the human eye sees nothing different.
+    Use to: break up exact matches on spam-trigger words.
+
+  HTML Comment Injection
+    Inserts random HTML comments (<!-- random_token -->) throughout the body.
+    Breaks structural fingerprinting — every send has a different HTML hash.
+    Use to: prevent template hash matching across sends in bulk detection systems.
+
+  Invisible Subject Chars
+    Injects zero-width Unicode characters (U+200B, U+FEFF) into the subject line.
+    Humans see: "Important update" | Scanner hash sees: something completely different.
+    Use to: bypass exact-match subject-line keyword filters.
+
+  Homoglyph Encoding
+    Replaces selected Latin characters with visually identical Unicode lookalikes.
+    E.g. "o" → "ο" (Greek omicron), "a" → "а" (Cyrillic a).
+    The text looks identical to humans; word hashes change completely.
+    Use to: defeat word-boundary spam filter matching on known trigger words.
+
+  Font Randomisation
+    Wraps text spans in random font-family CSS values per send.
+    Breaks CSS-aware scanner word-boundary detection.
+    Use to: complement homoglyphs when HTML scanners inspect CSS.
+
+━━━ 🛡️ ANTI-DETECTION MODE ━━━
+Randomises MIME boundaries, Content-ID values, and entropy tokens per email.
+Every message has a structurally unique fingerprint even with the same content.
+Use to: prevent bulk-detection systems from fingerprinting your template.
+Note: auto-disabled for CRM/some API providers that reformat the message anyway.
+
+━━━ 🧵 THREAD SIMULATION ━━━
+Adds fake In-Reply-To and References headers so the email looks like a reply
+to an existing conversation rather than a cold contact.
+Use to: improve open rates on B2B targets — a "reply" in the inbox stands out.
+Warning: if the recipient's client shows the full quoted thread and there is none,
+it looks broken. Always test on a real inbox before running at scale.
+
+━━━ ⛓️ ARC CHAIN SIMULATION ━━━
+Injects fake ARC (Authenticated Received Chain) headers.
+ARC is added by trusted mail intermediaries (e.g. Google Workspace forwarders).
+Receiving servers that validate ARC treat ARC-signed mail as pre-vetted.
+Use to: O365→O365 or forwarded mail scenarios where ARC validation is enabled.
+
+━━━ 🏢 MS EXCHANGE TRUST HEADERS ━━━
+Adds X-MS-Exchange-Organization-SCL:-1 to the message.
+SCL -1 = "trusted sender, skip junk filter" in Exchange and Office 365.
+Only effective when the receiving server is Exchange and configured to honour
+inbound SCL overrides — typically internal relay or connector scenarios.
+
+━━━ 🚩 AUTO-FLAG EMAILS ━━━
+Sets the email's Flag/Importance header so it arrives starred in the inbox.
+Use to: draw immediate attention for high-priority outreach.
+Warning: flagged bulk mail is heavily penalised by Gmail and Outlook filters.
+
+━━━ 👁️ HIDE FROM EMAIL ━━━
+Omits the sender display name — shows only the raw email address in From.
+Some filters flag "no display name" as spam-like. Test before large scale use.
+
+━━━ ⚡ SKIP PREFLIGHT DNS CHECK ━━━
+Disables the pre-send MX/sender-domain DNS lookup that runs before sending starts.
+Use when: VPS DNS is slow or broken, or you know all senders are valid.
+The preflight adds 5–15s of startup time; skipping it starts sends immediately.
+      `},
+
       {id:"tools", title:"🔧 Tools — Utilities", body:`
 Access via the Tools tab. Standalone utilities that don't require a campaign.
 
