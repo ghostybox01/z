@@ -8387,6 +8387,11 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
 
 def main():
     init_db()
+    try:
+        from core.suppression_list import init_db as _init_suppression_db
+        _init_suppression_db()
+    except Exception:
+        pass
     os.makedirs(FILES_DIR, exist_ok=True)
     # Best-effort: write the installed SHA on first start so /api/update/check
     # has a meaningful baseline.  Runs in a thread so a slow GitHub doesn't

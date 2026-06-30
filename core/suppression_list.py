@@ -114,12 +114,15 @@ def is_suppressed(email: str) -> bool:
     """Return True if email is on the global suppression list."""
     if not email:
         return False
-    with _conn() as con:
-        row = con.execute(
-            "SELECT 1 FROM suppression_list WHERE email=? COLLATE NOCASE",
-            (email.strip().lower(),)
-        ).fetchone()
-    return row is not None
+    try:
+        with _conn() as con:
+            row = con.execute(
+                "SELECT 1 FROM suppression_list WHERE email=? COLLATE NOCASE",
+                (email.strip().lower(),)
+            ).fetchone()
+        return row is not None
+    except Exception:
+        return False
 
 
 def add_suppressed(emails, reason: str = "manual"):
