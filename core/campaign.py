@@ -270,13 +270,21 @@ def _preflight_sender_auth(senders: list, method: str, servers: list = None) -> 
     results = []
     with _cf_auth.ThreadPoolExecutor(max_workers=min(len(domain_sample), 10)) as ex:
         futs = {ex.submit(_check, d, e): (d, e) for d, e in domain_sample.items()}
-        for fut in _cf_auth.as_completed(futs, timeout=20):
-            try:
-                results.append(fut.result(timeout=0))
-            except Exception as exc:
-                d, e = futs[fut]
-                results.append({"domain": d, "from_email": e, "level": "ok",
-                                 "msg": f"{d}: auth check skipped", "spf": "", "dmarc": ""})
+        try:
+            for fut in _cf_auth.as_completed(futs, timeout=20):
+                try:
+                    results.append(fut.result(timeout=0))
+                except Exception as exc:
+                    d, e = futs[fut]
+                    results.append({"domain": d, "from_email": e, "level": "ok",
+                                     "msg": f"{d}: auth check skipped", "spf": "", "dmarc": ""})
+        except _cf_auth.TimeoutError:
+            # DNS checks exceeded 20s — mark remaining domains as skipped
+            checked = {id(f) for f in results}
+            for fut, (d, e) in futs.items():
+                if not fut.done():
+                    results.append({"domain": d, "from_email": e, "level": "ok",
+                                     "msg": f"{d}: auth check timed out", "spf": "", "dmarc": ""})
     return results
 
 
@@ -570,12 +578,7 @@ def _pick(pool: list, rotation: str, index: int):
     if not pool:
         return None
     if rotation == "random":
-        # Use shuffled round-robin so every sender gets equal usage before any
-        # is repeated — pure random.choice with small pools causes uneven distribution
-        # (e.g. 2 senders, 2 emails → 50% chance both use the same sender).
-        if len(pool) > 1:
-            return pool[index % len(pool)]
-        return pool[0]
+        return random.choice(pool)
     return pool[index % len(pool)]
 
 
@@ -1720,6 +1723,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 if not lead_email:
                     continue
                 if _is_suppressed and _is_suppressed(lead_email):
+                    failed += 1
                     continue
 
                 cp     = opts.cpanels[_cp_idx % _cp_n]
@@ -1829,10 +1833,11 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         total   = len(opts.leads)
         sent    = 0
         failed  = 0
+        skip    = 0
         for i, lead in enumerate(opts.leads):
             lead_email = lead.get("email", "") if isinstance(lead, dict) else str(lead)
             if _is_suppressed and _is_suppressed(lead_email):
-                failed += 1
+                skip += 1
                 continue
             sender     = opts.senders[i % len(opts.senders)] if opts.senders else {}
             subject    = opts.subjects[i % len(opts.subjects)] if opts.subjects else ""
@@ -2151,11 +2156,11 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         # Core SMTP auth failures — credentials are definitely wrong
         # Use specific auth-failure phrases — bare "authentication" matches DMARC
         # rejection messages ("DMARC authentication check failed") and would
-        # instant-kill the sender incorrectly.  "relay denied" is an IP restriction
-        # at the relay, not a credential failure — don't treat it as auth.
+        # instant-kill the sender incorrectly.
         cred_fail = any(x in s for x in [
             "authentication failed", "authentication unsuccessful",
             "535", "530", "username", "password",
+            "relay denied", "relay not permitted",
         ])
         if cred_fail:
             return True
@@ -2520,7 +2525,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     # stagger rather than all sleeping for the same window.
                     _domain_last_send[_ld] = time.time() + _sleep_t
                 if _sleep_t > 0:
-                    time.sleep(_sleep_t)
+                    _sleep_interruptible(_sleep_t, campaign_uid)
 
         try:
             ok, err, via = _send_one(

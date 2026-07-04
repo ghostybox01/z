@@ -2316,7 +2316,8 @@ def _build_mime(
     """
     # Multi-point uniqueness — top comment + bottom div + plain text marker
     if html or plain:
-        _uhash = hashlib.sha256(f"{to_email}|{from_email}".encode()).hexdigest()
+        import time as _time_mod
+        _uhash = hashlib.sha256(f"{to_email}|{from_email}|{_time_mod.time_ns()}".encode()).hexdigest()
         if html:
             _top_cmt = f'<!--r:{_uhash[:8]}-->'
             if re.search(r'<body[^>]*>', html, re.I):

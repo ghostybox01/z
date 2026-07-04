@@ -6348,12 +6348,19 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             if not host:
                 self._json(400, {"error": "SMTP host required"}); return
             try:
-                import ipaddress, socket as _sock
-                _resolved = _sock.gethostbyname(host)
-                _ip = ipaddress.ip_address(_resolved)
+                import ipaddress as _ipaddress
+                # Reject bare IPv6 literals before gethostbyname (which raises OSError for them)
+                try:
+                    _direct_ip = _ipaddress.ip_address(host)
+                    if _direct_ip.is_private or _direct_ip.is_loopback or _direct_ip.is_link_local:
+                        self._json(400, {"error": "SMTP host resolves to a private/loopback address"}); return
+                except ValueError:
+                    pass  # not an IP literal — proceed to DNS lookup
+                _resolved = socket.gethostbyname(host)
+                _ip = _ipaddress.ip_address(_resolved)
                 if _ip.is_private or _ip.is_loopback or _ip.is_link_local:
                     self._json(400, {"error": "SMTP host resolves to a private/loopback address"}); return
-            except (ValueError, OSError):
+            except OSError:
                 pass
             self._json(200, _smtp_probe(smtp, timeout=20))
 

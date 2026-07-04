@@ -147,7 +147,7 @@ def smtp_error_type(exc: Exception) -> str:
 
     if any(x in err for x in [
         "spamhaus", "blacklist", "blocklist", "spam", "policy", "blocked",
-        "not authorized", "5.7.26", "content rejected",
+        "not authorized", "5.7.0", "5.7.1", "5.7.26", "content rejected",
     ]):
         return SmtpErrorKind.PERMANENT_POLICY
 
@@ -763,8 +763,12 @@ class SmtpPool:
     ) -> _PoolEntry:
         with self._lock:
             if key not in self._entries:
-                _from_dom = from_domain or (ehlo.split(".")[-2] + "." + ehlo.split(".")[-1]
-                                            if ehlo and ehlo.count(".") >= 1 else ehlo or "")
+                _parts = ehlo.split(".") if ehlo else []
+                _from_dom = from_domain or (
+                    ".".join(_parts[-3:]) if len(_parts) >= 3 else
+                    ".".join(_parts[-2:]) if len(_parts) == 2 else
+                    ehlo or ""
+                )
                 self._entries[key] = _PoolEntry(
                     host            = smtp_cfg.get("host", ""),
                     port            = int(smtp_cfg.get("port") or 587),
