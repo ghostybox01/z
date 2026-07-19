@@ -1,0 +1,29 @@
+# SynthTel runtime dependencies
+# Install with: pip install -r requirements.txt
+
+# HTTP and API clients
+requests==2.32.3
+
+# Auth / hashing
+bcrypt==4.1.3
+
+# SSH / proxy tunneling
+paramiko==3.4.0
+pysocks==1.7.1
+
+# DNS resolution
+dnspython==2.6.1
+
+# QR code generation
+qrcode==7.4.2
+
+# --- Optional / provider-specific ---
+# Microsoft Graph / OAuth2 (required for B2B and IMAP extraction)
+msal==1.29.0
+
+# AWS SES / S3 redirects
+boto3==1.34.131
+botocore==1.34.131
+
+# Windows WinRM remote deployment
+pywinrm==0.4.3

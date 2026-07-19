@@ -303,6 +303,9 @@ GITHUB_TOKEN = os.environ.get("SYNTHTEL_GH_TOKEN", "")  # optional, raises rate 
 # Files we know how to update from the repo.  Anything else is left alone.
 UPDATE_TRACKED_FILES = [
     "core/server.py",
+    "core/safe_urlopen.py",
+    "core/ssh_helper.py",
+    "core/urlopen_compat.py",
     "core/campaign.py",
     "core/api_sender.py",
     "core/b2b_manager.py",
