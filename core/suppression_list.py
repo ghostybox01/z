@@ -26,7 +26,6 @@ Inbox Placement Tester routes:
 """
 
 import os
-import re
 import time
 import uuid
 import sqlite3
@@ -34,7 +33,6 @@ import threading
 import logging
 import socket
 import hashlib
-from datetime import datetime, timezone
 from contextlib import contextmanager
 
 log = logging.getLogger(__name__)
@@ -43,7 +41,9 @@ log = logging.getLogger(__name__)
 # DATABASE
 # ─────────────────────────────────────────────────────────────
 
-_DB_PATH = os.environ.get("SYNTHTEL_DB", os.environ.get("ST_DB_PATH", "/opt/synthtel/synthtel.db"))
+_DB_PATH = os.environ.get(
+    "SYNTHTEL_DB", os.environ.get("ST_DB_PATH", "/opt/synthtel/synthtel.db")
+)
 _db_lock = threading.Lock()
 
 
@@ -110,6 +110,7 @@ def init_db():
 # SUPPRESSION LIST
 # ─────────────────────────────────────────────────────────────
 
+
 def is_suppressed(email: str) -> bool:
     """Return True if email is on the global suppression list."""
     if not email:
@@ -118,7 +119,7 @@ def is_suppressed(email: str) -> bool:
         with _conn() as con:
             row = con.execute(
                 "SELECT 1 FROM suppression_list WHERE email=? COLLATE NOCASE",
-                (email.strip().lower(),)
+                (email.strip().lower(),),
             ).fetchone()
         return row is not None
     except Exception:
@@ -134,8 +135,7 @@ def add_suppressed(emails, reason: str = "manual"):
         return 0
     with _conn() as con:
         con.executemany(
-            "INSERT OR IGNORE INTO suppression_list (email, reason) VALUES (?, ?)",
-            rows
+            "INSERT OR IGNORE INTO suppression_list (email, reason) VALUES (?, ?)", rows
         )
     log.info("[suppression] added %d email(s) reason=%s", len(rows), reason)
     return len(rows)
@@ -146,7 +146,7 @@ def remove_suppressed(email: str) -> bool:
     with _conn() as con:
         cur = con.execute(
             "DELETE FROM suppression_list WHERE email=? COLLATE NOCASE",
-            (email.strip().lower(),)
+            (email.strip().lower(),),
         )
     return cur.rowcount > 0
 
@@ -158,7 +158,7 @@ def list_suppressed(search: str = "") -> list:
             rows = con.execute(
                 "SELECT email, reason, added_at FROM suppression_list "
                 "WHERE email LIKE ? ORDER BY added_at DESC",
-                (f"%{search.lower()}%",)
+                (f"%{search.lower()}%",),
             ).fetchall()
         else:
             rows = con.execute(
@@ -176,9 +176,10 @@ def filter_suppressed(emails: list) -> list:
     with _conn() as con:
         placeholders = ",".join("?" * len(lower))
         suppressed = {
-            row[0] for row in con.execute(
-                f"SELECT email FROM suppression_list WHERE email IN ({placeholders}) COLLATE NOCASE",
-                list(lower)
+            row[0]
+            for row in con.execute(
+                f"SELECT email FROM suppression_list WHERE email IN ({placeholders}) COLLATE NOCASE",  # nosec B608
+                list(lower),
             ).fetchall()
         }
     return [e for e in emails if e.strip().lower() not in suppressed]
@@ -190,22 +191,24 @@ def filter_suppressed(emails: list) -> list:
 
 # IMAP host map for known providers — same pattern as email_sorter
 _IMAP_HOSTS = {
-    "gmail":   ("imap.gmail.com",   993),
+    "gmail": ("imap.gmail.com", 993),
     "outlook": ("imap-mail.outlook.com", 993),
     "hotmail": ("imap-mail.outlook.com", 993),
-    "yahoo":   ("imap.mail.yahoo.com", 993),
-    "gmx":     ("imap.gmx.net",     993),
-    "aol":     ("imap.aol.com",      993),
-    "icloud":  ("imap.mail.me.com", 993),
-    "zoho":    ("imap.zoho.com",     993),
-    "fastmail":("imap.fastmail.com", 993),
-    "yandex":  ("imap.yandex.com",  993),
-    "mail_ru": ("imap.mail.ru",     993),
-    "protonmail": ("127.0.0.1",     1143),  # requires Proton Bridge
+    "yahoo": ("imap.mail.yahoo.com", 993),
+    "gmx": ("imap.gmx.net", 993),
+    "aol": ("imap.aol.com", 993),
+    "icloud": ("imap.mail.me.com", 993),
+    "zoho": ("imap.zoho.com", 993),
+    "fastmail": ("imap.fastmail.com", 993),
+    "yandex": ("imap.yandex.com", 993),
+    "mail_ru": ("imap.mail.ru", 993),
+    "protonmail": ("127.0.0.1", 1143),  # requires Proton Bridge
 }
 
 
-def _resolve_imap(email: str, provider: str, custom_host: str = "", custom_port: int = 993):
+def _resolve_imap(
+    email: str, provider: str, custom_host: str = "", custom_port: int = 993
+):
     """Return (host, port) for the given account."""
     if provider == "custom" and custom_host:
         return custom_host, int(custom_port or 993)
@@ -218,8 +221,13 @@ def _resolve_imap(email: str, provider: str, custom_host: str = "", custom_port:
     return _IMAP_HOSTS.get(provider, ("", 993))
 
 
-def add_seed_account(email: str, password: str, provider: str = "auto",
-                     imap_host: str = "", imap_port: int = 993) -> dict:
+def add_seed_account(
+    email: str,
+    password: str,
+    provider: str = "auto",
+    imap_host: str = "",
+    imap_port: int = 993,
+) -> dict:
     """Add a seed account for inbox placement testing."""
     host, port = _resolve_imap(email, provider, imap_host, imap_port)
     with _conn() as con:
@@ -227,7 +235,7 @@ def add_seed_account(email: str, password: str, provider: str = "auto",
             "INSERT OR REPLACE INTO seed_accounts "
             "(email, password, imap_host, imap_port, provider, status) "
             "VALUES (?, ?, ?, ?, ?, 'unchecked')",
-            (email.strip().lower(), password, host, port, provider)
+            (email.strip().lower(), password, host, port, provider),
         )
     return {"ok": True, "email": email, "imap_host": host, "imap_port": port}
 
@@ -236,7 +244,7 @@ def remove_seed_account(email: str) -> bool:
     with _conn() as con:
         cur = con.execute(
             "DELETE FROM seed_accounts WHERE email=? COLLATE NOCASE",
-            (email.strip().lower(),)
+            (email.strip().lower(),),
         )
     return cur.rowcount > 0
 
@@ -255,6 +263,7 @@ def list_seed_accounts() -> list:
 # INBOX PLACEMENT TESTER
 # ─────────────────────────────────────────────────────────────
 
+
 def start_inbox_test(subject: str, html: str) -> str:
     """
     Create a run record and dispatch background IMAP polling threads.
@@ -264,7 +273,7 @@ def start_inbox_test(subject: str, html: str) -> str:
     with _conn() as con:
         con.execute(
             "INSERT INTO inbox_test_runs (run_id, subject, html) VALUES (?, ?, ?)",
-            (run_id, subject, html)
+            (run_id, subject, html),
         )
         accounts = con.execute(
             "SELECT email, password, imap_host, imap_port, provider FROM seed_accounts"
@@ -279,15 +288,13 @@ def start_inbox_test(subject: str, html: str) -> str:
     with _conn() as con:
         con.executemany(
             "INSERT INTO inbox_test_results (run_id, account, provider, folder) VALUES (?, ?, ?, 'pending')",
-            [(run_id, dict(a)["email"], dict(a)["provider"]) for a in accounts]
+            [(run_id, dict(a)["email"], dict(a)["provider"]) for a in accounts],
         )
 
     # Dispatch background threads
     for acc in accounts:
         t = threading.Thread(
-            target=_check_inbox,
-            args=(run_id, dict(acc), subject),
-            daemon=True
+            target=_check_inbox, args=(run_id, dict(acc), subject), daemon=True
         )
         t.start()
 
@@ -307,18 +314,23 @@ def _check_inbox(run_id: str, account: dict, subject: str):
     reports which folder it landed in.
     """
     import imaplib
+
     email_addr = account["email"]
-    password   = account["password"]
-    imap_host  = account["imap_host"] or _resolve_imap(email_addr, account.get("provider","auto"))[0]
-    imap_port  = int(account.get("imap_port") or 993)
-    t_start    = time.time()
+    password = account["password"]
+    imap_host = (
+        account["imap_host"]
+        or _resolve_imap(email_addr, account.get("provider", "auto"))[0]
+    )
+    imap_port = int(account.get("imap_port") or 993)
+    t_start = time.time()
 
     # Unique marker to find our email — embed in subject
-    marker     = hashlib.md5(f"{run_id}:{email_addr}".encode()).hexdigest()[:12]
-    search_subj = f"{subject} [{marker}]"  # the test sender should include this
+    marker = hashlib.md5(
+        f"{run_id}:{email_addr}".encode(), usedforsecurity=False
+    ).hexdigest()[:12]
 
-    folder     = "pending"
-    error_msg  = ""
+    folder = "pending"
+    error_msg = ""
 
     try:
         mail = imaplib.IMAP4_SSL(imap_host, imap_port)
@@ -335,14 +347,21 @@ def _check_inbox(run_id: str, account: dict, subject: str):
                     # Search by subject (fallback — marker may not be in subject)
                     _, data = mail.search(None, f'SUBJECT "{marker}"')
                     if not data or not data[0]:
-                        _, data = mail.search(None, 'UNSEEN')
+                        _, data = mail.search(None, "UNSEEN")
                         # Check each unseen for our subject
                         if data and data[0]:
                             for num in data[0].split()[-10:]:  # last 10 unseen
-                                _, msg_data = mail.fetch(num, "(BODY[HEADER.FIELDS (SUBJECT)])")
+                                _, msg_data = mail.fetch(
+                                    num, "(BODY[HEADER.FIELDS (SUBJECT)])"
+                                )
                                 if msg_data and msg_data[0]:
-                                    raw = msg_data[0][1].decode(errors="replace").lower()
-                                    if marker.lower() in raw or (subject or "").lower()[:20] in raw:
+                                    raw = (
+                                        msg_data[0][1].decode(errors="replace").lower()
+                                    )
+                                    if (
+                                        marker.lower() in raw
+                                        or (subject or "").lower()[:20] in raw
+                                    ):
                                         data = ([num],)
                                         break
                             else:
@@ -351,9 +370,14 @@ def _check_inbox(run_id: str, account: dict, subject: str):
                     if data and data[0]:
                         # Classify folder
                         fn_lower = folder_name.lower()
-                        if any(x in fn_lower for x in ["spam","junk","spamverdacht","courrier ind"]):
+                        if any(
+                            x in fn_lower
+                            for x in ["spam", "junk", "spamverdacht", "courrier ind"]
+                        ):
                             folder = "spam"
-                        elif any(x in fn_lower for x in ["trash","deleted","gel","papier"]):
+                        elif any(
+                            x in fn_lower for x in ["trash", "deleted", "gel", "papier"]
+                        ):
                             folder = "trash"
                         else:
                             folder = "inbox"
@@ -379,18 +403,20 @@ def _check_inbox(run_id: str, account: dict, subject: str):
         con.execute(
             "UPDATE inbox_test_results SET folder=?, error=?, latency_ms=?, "
             "checked_at=datetime('now') WHERE run_id=? AND account=?",
-            (folder, error_msg, latency_ms, run_id, email_addr)
+            (folder, error_msg, latency_ms, run_id, email_addr),
         )
 
         # Mark run done if all results are resolved
         pending = con.execute(
             "SELECT COUNT(*) FROM inbox_test_results WHERE run_id=? AND folder='pending'",
-            (run_id,)
+            (run_id,),
         ).fetchone()[0]
         if pending == 0:
             con.execute("UPDATE inbox_test_runs SET done=1 WHERE run_id=?", (run_id,))
 
-    log.info("[inbox_test] %s → %s (%s) %dms", email_addr, folder, run_id[:8], latency_ms)
+    log.info(
+        "[inbox_test] %s → %s (%s) %dms", email_addr, folder, run_id[:8], latency_ms
+    )
 
 
 def _discover_folders(mail) -> list:
@@ -404,7 +430,7 @@ def _discover_folders(mail) -> list:
         return ["INBOX"]
 
     names = []
-    for item in (folder_list or []):
+    for item in folder_list or []:
         if not item:
             continue
         raw = item.decode(errors="replace") if isinstance(item, bytes) else str(item)
@@ -427,11 +453,13 @@ def _discover_folders(mail) -> list:
         nl = name.lower()
         if "inbox" in nl or "eingang" in nl:
             priority.insert(0, name)
-        elif any(x in nl for x in ["spam","junk","spamverdacht","courrier ind","bulk"]):
+        elif any(
+            x in nl for x in ["spam", "junk", "spamverdacht", "courrier ind", "bulk"]
+        ):
             spam_folders.append(name)
-        elif any(x in nl for x in ["trash","deleted","gel","papier","corbeille"]):
+        elif any(x in nl for x in ["trash", "deleted", "gel", "papier", "corbeille"]):
             trash_folders.append(name)
-        elif any(x in nl for x in ["sent","draft","outbox","gesendet","entw"]):
+        elif any(x in nl for x in ["sent", "draft", "outbox", "gesendet", "entw"]):
             pass  # skip
         else:
             other.append(name)
@@ -453,11 +481,11 @@ def get_inbox_test_results(run_id: str) -> dict:
         results = con.execute(
             "SELECT account, provider, folder, latency_ms, error FROM inbox_test_results "
             "WHERE run_id=? ORDER BY checked_at",
-            (run_id,)
+            (run_id,),
         ).fetchall()
     return {
-        "run_id":  run_id,
-        "done":    bool(dict(run)["done"]),
+        "run_id": run_id,
+        "done": bool(dict(run)["done"]),
         "results": [dict(r) for r in results],
     }
 
@@ -468,18 +496,18 @@ def get_inbox_test_results(run_id: str) -> dict:
 
 # Major DNSBL zones
 _DNSBL_ZONES = [
-    ("Spamhaus ZEN",    "zen.spamhaus.org"),
-    ("SORBS",           "dnsbl.sorbs.net"),
-    ("Barracuda",       "b.barracudacentral.org"),
-    ("SpamCop",         "bl.spamcop.net"),
-    ("PSBL",            "psbl.surriel.com"),
-    ("Mailspike",       "bl.mailspike.net"),
-    ("DroneBL",         "dnsbl.dronebl.org"),
-    ("UCEPROTECT L1",   "dnsbl-1.uceprotect.net"),
-    ("GBUdb",           "dnsbl.justspam.org"),
-    ("NiX Spam",        "ix.dnsbl.manitu.net"),
-    ("Barracuda Rep",   "bb.barracudacentral.org"),
-    ("SpamRats",        "spam.spamrats.com"),
+    ("Spamhaus ZEN", "zen.spamhaus.org"),
+    ("SORBS", "dnsbl.sorbs.net"),
+    ("Barracuda", "b.barracudacentral.org"),
+    ("SpamCop", "bl.spamcop.net"),
+    ("PSBL", "psbl.surriel.com"),
+    ("Mailspike", "bl.mailspike.net"),
+    ("DroneBL", "dnsbl.dronebl.org"),
+    ("UCEPROTECT L1", "dnsbl-1.uceprotect.net"),
+    ("GBUdb", "dnsbl.justspam.org"),
+    ("NiX Spam", "ix.dnsbl.manitu.net"),
+    ("Barracuda Rep", "bb.barracudacentral.org"),
+    ("SpamRats", "spam.spamrats.com"),
 ]
 
 
@@ -530,12 +558,14 @@ def check_ip_blacklists(ips: list) -> dict:
                 reason = str(e)[:40]
             checks.append({"list": list_name, "listed": listed, "reason": reason})
 
-        results.append({
-            "ip": ip,
-            "listed_count": listed_count,
-            "clean": listed_count == 0,
-            "checks": checks,
-        })
+        results.append(
+            {
+                "ip": ip,
+                "listed_count": listed_count,
+                "clean": listed_count == 0,
+                "checks": checks,
+            }
+        )
 
     return {"results": results}
 
@@ -543,6 +573,7 @@ def check_ip_blacklists(ips: list) -> dict:
 # ─────────────────────────────────────────────────────────────
 # S3 REDIRECT GENERATOR
 # ─────────────────────────────────────────────────────────────
+
 
 def generate_s3_redirects(
     access_key: str,
@@ -563,7 +594,9 @@ def generate_s3_redirects(
         import boto3
         from botocore.exceptions import ClientError
     except ImportError:
-        return {"error": "boto3 not installed. Run: pip install boto3 --break-system-packages"}
+        return {
+            "error": "boto3 not installed. Run: pip install boto3 --break-system-packages"
+        }
 
     import json as _json
 
@@ -579,7 +612,9 @@ def generate_s3_redirects(
 
     for i in range(count):
         # Generate unique bucket name — S3 bucket names must be globally unique
-        suffix = hashlib.md5(f"{uuid.uuid4()}".encode()).hexdigest()[:12]
+        suffix = hashlib.md5(
+            f"{uuid.uuid4()}".encode(), usedforsecurity=False
+        ).hexdigest()[:12]
         bucket_name = f"st-redir-{suffix}"
         redirect_url = None
         https = False
@@ -592,7 +627,7 @@ def generate_s3_redirects(
             else:
                 s3.create_bucket(
                     Bucket=bucket_name,
-                    CreateBucketConfiguration={"LocationConstraint": region}
+                    CreateBucketConfiguration={"LocationConstraint": region},
                 )
 
             # Disable block public access
@@ -603,7 +638,7 @@ def generate_s3_redirects(
                     "IgnorePublicAcls": False,
                     "BlockPublicPolicy": False,
                     "RestrictPublicBuckets": False,
-                }
+                },
             )
 
             # Enable static website hosting with redirect
@@ -611,23 +646,29 @@ def generate_s3_redirects(
                 Bucket=bucket_name,
                 WebsiteConfiguration={
                     "RedirectAllRequestsTo": {
-                        "HostName": dest_url.replace("https://","").replace("http://","").split("/")[0],
+                        "HostName": dest_url.replace("https://", "")
+                        .replace("http://", "")
+                        .split("/")[0],
                         "Protocol": "https" if dest_url.startswith("https") else "http",
                     }
-                }
+                },
             )
 
             # Allow public reads
-            policy = _json.dumps({
-                "Version": "2012-10-17",
-                "Statement": [{
-                    "Sid": "PublicReadGetObject",
-                    "Effect": "Allow",
-                    "Principal": "*",
-                    "Action": "s3:GetObject",
-                    "Resource": f"arn:aws:s3:::{bucket_name}/*"
-                }]
-            })
+            policy = _json.dumps(
+                {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Sid": "PublicReadGetObject",
+                            "Effect": "Allow",
+                            "Principal": "*",
+                            "Action": "s3:GetObject",
+                            "Resource": f"arn:aws:s3:::{bucket_name}/*",
+                        }
+                    ],
+                }
+            )
             s3.put_bucket_policy(Bucket=bucket_name, Policy=policy)
 
             # S3 website endpoint (HTTP)
@@ -640,7 +681,12 @@ def generate_s3_redirects(
             https = False
 
             # ── CloudFlare HTTPS wrapping ──
-            if cloudflare and cloudflare.get("apiKey") and cloudflare.get("zoneId") and cloudflare.get("domain"):
+            if (
+                cloudflare
+                and cloudflare.get("apiKey")
+                and cloudflare.get("zoneId")
+                and cloudflare.get("domain")
+            ):
                 cf_result = _create_cf_worker(
                     cloudflare["apiKey"],
                     cloudflare["zoneId"],
@@ -664,24 +710,32 @@ def generate_s3_redirects(
             error = str(e)[:120]
             log.warning("[s3_redir] bucket %s error: %s", bucket_name, error)
 
-        redirects.append({
-            "bucket": bucket_name,
-            "url":    redirect_url,
-            "https":  https,
-            "error":  error,
-        })
+        redirects.append(
+            {
+                "bucket": bucket_name,
+                "url": redirect_url,
+                "https": https,
+                "error": error,
+            }
+        )
 
     return {"redirects": redirects}
 
 
-def _create_cf_worker(api_key: str, zone_id: str, domain: str, bucket_name: str, s3_url: str, cf_email: str = "") -> dict:
+def _create_cf_worker(
+    api_key: str,
+    zone_id: str,
+    domain: str,
+    bucket_name: str,
+    s3_url: str,
+    cf_email: str = "",
+) -> dict:
     """
     Create a CloudFlare Worker that proxies HTTPS traffic to the S3 redirect URL.
     Returns {"url": "https://rand.domain.com"} or {"error": "..."}
     """
     try:
-        import urllib.request as _ur
-        import urllib.error as _ue
+        import core.urlopen_compat as _ur
         import json as _json
 
         subdomain = bucket_name  # e.g. st-redir-abc123def456
@@ -701,7 +755,11 @@ addEventListener('fetch', event => {{
         # Try to get the account ID from the zone
         zone_req = _ur.Request(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}",
-            headers={"X-Auth-Key": api_key, "X-Auth-Email": cf_email, "Content-Type": "application/json"}
+            headers={
+                "X-Auth-Key": api_key,
+                "X-Auth-Email": cf_email,
+                "Content-Type": "application/json",
+            },
         )
         zone_resp = _json.loads(_ur.urlopen(zone_req, timeout=10).read())
         account_id = zone_resp.get("result", {}).get("account", {}).get("id")
@@ -718,30 +776,42 @@ addEventListener('fetch', event => {{
         _ur.urlopen(worker_req, timeout=15)
 
         # Create DNS CNAME for subdomain → workers.dev
-        dns_payload = _json.dumps({
-            "type": "CNAME",
-            "name": subdomain,
-            "content": f"{worker_name}.{account_id}.workers.dev",
-            "proxied": True,
-            "ttl": 1,
-        }).encode()
+        dns_payload = _json.dumps(
+            {
+                "type": "CNAME",
+                "name": subdomain,
+                "content": f"{worker_name}.{account_id}.workers.dev",
+                "proxied": True,
+                "ttl": 1,
+            }
+        ).encode()
         dns_req = _ur.Request(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
             data=dns_payload,
-            headers={"X-Auth-Key": api_key, "X-Auth-Email": cf_email, "Content-Type": "application/json"},
+            headers={
+                "X-Auth-Key": api_key,
+                "X-Auth-Email": cf_email,
+                "Content-Type": "application/json",
+            },
             method="POST",
         )
         _ur.urlopen(dns_req, timeout=10)
 
         # Add Worker route
-        route_payload = _json.dumps({
-            "pattern": f"{subdomain}.{domain}/*",
-            "script": worker_name,
-        }).encode()
+        route_payload = _json.dumps(
+            {
+                "pattern": f"{subdomain}.{domain}/*",
+                "script": worker_name,
+            }
+        ).encode()
         route_req = _ur.Request(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/workers/routes",
             data=route_payload,
-            headers={"X-Auth-Key": api_key, "X-Auth-Email": cf_email, "Content-Type": "application/json"},
+            headers={
+                "X-Auth-Key": api_key,
+                "X-Auth-Email": cf_email,
+                "Content-Type": "application/json",
+            },
             method="POST",
         )
         _ur.urlopen(route_req, timeout=10)
@@ -755,6 +825,7 @@ addEventListener('fetch', event => {{
 # ─────────────────────────────────────────────────────────────
 # FLASK ROUTE REGISTRATION HELPER
 # ─────────────────────────────────────────────────────────────
+
 
 def register_routes(app, require_auth):
     """
@@ -780,10 +851,10 @@ def register_routes(app, require_auth):
     @app.route("/api/suppression", methods=["POST"])
     @require_auth
     def suppression_list_add():
-        data   = request.get_json() or {}
+        data = request.get_json() or {}
         emails = data.get("emails", [])
         reason = data.get("reason", "manual")
-        n      = add_suppressed(emails, reason)
+        n = add_suppressed(emails, reason)
         return jsonify({"added": n})
 
     @app.route("/api/suppression/<path:email>", methods=["DELETE"])
@@ -804,11 +875,11 @@ def register_routes(app, require_auth):
     def seed_accounts_add():
         data = request.get_json() or {}
         result = add_seed_account(
-            email      = data.get("email",""),
-            password   = data.get("password",""),
-            provider   = data.get("provider","auto"),
-            imap_host  = data.get("imapHost",""),
-            imap_port  = int(data.get("imapPort") or 993),
+            email=data.get("email", ""),
+            password=data.get("password", ""),
+            provider=data.get("provider", "auto"),
+            imap_host=data.get("imapHost", ""),
+            imap_port=int(data.get("imapPort") or 993),
         )
         return jsonify(result)
 
@@ -823,10 +894,10 @@ def register_routes(app, require_auth):
     @app.route("/api/tools/inbox-test", methods=["POST"])
     @require_auth
     def inbox_test_start():
-        data    = request.get_json() or {}
+        data = request.get_json() or {}
         subject = data.get("subject", "Inbox test")
-        html    = data.get("html", "<p>Test</p>")
-        run_id  = start_inbox_test(subject, html)
+        html = data.get("html", "<p>Test</p>")
+        run_id = start_inbox_test(subject, html)
         return jsonify({"run_id": run_id})
 
     @app.route("/api/tools/inbox-test/<run_id>", methods=["GET"])
@@ -840,7 +911,7 @@ def register_routes(app, require_auth):
     @require_auth
     def ip_blacklist_check():
         data = request.get_json() or {}
-        ips  = data.get("ips", [])
+        ips = data.get("ips", [])
         return jsonify(check_ip_blacklists(ips))
 
     # ── S3 redirect generator ──
@@ -850,12 +921,12 @@ def register_routes(app, require_auth):
     def s3_redirects_generate():
         data = request.get_json() or {}
         result = generate_s3_redirects(
-            access_key = data.get("accessKey",""),
-            secret_key = data.get("secretKey",""),
-            region     = data.get("region","us-east-1"),
-            dest_url   = data.get("destUrl",""),
-            count      = int(data.get("count") or 5),
-            cloudflare = data.get("cloudflare"),
+            access_key=data.get("accessKey", ""),
+            secret_key=data.get("secretKey", ""),
+            region=data.get("region", "us-east-1"),
+            dest_url=data.get("destUrl", ""),
+            count=int(data.get("count") or 5),
+            cloudflare=data.get("cloudflare"),
         )
         return jsonify(result)
 

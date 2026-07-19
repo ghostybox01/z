@@ -89,6 +89,7 @@ def _bridge_channel_to_socket(channel):
 
 class _SSHTunnelSMTP(smtplib.SMTP):
     """smtplib.SMTP subclass that bridges a paramiko channel via socketpair for STARTTLS support."""
+
     def __init__(self, channel, host, port, timeout):
         self._ssh_channel = channel
         self._proxy_sock = _bridge_channel_to_socket(channel)
@@ -104,9 +105,9 @@ def _open_ssh_channel(relay_ssh: dict, mx_host: str, port: int, timeout: int = 3
     Returns (ssh_client, channel) — caller must close ssh_client when done.
     relay_ssh keys: host, port (default 22), user, pass, key (path, optional)
     """
-    import paramiko
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    from core.ssh_helper import create_ssh_client
+
+    ssh = create_ssh_client()
     ssh.connect(
         relay_ssh["host"],
         port=int(relay_ssh.get("port", 22)),
@@ -126,12 +127,12 @@ def _open_ssh_channel(relay_ssh: dict, mx_host: str, port: int, timeout: int = 3
 
 
 def send_via_o365_relay(
-    relay:     dict,
-    msg_from:  str,
-    msg_to:    str,
-    raw_msg:   bytes,
+    relay: dict,
+    msg_from: str,
+    msg_to: str,
+    raw_msg: bytes,
     relay_ssh: dict = None,
-    timeout:   int = 30,
+    timeout: int = 30,
 ) -> dict:
     """
     Send a single message via O365 anonymous relay.
@@ -152,9 +153,9 @@ def send_via_o365_relay(
     Returns:
         {"ok": True, "message": "..."}  or  {"ok": False, "error": "..."}
     """
-    tenant    = relay.get("tenantDomain", "")
-    mx_host   = relay.get("mxHost") or _derive_mx(tenant)
-    port      = int(relay.get("port", 25))
+    tenant = relay.get("tenantDomain", "")
+    mx_host = relay.get("mxHost") or _derive_mx(tenant)
+    port = int(relay.get("port", 25))
     mail_from = relay.get("fromEmail") or msg_from
 
     if not mx_host:
@@ -162,7 +163,9 @@ def send_via_o365_relay(
 
     # Normalize to CRLF — email.as_bytes() (compat32) emits bare \n which causes
     # O365 to produce an empty body and breaks the header-end search below.
-    raw_msg = raw_msg.replace(b'\r\n', b'\n').replace(b'\r', b'\n').replace(b'\n', b'\r\n')
+    raw_msg = (
+        raw_msg.replace(b"\r\n", b"\n").replace(b"\r", b"\n").replace(b"\n", b"\r\n")
+    )
 
     # Inject the full Exchange trusted-connector header set into the raw message.
     # These signal to EOP that the message arrived via a whitelisted internal relay:
@@ -173,7 +176,11 @@ def send_via_o365_relay(
     #   Directionality:Originating — message is outbound from the tenant
     # Skip injection if SCL is already present (e.g. from dlv msExchangeHeaders).
     _hdr_end = raw_msg.find(b"\r\n\r\n")
-    _scl_present = b"X-MS-Exchange-Organization-SCL" in raw_msg[:_hdr_end] if _hdr_end > 0 else False
+    _scl_present = (
+        b"X-MS-Exchange-Organization-SCL" in raw_msg[:_hdr_end]
+        if _hdr_end > 0
+        else False
+    )
     if _hdr_end > 0 and not _scl_present:
         _o365_headers = (
             b"X-MS-Exchange-Organization-SCL: -1\r\n"
@@ -187,7 +194,9 @@ def send_via_o365_relay(
         # a minor authenticity signal to EOP.
         _first_crlf = raw_msg.find(b"\r\n")
         if _first_crlf > 0:
-            raw_msg = raw_msg[:_first_crlf + 2] + _o365_headers + raw_msg[_first_crlf + 2:]
+            raw_msg = (
+                raw_msg[: _first_crlf + 2] + _o365_headers + raw_msg[_first_crlf + 2 :]
+            )
         else:
             raw_msg = _o365_headers + raw_msg
 
@@ -198,7 +207,9 @@ def send_via_o365_relay(
     try:
         if relay_ssh and relay_ssh.get("host"):
             # ── Route through external relay VPS via SSH TCP-forwarding ──
-            ssh_client, channel = _open_ssh_channel(relay_ssh, mx_host, port, timeout=20)
+            ssh_client, channel = _open_ssh_channel(
+                relay_ssh, mx_host, port, timeout=20
+            )
             via_label = f"{relay_ssh['host']}→{mx_host}:{port}"
             conn = _SSHTunnelSMTP(channel, mx_host, port, timeout=timeout)
         elif port == 465:
@@ -225,26 +236,43 @@ def send_via_o365_relay(
             conn.sendmail(mail_from, [msg_to], raw_msg)
 
         latency = round((time.time() - t0) * 1000)
-        log.info("O365 relay OK  %s → %s via %s (%dms)", mail_from, msg_to, via_label, latency)
+        log.info(
+            "O365 relay OK  %s → %s via %s (%dms)",
+            mail_from,
+            msg_to,
+            via_label,
+            latency,
+        )
         return {"ok": True, "message": f"Sent via {via_label} ({latency}ms)"}
 
     except smtplib.SMTPRecipientsRefused as e:
         err = str(e)
         if "550" in err and "5.7" in err:
-            return {"ok": False, "error": f"IP not whitelisted in O365 connector: {err[:200]}"}
+            return {
+                "ok": False,
+                "error": f"IP not whitelisted in O365 connector: {err[:200]}",
+            }
         return {"ok": False, "error": f"Recipient refused: {err[:200]}"}
     except smtplib.SMTPSenderRefused as e:
-        return {"ok": False, "error": f"Sender refused (check MAIL FROM is in tenant): {str(e)[:200]}"}
+        return {
+            "ok": False,
+            "error": f"Sender refused (check MAIL FROM is in tenant): {str(e)[:200]}",
+        }
     except smtplib.SMTPException as e:
         return {"ok": False, "error": f"SMTP error: {str(e)[:200]}"}
     except (socket.timeout, ConnectionRefusedError, OSError) as e:
-        return {"ok": False, "error": f"Connection failed to {mx_host}:{port}: {str(e)[:200]}"}
+        return {
+            "ok": False,
+            "error": f"Connection failed to {mx_host}:{port}: {str(e)[:200]}",
+        }
     except Exception as e:
         return {"ok": False, "error": f"Unexpected error: {str(e)[:200]}"}
     finally:
         if ssh_client:
-            try: ssh_client.close()
-            except Exception: pass
+            try:
+                ssh_client.close()
+            except Exception:
+                pass
 
 
 def probe_relay_ssh(relay_ssh: dict, timeout: int = 20) -> dict:
@@ -252,10 +280,10 @@ def probe_relay_ssh(relay_ssh: dict, timeout: int = 20) -> dict:
     SSH into relay_ssh VPS, discover its public IP and check port 25.
     Returns {"ok": bool, "publicIp": str, "port25": bool, "latency_ms": int, "error": str}
     """
-    import paramiko
+    from core.ssh_helper import create_ssh_client
+
     t0 = time.time()
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh = create_ssh_client()
     try:
         ssh.connect(
             relay_ssh["host"],
@@ -302,11 +330,15 @@ def probe_relay_ssh(relay_ssh: dict, timeout: int = 20) -> dict:
     except Exception as e:
         return {"ok": False, "error": str(e)[:200], "publicIp": "", "port25": False}
     finally:
-        try: ssh.close()
-        except Exception: pass
+        try:
+            ssh.close()
+        except Exception:
+            pass
 
 
-def test_relay_connectivity(tenant_domain: str, port: int = 25, timeout: int = 10) -> dict:
+def test_relay_connectivity(
+    tenant_domain: str, port: int = 25, timeout: int = 10
+) -> dict:
     """
     Quick TCP + SMTP banner check for a tenant relay endpoint.
     Returns {"ok": bool, "banner": str, "latency_ms": int, "mx_host": str}

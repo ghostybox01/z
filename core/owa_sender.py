@@ -40,7 +40,7 @@ import base64
 import time
 import logging
 from xml.sax.saxutils import escape as _xml_escape
-from urllib.request import Request, urlopen
+from core.urlopen_compat import Request, urlopen
 from urllib.error import HTTPError, URLError
 from typing import Optional
 
@@ -53,42 +53,43 @@ log = logging.getLogger(__name__)
 
 # Exchange Server schema versions — newer = more features
 _EWS_VERSIONS = {
-    "2007":    "Exchange2007_SP1",
-    "2010":    "Exchange2010_SP2",
-    "2013":    "Exchange2013_SP1",
-    "2016":    "Exchange2016",
-    "2019":    "Exchange2019",
-    "o365":    "Exchange2016",   # O365 uses 2016 schema
-    "online":  "Exchange2016",
+    "2007": "Exchange2007_SP1",
+    "2010": "Exchange2010_SP2",
+    "2013": "Exchange2013_SP1",
+    "2016": "Exchange2016",
+    "2019": "Exchange2019",
+    "o365": "Exchange2016",  # O365 uses 2016 schema
+    "online": "Exchange2016",
 }
 _DEFAULT_VERSION = "Exchange2016"
 
 # Known EWS error codes → human-readable message
 _EWS_ERRORS = {
-    "ErrorAccessDenied":              "Access denied — check EWS is enabled for this mailbox and the credentials are correct.",
-    "ErrorAccountDisabled":           "Account is disabled in Exchange.",
-    "ErrorCallerIsInvalidADAccount":  "Invalid Active Directory account — use the full email address as username.",
-    "ErrorConnectionFailed":          "EWS connection failed — check the EWS URL is reachable from this server.",
-    "ErrorInvalidCredentials":        "Invalid credentials — wrong email or password.",
-    "ErrorItemNotFound":              "EWS item not found.",
-    "ErrorMailboxMoveInProgress":     "Mailbox migration in progress — try again later.",
-    "ErrorMailboxStoreUnavailable":   "Mailbox store unavailable — try again later.",
+    "ErrorAccessDenied": "Access denied — check EWS is enabled for this mailbox and the credentials are correct.",
+    "ErrorAccountDisabled": "Account is disabled in Exchange.",
+    "ErrorCallerIsInvalidADAccount": "Invalid Active Directory account — use the full email address as username.",
+    "ErrorConnectionFailed": "EWS connection failed — check the EWS URL is reachable from this server.",
+    "ErrorInvalidCredentials": "Invalid credentials — wrong email or password.",
+    "ErrorItemNotFound": "EWS item not found.",
+    "ErrorMailboxMoveInProgress": "Mailbox migration in progress — try again later.",
+    "ErrorMailboxStoreUnavailable": "Mailbox store unavailable — try again later.",
     "ErrorNoRespondingCASInDestinationSite": "No CAS available — try again later.",
-    "ErrorQuotaExceeded":             "Mailbox quota exceeded.",
-    "ErrorSendAsDenied":              "SendAs permission denied — the account cannot send as the From address.",
-    "ErrorTooManyObjectsOpened":      "Too many EWS connections — slow down or reduce concurrency.",
+    "ErrorQuotaExceeded": "Mailbox quota exceeded.",
+    "ErrorSendAsDenied": "SendAs permission denied — the account cannot send as the From address.",
+    "ErrorTooManyObjectsOpened": "Too many EWS connections — slow down or reduce concurrency.",
 }
 
 # O365 EWS endpoint pattern
 _O365_EWS_URL = "https://outlook.office365.com/EWS/Exchange.asmx"
 
-_MAX_RETRIES   = 2
-_RETRY_DELAY   = 5   # seconds
+_MAX_RETRIES = 2
+_RETRY_DELAY = 5  # seconds
 
 
 # ═══════════════════════════════════════════════════════════════
 # HELPERS
 # ═══════════════════════════════════════════════════════════════
+
 
 def _detect_ews_url(email: str, provided_url: str) -> str:
     """
@@ -104,8 +105,13 @@ def _detect_ews_url(email: str, provided_url: str) -> str:
 
     domain = email.split("@")[-1].lower() if "@" in email else ""
     ms_domains = {
-        "outlook.com", "hotmail.com", "live.com", "msn.com",
-        "hotmail.co.uk", "hotmail.fr", "live.ca",
+        "outlook.com",
+        "hotmail.com",
+        "live.com",
+        "msn.com",
+        "hotmail.co.uk",
+        "hotmail.fr",
+        "live.ca",
     }
     if domain in ms_domains or "office365" in domain or "microsoft" in domain:
         return _O365_EWS_URL
@@ -114,18 +120,20 @@ def _detect_ews_url(email: str, provided_url: str) -> str:
 
 
 def _ews_version(owa_cfg: dict) -> str:
-    ver = (owa_cfg.get("exchangeVersion") or owa_cfg.get("ewsVersion") or "2016").lower()
+    ver = (
+        owa_cfg.get("exchangeVersion") or owa_cfg.get("ewsVersion") or "2016"
+    ).lower()
     return _EWS_VERSIONS.get(ver, _DEFAULT_VERSION)
 
 
 def _parse_ews_error(body: str) -> str:
     """Extract the EWS error code and message from a SOAP response body."""
     # Try ResponseCode first (most specific)
-    code_m = re.search(r'<[^:]*:?ResponseCode>([^<]+)</[^:]*:?ResponseCode>', body)
-    msg_m  = re.search(r'<[^:]*:?MessageText>([^<]+)</[^:]*:?MessageText>', body)
+    code_m = re.search(r"<[^:]*:?ResponseCode>([^<]+)</[^:]*:?ResponseCode>", body)
+    msg_m = re.search(r"<[^:]*:?MessageText>([^<]+)</[^:]*:?MessageText>", body)
 
     code = code_m.group(1).strip() if code_m else ""
-    msg  = msg_m.group(1).strip()  if msg_m  else ""
+    msg = msg_m.group(1).strip() if msg_m else ""
 
     if code in _EWS_ERRORS:
         return f"{code}: {_EWS_ERRORS[code]}"
@@ -142,19 +150,20 @@ def _parse_ews_error(body: str) -> str:
 # SOAP BUILDER
 # ═══════════════════════════════════════════════════════════════
 
+
 def _build_soap(
-    ews_version:    str,
-    from_name:      str,
-    from_email:     str,
-    to_email:       str,
-    to_name:        str,
-    subject:        str,
-    html_body:      str,
-    plain_body:     str,
-    importance:     str,
-    reply_to:       str,
-    cc:             str,
-    save_to_sent:   bool,
+    ews_version: str,
+    from_name: str,
+    from_email: str,
+    to_email: str,
+    to_name: str,
+    subject: str,
+    html_body: str,
+    plain_body: str,
+    importance: str,
+    reply_to: str,
+    cc: str,
+    save_to_sent: bool,
 ) -> str:
     """
     Build a CreateItem SOAP envelope for EWS.
@@ -170,10 +179,10 @@ def _build_soap(
     import base64 as _b64
 
     inner = MIMEMultipart("alternative")
-    inner["From"]       = f'"{from_name}" <{from_email}>' if from_name else from_email
-    inner["To"]         = f'"{to_name}" <{to_email}>' if to_name else to_email
-    inner["Subject"]    = subject
-    inner["Date"]       = email.utils.formatdate(localtime=False)
+    inner["From"] = f'"{from_name}" <{from_email}>' if from_name else from_email
+    inner["To"] = f'"{to_name}" <{to_email}>' if to_name else to_email
+    inner["Subject"] = subject
+    inner["Date"] = email.utils.formatdate(localtime=False)
     inner["Message-ID"] = email.utils.make_msgid(
         domain=from_email.split("@")[-1] if "@" in from_email else "example.com"
     )
@@ -183,13 +192,12 @@ def _build_soap(
         inner["Cc"] = cc
 
     inner.attach(MIMEText(plain_body or "", "plain", "utf-8"))
-    inner.attach(MIMEText(html_body,  "html",  "utf-8"))
+    inner.attach(MIMEText(html_body, "html", "utf-8"))
 
     mime_b64 = _b64.b64encode(inner.as_bytes()).decode("ascii")
 
     importance_map = {"low": "Low", "high": "High", "normal": "Normal"}
     imp = importance_map.get((importance or "normal").lower(), "Normal")
-    save = "true" if save_to_sent else "false"
 
     soap = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope
@@ -221,15 +229,16 @@ def _build_soap(
 # MAIN SEND FUNCTION
 # ═══════════════════════════════════════════════════════════════
 
+
 def send_owa(
-    owa_cfg:          dict,
-    sender:           dict,
-    lead:             dict,
-    resolved_html:    str,
-    resolved_plain:   str,
+    owa_cfg: dict,
+    sender: dict,
+    lead: dict,
+    resolved_html: str,
+    resolved_plain: str,
     resolved_subject: str,
-    dlv:              Optional[dict] = None,
-    custom_headers:   Optional[list] = None,
+    dlv: Optional[dict] = None,
+    custom_headers: Optional[list] = None,
 ) -> int:
     """
     Send an email via Exchange Web Services (EWS) SOAP API.
@@ -244,20 +253,20 @@ def send_owa(
 
     Returns 200 on success. Raises descriptive Exception on failure.
     """
-    ews_url    = _detect_ews_url(owa_cfg.get("email", ""), owa_cfg.get("ewsUrl", ""))
-    email      = owa_cfg.get("email", "")
-    password   = owa_cfg.get("password", "")
+    ews_url = _detect_ews_url(owa_cfg.get("email", ""), owa_cfg.get("ewsUrl", ""))
+    email = owa_cfg.get("email", "")
+    password = owa_cfg.get("password", "")
     oauth_token = owa_cfg.get("oauthToken", "")
     importance = owa_cfg.get("importance", "Normal")
-    ews_ver    = _ews_version(owa_cfg)
-    save_sent  = owa_cfg.get("saveToSent", True)
-    cc         = owa_cfg.get("cc", "")
+    ews_ver = _ews_version(owa_cfg)
+    save_sent = owa_cfg.get("saveToSent", True)
+    cc = owa_cfg.get("cc", "")
 
     from_email = sender.get("fromEmail", "") or email
-    from_name  = sender.get("fromName", "")
-    reply_to   = sender.get("replyTo", "")
+    from_name = sender.get("fromName", "")
+    reply_to = sender.get("replyTo", "")
     lead_email = lead.get("email", "")
-    lead_name  = lead.get("name", "")
+    lead_name = lead.get("name", "")
 
     if not ews_url:
         raise Exception(
@@ -272,34 +281,34 @@ def send_owa(
         raise Exception("OWA: No password or oauthToken configured.")
 
     soap = _build_soap(
-        ews_version  = ews_ver,
-        from_name    = from_name,
-        from_email   = from_email,
-        to_email     = lead_email,
-        to_name      = lead_name,
-        subject      = resolved_subject,
-        html_body    = resolved_html,
-        plain_body   = resolved_plain,
-        importance   = importance,
-        reply_to     = reply_to,
-        cc           = cc,
-        save_to_sent = save_sent,
+        ews_version=ews_ver,
+        from_name=from_name,
+        from_email=from_email,
+        to_email=lead_email,
+        to_name=lead_name,
+        subject=resolved_subject,
+        html_body=resolved_html,
+        plain_body=resolved_plain,
+        importance=importance,
+        reply_to=reply_to,
+        cc=cc,
+        save_to_sent=save_sent,
     )
 
     if oauth_token:
         auth_hdr = f"Bearer {oauth_token}"
     else:
-        cred     = base64.b64encode(f"{email}:{password}".encode()).decode()
+        cred = base64.b64encode(f"{email}:{password}".encode()).decode()
         auth_hdr = f"Basic {cred}"
 
     for attempt in range(_MAX_RETRIES + 1):
         req = Request(
             ews_url,
-            data    = soap.encode("utf-8"),
-            headers = {
-                "Content-Type":  "text/xml; charset=utf-8",
+            data=soap.encode("utf-8"),
+            headers={
+                "Content-Type": "text/xml; charset=utf-8",
                 "Authorization": auth_hdr,
-                "User-Agent":    "SynthTel/4 EWS Client",
+                "User-Agent": "SynthTel/4 EWS Client",
             },
         )
         try:
@@ -312,7 +321,9 @@ def send_owa(
                 err_detail = _parse_ews_error(body)
                 raise Exception(f"OWA EWS Error: {err_detail}")
 
-            log.debug("[OwaSender] sent %s → %s via %s", from_email, lead_email, ews_url)
+            log.debug(
+                "[OwaSender] sent %s → %s via %s", from_email, lead_email, ews_url
+            )
             return 200
 
         except HTTPError as exc:
@@ -322,7 +333,11 @@ def send_owa(
                     delay = float(retry_after) if retry_after else _RETRY_DELAY
                 except (TypeError, ValueError):
                     delay = _RETRY_DELAY
-                log.warning("[OwaSender] HTTP %d — throttled, retrying in %.0fs", exc.code, delay)
+                log.warning(
+                    "[OwaSender] HTTP %d — throttled, retrying in %.0fs",
+                    exc.code,
+                    delay,
+                )
                 time.sleep(delay)
                 continue
 

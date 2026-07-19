@@ -56,20 +56,33 @@ log = logging.getLogger(__name__)
 
 _EHLO_PATTERNS = [
     # Outlook variants
-    "mail.{domain}", "{domain}", "smtp.{domain}",
-    "outbound.{domain}", "send.{domain}", "mx.{domain}",
-    "relay.{domain}", "mta.{domain}", "mta1.{domain}",
-    "mail1.{domain}", "mail2.{domain}", "smtpout.{domain}",
+    "mail.{domain}",
+    "{domain}",
+    "smtp.{domain}",
+    "outbound.{domain}",
+    "send.{domain}",
+    "mx.{domain}",
+    "relay.{domain}",
+    "mta.{domain}",
+    "mta1.{domain}",
+    "mail1.{domain}",
+    "mail2.{domain}",
+    "smtpout.{domain}",
 ]
 
 _EHLO_GENERIC = [
-    "mail.outlook.com", "smtp.gmail.com", "outbound.protection.outlook.com",
-    "mail.protection.outlook.com", "smtp.sendgrid.net", "mta.mailgun.org",
-    "email-smtp.us-east-1.amazonaws.com", "smtp.mailjet.com",
-    "smtp-relay.sendinblue.com", "smtp.postmarkapp.com",
+    "mail.outlook.com",
+    "smtp.gmail.com",
+    "outbound.protection.outlook.com",
+    "mail.protection.outlook.com",
+    "smtp.sendgrid.net",
+    "mta.mailgun.org",
+    "email-smtp.us-east-1.amazonaws.com",
+    "smtp.mailjet.com",
+    "smtp-relay.sendinblue.com",
+    "smtp.postmarkapp.com",
 ]
 
-import math as _math
 
 def _gaussian_delay(mean: float, sigma: float = None, min_val: float = 0.1) -> float:
     """
@@ -101,7 +114,7 @@ def _get_ehlo_domain(from_domain: str, ehlo_hint: str = "") -> str:
 
 _PERMANENT_AUTH_CODES = {535, 534, 538, 530}
 _PERMANENT_RCPT_CODES = {550, 551, 553, 554, 501}
-_TRANSIENT_CODES      = {421, 450, 451, 452, 454}
+_TRANSIENT_CODES = {421, 450, 451, 452, 454}
 
 
 class _ViaResult(str):
@@ -111,6 +124,7 @@ class _ViaResult(str):
     (so the legacy `via_used or via` patterns keep working) but exposes
     `.message_id` for callers that need it for IMAP delete-sent.
     """
+
     def __new__(cls, via: str, message_id: str = ""):
         s = super().__new__(cls, via or "")
         s.message_id = message_id or ""
@@ -118,52 +132,105 @@ class _ViaResult(str):
 
 
 class SmtpErrorKind:
-    PERMANENT_AUTH      = "permanent_auth"
+    PERMANENT_AUTH = "permanent_auth"
     PERMANENT_RECIPIENT = "permanent_recipient"
-    PERMANENT_POLICY    = "permanent_policy"
-    RATE_LIMIT          = "rate_limit"
-    TRANSIENT           = "transient"
-    CONNECTION          = "connection"
-    UNKNOWN             = "unknown"
+    PERMANENT_POLICY = "permanent_policy"
+    RATE_LIMIT = "rate_limit"
+    TRANSIENT = "transient"
+    CONNECTION = "connection"
+    UNKNOWN = "unknown"
 
 
 def smtp_error_type(exc: Exception) -> str:
     """Classify an SMTP exception into a SmtpErrorKind string constant."""
-    err  = str(exc).lower()
+    err = str(exc).lower()
     code = exc.smtp_code if isinstance(exc, smtplib.SMTPResponseException) else None
 
-    if code in _PERMANENT_AUTH_CODES or any(x in err for x in [
-        "auth", "credentials", "username and password", "login failed",
-        "invalid credentials", "authentication failed", "5.7.8",
-    ]):
+    if code in _PERMANENT_AUTH_CODES or any(
+        x in err
+        for x in [
+            "auth",
+            "credentials",
+            "username and password",
+            "login failed",
+            "invalid credentials",
+            "authentication failed",
+            "5.7.8",
+        ]
+    ):
         return SmtpErrorKind.PERMANENT_AUTH
 
-    if code in _PERMANENT_RCPT_CODES or any(x in err for x in [
-        "user unknown", "no such user", "mailbox not found", "does not exist",
-        "invalid recipient", "mailbox unavailable", "address rejected",
-        "recipient rejected", "5.1.1", "5.1.2", "5.1.3",
-    ]):
+    if code in _PERMANENT_RCPT_CODES or any(
+        x in err
+        for x in [
+            "user unknown",
+            "no such user",
+            "mailbox not found",
+            "does not exist",
+            "invalid recipient",
+            "mailbox unavailable",
+            "address rejected",
+            "recipient rejected",
+            "5.1.1",
+            "5.1.2",
+            "5.1.3",
+        ]
+    ):
         return SmtpErrorKind.PERMANENT_RECIPIENT
 
-    if any(x in err for x in [
-        "spamhaus", "blacklist", "blocklist", "spam", "policy", "blocked",
-        "not authorized", "5.7.0", "5.7.1", "5.7.26", "content rejected",
-    ]):
+    if any(
+        x in err
+        for x in [
+            "spamhaus",
+            "blacklist",
+            "blocklist",
+            "spam",
+            "policy",
+            "blocked",
+            "not authorized",
+            "5.7.0",
+            "5.7.1",
+            "5.7.26",
+            "content rejected",
+        ]
+    ):
         return SmtpErrorKind.PERMANENT_POLICY
 
-    if code in _TRANSIENT_CODES or any(x in err for x in [
-        "too many", "rate limit", "throttl", "exceed", "try again",
-        "service busy", "4.7.0", "temporarily",
-    ]):
+    if code in _TRANSIENT_CODES or any(
+        x in err
+        for x in [
+            "too many",
+            "rate limit",
+            "throttl",
+            "exceed",
+            "try again",
+            "service busy",
+            "4.7.0",
+            "temporarily",
+        ]
+    ):
         return SmtpErrorKind.RATE_LIMIT
 
     if code and 400 <= code < 500:
         return SmtpErrorKind.TRANSIENT
 
-    if any(x in err for x in [
-        "connection", "timeout", "timed out", "refused", "reset", "broken pipe",
-        "eof", "network", "errno", "no route", "socket", "ssl",
-    ]):
+    if any(
+        x in err
+        for x in [
+            "connection",
+            "timeout",
+            "timed out",
+            "refused",
+            "reset",
+            "broken pipe",
+            "eof",
+            "network",
+            "errno",
+            "no route",
+            "socket",
+            "ssl",
+        ]
+    ):
         return SmtpErrorKind.CONNECTION
 
     return SmtpErrorKind.UNKNOWN
@@ -173,25 +240,27 @@ def smtp_error_type(exc: Exception) -> str:
 # RATE TRACKER
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class ServerRateStats:
     """Per-server send statistics for rate limiting and campaign reporting."""
-    server_key:       str
-    total_sent:       int   = 0
-    total_failed:     int   = 0
-    total_reconnects: int   = 0
-    session_sent:     int   = 0          # sends on current connection
-    hour_buckets:     dict  = field(default_factory=dict)  # epoch_hour → count
-    last_send_ts:     float = 0.0
-    disabled:         bool  = False
-    disable_reason:   str   = ""
-    _lock:            object = field(default_factory=threading.Lock)
+
+    server_key: str
+    total_sent: int = 0
+    total_failed: int = 0
+    total_reconnects: int = 0
+    session_sent: int = 0  # sends on current connection
+    hour_buckets: dict = field(default_factory=dict)  # epoch_hour → count
+    last_send_ts: float = 0.0
+    disabled: bool = False
+    disable_reason: str = ""
+    _lock: object = field(default_factory=threading.Lock)
 
     def record_send(self):
         with self._lock:
-            self.total_sent   += 1
+            self.total_sent += 1
             self.session_sent += 1
-            self.last_send_ts  = time.time()
+            self.last_send_ts = time.time()
             bucket = int(self.last_send_ts // 3600)
             self.hour_buckets[bucket] = self.hour_buckets.get(bucket, 0) + 1
             # Keep only last 24 buckets
@@ -205,7 +274,7 @@ class ServerRateStats:
     def record_reconnect(self):
         with self._lock:
             self.total_reconnects += 1
-            self.session_sent = 0   # reset per-connection counter
+            self.session_sent = 0  # reset per-connection counter
 
     def sends_this_hour(self) -> int:
         bucket = int(time.time() // 3600)
@@ -217,24 +286,25 @@ class ServerRateStats:
 
     def disable(self, reason: str):
         with self._lock:
-            self.disabled       = True
+            self.disabled = True
             self.disable_reason = reason
 
     def summary(self) -> dict:
         return {
-            "server":          self.server_key,
-            "total_sent":      self.total_sent,
-            "total_failed":    self.total_failed,
-            "reconnects":      self.total_reconnects,
+            "server": self.server_key,
+            "total_sent": self.total_sent,
+            "total_failed": self.total_failed,
+            "reconnects": self.total_reconnects,
             "sends_this_hour": self.sends_this_hour(),
-            "disabled":        self.disabled,
-            "disable_reason":  self.disable_reason,
+            "disabled": self.disabled,
+            "disable_reason": self.disable_reason,
         }
 
 
 # ═══════════════════════════════════════════════════════════════
 # TLS CONTEXT
 # ═══════════════════════════════════════════════════════════════
+
 
 def _make_tls_ctx(strict: bool = False) -> ssl.SSLContext:
     """
@@ -249,7 +319,7 @@ def _make_tls_ctx(strict: bool = False) -> ssl.SSLContext:
     ctx = ssl.create_default_context()
     if not strict:
         ctx.check_hostname = False
-        ctx.verify_mode    = ssl.CERT_NONE
+        ctx.verify_mode = ssl.CERT_NONE
     return ctx
 
 
@@ -257,10 +327,11 @@ def _make_tls_ctx(strict: bool = False) -> ssl.SSLContext:
 # PROXY SOCKET
 # ═══════════════════════════════════════════════════════════════
 
+
 def _make_proxy_socket(
-    host:            str,
-    port:            int,
-    proxy_cfg:       dict,
+    host: str,
+    port: int,
+    proxy_cfg: dict,
     connect_timeout: int = 10,
 ) -> socket.socket:
     """
@@ -276,16 +347,18 @@ def _make_proxy_socket(
     # ── PySocks (SOCKS4 / SOCKS5 / HTTP) ──
     try:
         import socks as pysocks
+
         _PTYPES = {
             "socks4": pysocks.SOCKS4,
             "socks5": pysocks.SOCKS5,
-            "http":   pysocks.HTTP,
-            "https":  pysocks.HTTP,
+            "http": pysocks.HTTP,
+            "https": pysocks.HTTP,
         }
         sock = pysocks.socksocket()
         sock.set_proxy(
             _PTYPES.get(proxy_type, pysocks.SOCKS5),
-            proxy_host.strip(), proxy_port,
+            proxy_host.strip(),
+            proxy_port,
             rdns=True,
             username=proxy_user.strip() if proxy_user else None,
             password=proxy_pass.strip() if proxy_pass else None,
@@ -298,10 +371,14 @@ def _make_proxy_socket(
 
     # ── HTTP CONNECT fallback (works without PySocks) ──
     if proxy_type in ("http", "https"):
-        sock = socket.create_connection((proxy_host, proxy_port), timeout=connect_timeout)
-        req  = f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n"
+        sock = socket.create_connection(
+            (proxy_host, proxy_port), timeout=connect_timeout
+        )
+        req = f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n"
         if proxy_user:
-            cred = base64.b64encode(f"{proxy_user}:{proxy_pass or ''}".encode()).decode()
+            cred = base64.b64encode(
+                f"{proxy_user}:{proxy_pass or ''}".encode()
+            ).decode()
             req += f"Proxy-Authorization: Basic {cred}\r\n"
         req += "\r\n"
         sock.sendall(req.encode())
@@ -321,17 +398,18 @@ def _make_proxy_socket(
 # LOW-LEVEL CONNECTION BUILDER
 # ═══════════════════════════════════════════════════════════════
 
+
 def _open_connection(
-    host:            str,
-    port:            int,
-    username:        str,
-    password:        str,
-    encryption:      str,
-    ehlo_domain:     str,
-    proxy_cfg:       Optional[dict] = None,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    encryption: str,
+    ehlo_domain: str,
+    proxy_cfg: Optional[dict] = None,
     connect_timeout: int = 10,
-    data_timeout:    int = 60,
-    from_domain:     str = "",
+    data_timeout: int = 60,
+    from_domain: str = "",
 ) -> smtplib.SMTP:
     """
     Open, greet, EHLO, optionally TLS-upgrade, and authenticate an SMTP connection.
@@ -345,7 +423,7 @@ def _open_connection(
     Both proxied and direct connections go through the same post-socket
     setup path so the TLS/auth logic is written exactly once.
     """
-    enc  = (encryption or "TLS").upper()
+    enc = (encryption or "TLS").upper()
     port = int(port or (465 if enc == "SSL" else 587))
 
     # ── Compute EHLO domain before connection so it's available everywhere ──
@@ -360,36 +438,44 @@ def _open_connection(
         # Solution: downgrade to STARTTLS on port 587 — TLS negotiates AFTER the plain
         # SMTP greeting, so it works correctly through any SOCKS5/HTTP proxy.
         if enc == "SSL":
-            enc  = "TLS"
+            enc = "TLS"
             port = 587
 
         raw_sock = _make_proxy_socket(host, port, proxy_cfg, connect_timeout)
         raw_sock.settimeout(data_timeout)
 
-        server       = smtplib.SMTP(host=None)
-        server.sock  = raw_sock
+        server = smtplib.SMTP(host=None)
+        server.sock = raw_sock
         server._host = host
-        server.file  = raw_sock.makefile("rb")
+        server.file = raw_sock.makefile("rb")
 
         # Read greeting banner
         code, banner_b = server.getreply()
         if code != 220:
-            banner = banner_b.decode(errors="replace") if isinstance(banner_b, bytes) else str(banner_b)
-            raise smtplib.SMTPConnectError(code, f"SMTP greeting: {code} {banner[:100]}")
+            banner = (
+                banner_b.decode(errors="replace")
+                if isinstance(banner_b, bytes)
+                else str(banner_b)
+            )
+            raise smtplib.SMTPConnectError(
+                code, f"SMTP greeting: {code} {banner[:100]}"
+            )
 
     else:
         # Direct connection
         if enc == "SSL":
-            ctx    = _make_tls_ctx(strict=True)
+            ctx = _make_tls_ctx(strict=True)
             server = smtplib.SMTP_SSL(
-                host, port,
+                host,
+                port,
                 context=ctx,
                 timeout=connect_timeout,
                 local_hostname=_eff_ehlo,
             )
         else:
             server = smtplib.SMTP(
-                host, port,
+                host,
+                port,
                 timeout=connect_timeout,
                 local_hostname=_eff_ehlo,
             )
@@ -405,13 +491,15 @@ def _open_connection(
         # Attempt STARTTLS if server advertises it; continue plain if not
         # (some internal relays on 587 skip TLS advertisement)
         if server.has_extn("STARTTLS"):
-            ctx = _make_tls_ctx(strict=False)   # permissive — self-signed relay certs
+            ctx = _make_tls_ctx(strict=False)  # permissive — self-signed relay certs
             server.starttls(context=ctx)
-            server.ehlo(_eff_ehlo)               # re-EHLO after upgrade
+            server.ehlo(_eff_ehlo)  # re-EHLO after upgrade
 
     # ── 4. AUTH ────────────────────────────────────────────────
     if username:
-        server.login(username, password or "")  # raises SMTPAuthenticationError on failure
+        server.login(
+            username, password or ""
+        )  # raises SMTPAuthenticationError on failure
 
     return server
 
@@ -447,23 +535,25 @@ def _is_alive(server: Optional[smtplib.SMTP]) -> bool:
 # POOL ENTRY
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class _PoolEntry:
     """One slot in the pool — holds the live connection for one server config."""
-    conn:            Optional[smtplib.SMTP] = None
-    lock:            threading.Lock         = field(default_factory=threading.Lock)
-    last_used:       float                  = 0.0
+
+    conn: Optional[smtplib.SMTP] = None
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    last_used: float = 0.0
     # Connection params (stored for transparent reconnect)
-    host:            str  = ""
-    port:            int  = 587
-    username:        str  = ""
-    password:        str  = ""
-    encryption:      str  = "TLS"
-    ehlo:            str  = ""
-    from_domain:     str  = ""   # sender domain — used to rotate EHLO per reconnect
-    proxy_cfg:       Optional[dict] = None
-    connect_timeout: int  = 10
-    data_timeout:    int  = 60
+    host: str = ""
+    port: int = 587
+    username: str = ""
+    password: str = ""
+    encryption: str = "TLS"
+    ehlo: str = ""
+    from_domain: str = ""  # sender domain — used to rotate EHLO per reconnect
+    proxy_cfg: Optional[dict] = None
+    connect_timeout: int = 10
+    data_timeout: int = 60
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -471,14 +561,14 @@ class _PoolEntry:
 # ═══════════════════════════════════════════════════════════════
 
 # Defaults — override in SmtpPool() constructor
-DEFAULT_MAX_SENDS_PER_CONN = 1     # fresh TCP+TLS+AUTH connection per email
+DEFAULT_MAX_SENDS_PER_CONN = 1  # fresh TCP+TLS+AUTH connection per email
 # WHY 1: sending multiple emails on one authenticated SMTP session is the
 # #1 bulk-sender fingerprint. Real MUAs (Outlook, Thunderbird, Gmail) open
 # a new connection per Send. Setting this to 1 eliminates the "first email
 # inboxes, subsequent don't" pattern caused by session-level bulk detection.
-DEFAULT_IDLE_TIMEOUT       = 30    # reconnect if idle > 30s (session tracking window)
-DEFAULT_MAX_PER_HOUR       = 0     # 0 = unlimited per-server hourly cap
-DEFAULT_SEND_DELAY         = 0.0   # seconds between sends (0 = no delay)
+DEFAULT_IDLE_TIMEOUT = 30  # reconnect if idle > 30s (session tracking window)
+DEFAULT_MAX_PER_HOUR = 0  # 0 = unlimited per-server hourly cap
+DEFAULT_SEND_DELAY = 0.0  # seconds between sends (0 = no delay)
 # Human-like delay: actual sleep is Gaussian(mean=send_delay, sigma=send_delay/4)
 # This matches the reference sender's sleep/pauseAfter pattern and prevents
 # ISP rate-throttle detection from a constant send cadence.
@@ -505,23 +595,23 @@ class SmtpPool:
 
     def __init__(
         self,
-        max_sends_per_conn: int   = DEFAULT_MAX_SENDS_PER_CONN,
-        idle_timeout:       int   = DEFAULT_IDLE_TIMEOUT,
-        max_per_hour:       int   = DEFAULT_MAX_PER_HOUR,
-        connect_timeout:    int   = 10,
-        data_timeout:       int   = 60,
-        send_delay:         float = DEFAULT_SEND_DELAY,
+        max_sends_per_conn: int = DEFAULT_MAX_SENDS_PER_CONN,
+        idle_timeout: int = DEFAULT_IDLE_TIMEOUT,
+        max_per_hour: int = DEFAULT_MAX_PER_HOUR,
+        connect_timeout: int = 10,
+        data_timeout: int = 60,
+        send_delay: float = DEFAULT_SEND_DELAY,
     ):
         self.max_sends_per_conn = max_sends_per_conn
-        self.idle_timeout       = idle_timeout
-        self.max_per_hour       = max_per_hour
-        self.connect_timeout    = connect_timeout
-        self.data_timeout       = data_timeout
-        self.send_delay         = send_delay  # mean seconds between sends
+        self.idle_timeout = idle_timeout
+        self.max_per_hour = max_per_hour
+        self.connect_timeout = connect_timeout
+        self.data_timeout = data_timeout
+        self.send_delay = send_delay  # mean seconds between sends
 
-        self._entries: dict[str, _PoolEntry]      = {}
-        self._stats:   dict[str, ServerRateStats] = {}
-        self._lock     = threading.Lock()
+        self._entries: dict[str, _PoolEntry] = {}
+        self._stats: dict[str, ServerRateStats] = {}
+        self._lock = threading.Lock()
 
     # ─────────────────────────────────────────────────────────
     # Public API
@@ -529,12 +619,12 @@ class SmtpPool:
 
     def send(
         self,
-        smtp_cfg:    dict,
-        msg,                          # email.message.Message — built by mime_builder
-        from_email:  str,
-        to_email:    str,
+        smtp_cfg: dict,
+        msg,  # email.message.Message — built by mime_builder
+        from_email: str,
+        to_email: str,
         ehlo_domain: str = "",
-        proxy_cfg:   Optional[dict] = None,
+        proxy_cfg: Optional[dict] = None,
     ) -> str:
         """
         Send one email. Returns the server key used (for campaign via_label).
@@ -546,7 +636,7 @@ class SmtpPool:
           • RATE_LIMIT         → raises, caller handles backoff
           • TRANSIENT / CONNECTION → one reconnect + retry, then raises
         """
-        key   = self._key(smtp_cfg, proxy_cfg)
+        key = self._key(smtp_cfg, proxy_cfg)
         stats = self._get_stats(key)
 
         if stats.disabled:
@@ -558,8 +648,12 @@ class SmtpPool:
                 f"{stats.sends_this_hour()}/{self.max_per_hour} this hour"
             )
 
-        _from_dom = from_email.split("@")[-1] if from_email and "@" in from_email else ""
-        entry = self._get_entry(key, smtp_cfg, ehlo_domain, proxy_cfg, from_domain=_from_dom)
+        _from_dom = (
+            from_email.split("@")[-1] if from_email and "@" in from_email else ""
+        )
+        entry = self._get_entry(
+            key, smtp_cfg, ehlo_domain, proxy_cfg, from_domain=_from_dom
+        )
 
         _post_delay = 0.0
         _send_succeeded = False
@@ -570,24 +664,34 @@ class SmtpPool:
 
                     # Check for Reply-To stored by mime_builder (kept off MIME
                     # headers to avoid relay DKIM coverage / header inspection)
-                    _reply_to_val = getattr(msg, '_synthtel_reply_to', None) or msg.get("Reply-To")
+                    _reply_to_val = getattr(msg, "_synthtel_reply_to", None) or msg.get(
+                        "Reply-To"
+                    )
                     # Remove from MIME if present (we'll inject into raw bytes)
                     if msg.get("Reply-To"):
                         del msg["Reply-To"]
 
-                    log.debug("[SmtpPool] %s: MAIL FROM=<%s> RCPT TO=<%s> Reply-To=%s",
-                              key, from_email, to_email, _reply_to_val or "(none)")
+                    log.debug(
+                        "[SmtpPool] %s: MAIL FROM=<%s> RCPT TO=<%s> Reply-To=%s",
+                        key,
+                        from_email,
+                        to_email,
+                        _reply_to_val or "(none)",
+                    )
 
                     if _reply_to_val:
                         # Serialize message to bytes WITHOUT Reply-To
-                        import io, email.generator, copy
+                        import io
+                        import email.generator
+                        import copy
+
                         _msg_copy = copy.deepcopy(msg)
                         # Remove Bcc from copy (standard practice)
-                        del _msg_copy['Bcc']
-                        del _msg_copy['Resent-Bcc']
+                        del _msg_copy["Bcc"]
+                        del _msg_copy["Resent-Bcc"]
                         with io.BytesIO() as _buf:
                             _gen = email.generator.BytesGenerator(_buf)
-                            _gen.flatten(_msg_copy, linesep='\r\n')
+                            _gen.flatten(_msg_copy, linesep="\r\n")
                             _raw = _buf.getvalue()
                         # Inject Reply-To into raw bytes AFTER the headers section
                         # is serialized — relay won't include it in DKIM signature
@@ -597,7 +701,9 @@ class SmtpPool:
                         # headers from body (\r\n\r\n)
                         _hdr_end = _raw.find(b"\r\n\r\n")
                         if _hdr_end > 0:
-                            _raw = _raw[:_hdr_end+2] + _rt_line + _raw[_hdr_end+2:]
+                            _raw = (
+                                _raw[: _hdr_end + 2] + _rt_line + _raw[_hdr_end + 2 :]
+                            )
                         else:
                             _raw = _rt_line + _raw
                         # Send raw bytes — relay processes MAIL FROM/RCPT TO normally
@@ -607,14 +713,26 @@ class SmtpPool:
                         except Exception as _rt_err:
                             # Some ISP relays reject the raw send; fall back to
                             # send_message without Reply-To so the email still delivers
-                            log.warning("[SmtpPool] %s: sendmail with Reply-To failed (%s), retrying without Reply-To", key, _rt_err)
-                            conn.send_message(msg, from_addr=from_email, to_addrs=[to_email])
+                            log.warning(
+                                "[SmtpPool] %s: sendmail with Reply-To failed (%s), retrying without Reply-To",
+                                key,
+                                _rt_err,
+                            )
+                            conn.send_message(
+                                msg, from_addr=from_email, to_addrs=[to_email]
+                            )
                     else:
-                        conn.send_message(msg, from_addr=from_email, to_addrs=[to_email])
+                        conn.send_message(
+                            msg, from_addr=from_email, to_addrs=[to_email]
+                        )
                     entry.last_used = time.time()
                     stats.record_send()
-                    log.debug("[SmtpPool] %s: sent → %s (session #%d)",
-                              key, to_email, stats.session_sent)
+                    log.debug(
+                        "[SmtpPool] %s: sent → %s (session #%d)",
+                        key,
+                        to_email,
+                        stats.session_sent,
+                    )
 
                     # Capture delay but sleep AFTER releasing entry.lock so
                     # concurrent workers on different servers aren't serialized.
@@ -629,7 +747,9 @@ class SmtpPool:
                     reason = f"AUTH failed {exc.smtp_code}: {str(exc.smtp_error)[:120]}"
                     stats.disable(reason)
                     stats.record_fail()
-                    raise Exception(f"PERMANENT AUTH FAILURE [{key}]: {reason}") from exc
+                    raise Exception(
+                        f"PERMANENT AUTH FAILURE [{key}]: {reason}"
+                    ) from exc
 
                 except smtplib.SMTPRecipientsRefused as exc:
                     stats.record_fail()
@@ -637,8 +757,10 @@ class SmtpPool:
 
                 except smtplib.SMTPResponseException as exc:
                     kind = smtp_error_type(exc)
-                    if kind in (SmtpErrorKind.PERMANENT_POLICY,
-                                SmtpErrorKind.PERMANENT_RECIPIENT):
+                    if kind in (
+                        SmtpErrorKind.PERMANENT_POLICY,
+                        SmtpErrorKind.PERMANENT_RECIPIENT,
+                    ):
                         stats.record_fail()
                         raise
                     if kind == SmtpErrorKind.RATE_LIMIT:
@@ -648,17 +770,25 @@ class SmtpPool:
                     if attempt == 1:
                         stats.record_fail()
                         raise
-                    log.warning("[SmtpPool] %s transient %s, reconnecting: %s", key, kind, exc)
+                    log.warning(
+                        "[SmtpPool] %s transient %s, reconnecting: %s", key, kind, exc
+                    )
 
-                except (smtplib.SMTPServerDisconnected,
-                        smtplib.SMTPConnectError,
-                        ConnectionError,
-                        OSError,
-                        TimeoutError) as exc:
+                except (
+                    smtplib.SMTPServerDisconnected,
+                    smtplib.SMTPConnectError,
+                    ConnectionError,
+                    OSError,
+                    TimeoutError,
+                ) as exc:
                     if attempt == 1:
                         stats.record_fail()
-                        raise Exception(f"Connection error after reconnect [{key}]: {exc}") from exc
-                    log.warning("[SmtpPool] %s connection error, reconnecting: %s", key, exc)
+                        raise Exception(
+                            f"Connection error after reconnect [{key}]: {exc}"
+                        ) from exc
+                    log.warning(
+                        "[SmtpPool] %s connection error, reconnecting: %s", key, exc
+                    )
 
             if _send_succeeded:
                 if _post_delay > 0:
@@ -676,9 +806,15 @@ class SmtpPool:
             try:
                 _retry_ehlo = _get_ehlo_domain(entry.from_domain or entry.host or "")
                 new_conn = _open_connection(
-                    entry.host, entry.port, entry.username, entry.password,
-                    entry.encryption, _retry_ehlo, entry.proxy_cfg,
-                    entry.connect_timeout, entry.data_timeout,
+                    entry.host,
+                    entry.port,
+                    entry.username,
+                    entry.password,
+                    entry.encryption,
+                    _retry_ehlo,
+                    entry.proxy_cfg,
+                    entry.connect_timeout,
+                    entry.data_timeout,
                     from_domain=entry.from_domain,
                 )
                 with entry.lock:
@@ -690,15 +826,25 @@ class SmtpPool:
             except Exception as exc:
                 stats.record_fail()
                 err_str = str(exc).lower()
-                if any(x in err_str for x in ["connection reset", "connection closed",
-                                               "connection refused", "errno 104",
-                                               "errno 111", "socket error"]):
+                if any(
+                    x in err_str
+                    for x in [
+                        "connection reset",
+                        "connection closed",
+                        "connection refused",
+                        "errno 104",
+                        "errno 111",
+                        "socket error",
+                    ]
+                ):
                     raise Exception(
                         f"SSL/TLS ERROR — Reconnect to [{key}] failed: {exc} "
                         f"(proxy exit IP blocked by SMTP server — try whitelisting your proxy IPs "
                         f"in your SMTP provider dashboard, or use a different proxy)"
                     ) from exc
-                raise Exception(f"SSL/TLS ERROR — Reconnect to [{key}] failed: {exc}") from exc
+                raise Exception(
+                    f"SSL/TLS ERROR — Reconnect to [{key}] failed: {exc}"
+                ) from exc
 
         # Unreachable — loop always returns or raises
         stats.record_fail()
@@ -734,17 +880,17 @@ class SmtpPool:
     @staticmethod
     def _key(smtp_cfg: dict, proxy_cfg: Optional[dict]) -> str:
         """Stable unique key for one server+credential+proxy combination."""
-        host  = smtp_cfg.get("host", "")
-        port  = str(smtp_cfg.get("port") or "587")
-        user  = smtp_cfg.get("username", "")
-        pwd   = smtp_cfg.get("password", "") or ""
-        enc   = smtp_cfg.get("encryption", "TLS")
+        host = smtp_cfg.get("host", "")
+        port = str(smtp_cfg.get("port") or "587")
+        user = smtp_cfg.get("username", "")
+        pwd = smtp_cfg.get("password", "") or ""
+        enc = smtp_cfg.get("encryption", "TLS")
         label = smtp_cfg.get("label", "")
         pwd_fingerprint = hashlib.sha256(str(pwd).encode("utf-8")).hexdigest()[:16]
         base = f"{host}:{port}:{user}:{enc}:{pwd_fingerprint}"
-        k     = f"{label}|{base}" if label else base
+        k = f"{label}|{base}" if label else base
         if proxy_cfg and proxy_cfg.get("host"):
-            k += f"|via:{proxy_cfg['host']}:{proxy_cfg.get('port','')}"
+            k += f"|via:{proxy_cfg['host']}:{proxy_cfg.get('port', '')}"
         return k
 
     def _get_stats(self, key: str) -> ServerRateStats:
@@ -755,38 +901,40 @@ class SmtpPool:
 
     def _get_entry(
         self,
-        key:        str,
-        smtp_cfg:   dict,
-        ehlo:       str,
-        proxy_cfg:  Optional[dict],
+        key: str,
+        smtp_cfg: dict,
+        ehlo: str,
+        proxy_cfg: Optional[dict],
         from_domain: str = "",
     ) -> _PoolEntry:
         with self._lock:
             if key not in self._entries:
                 _parts = ehlo.split(".") if ehlo else []
                 _from_dom = from_domain or (
-                    ".".join(_parts[-3:]) if len(_parts) >= 3 else
-                    ".".join(_parts[-2:]) if len(_parts) == 2 else
-                    ehlo or ""
+                    ".".join(_parts[-3:])
+                    if len(_parts) >= 3
+                    else ".".join(_parts[-2:])
+                    if len(_parts) == 2
+                    else ehlo or ""
                 )
                 self._entries[key] = _PoolEntry(
-                    host            = smtp_cfg.get("host", ""),
-                    port            = int(smtp_cfg.get("port") or 587),
-                    username        = smtp_cfg.get("username", ""),
-                    password        = smtp_cfg.get("password", ""),
-                    encryption      = smtp_cfg.get("encryption", "TLS"),
-                    ehlo            = ehlo or smtp_cfg.get("host", "mail.example.com"),
-                    from_domain     = _from_dom,
-                    proxy_cfg       = proxy_cfg,
-                    connect_timeout = self.connect_timeout,
-                    data_timeout    = self.data_timeout,
+                    host=smtp_cfg.get("host", ""),
+                    port=int(smtp_cfg.get("port") or 587),
+                    username=smtp_cfg.get("username", ""),
+                    password=smtp_cfg.get("password", ""),
+                    encryption=smtp_cfg.get("encryption", "TLS"),
+                    ehlo=ehlo or smtp_cfg.get("host", "mail.example.com"),
+                    from_domain=_from_dom,
+                    proxy_cfg=proxy_cfg,
+                    connect_timeout=self.connect_timeout,
+                    data_timeout=self.data_timeout,
                 )
             return self._entries[key]
 
     def _get_live_conn(
         self,
         entry: _PoolEntry,
-        key:   str,
+        key: str,
         stats: ServerRateStats,
     ) -> smtplib.SMTP:
         """
@@ -807,7 +955,10 @@ class SmtpPool:
         must_reconnect = (
             entry.conn is None
             or (self.idle_timeout > 0 and now - entry.last_used > self.idle_timeout)
-            or (self.max_sends_per_conn > 0 and stats.session_sent >= self.max_sends_per_conn)
+            or (
+                self.max_sends_per_conn > 0
+                and stats.session_sent >= self.max_sends_per_conn
+            )
         )
 
         def _fresh_ehlo() -> str:
@@ -821,14 +972,23 @@ class SmtpPool:
                 _safe_close(entry.conn)
                 entry.conn = None
                 stats.record_reconnect()
-                log.debug("[SmtpPool] %s: voluntary reconnect "
-                          "(idle=%.0fs, session_sent=%d)",
-                          key, now - entry.last_used, stats.session_sent)
+                log.debug(
+                    "[SmtpPool] %s: voluntary reconnect (idle=%.0fs, session_sent=%d)",
+                    key,
+                    now - entry.last_used,
+                    stats.session_sent,
+                )
             _ehlo = _fresh_ehlo()
-            entry.conn      = _open_connection(
-                entry.host, entry.port, entry.username, entry.password,
-                entry.encryption, _ehlo, entry.proxy_cfg,
-                entry.connect_timeout, entry.data_timeout,
+            entry.conn = _open_connection(
+                entry.host,
+                entry.port,
+                entry.username,
+                entry.password,
+                entry.encryption,
+                _ehlo,
+                entry.proxy_cfg,
+                entry.connect_timeout,
+                entry.data_timeout,
                 from_domain=entry.from_domain,
             )
             entry.last_used = now
@@ -841,10 +1001,16 @@ class SmtpPool:
             entry.conn = None
             stats.record_reconnect()
             _ehlo = _fresh_ehlo()
-            entry.conn      = _open_connection(
-                entry.host, entry.port, entry.username, entry.password,
-                entry.encryption, _ehlo, entry.proxy_cfg,
-                entry.connect_timeout, entry.data_timeout,
+            entry.conn = _open_connection(
+                entry.host,
+                entry.port,
+                entry.username,
+                entry.password,
+                entry.encryption,
+                _ehlo,
+                entry.proxy_cfg,
+                entry.connect_timeout,
+                entry.data_timeout,
                 from_domain=entry.from_domain,
             )
             entry.last_used = now
@@ -859,10 +1025,16 @@ class SmtpPool:
             entry.conn = None
             stats.record_reconnect()
             _ehlo = _fresh_ehlo()
-            entry.conn      = _open_connection(
-                entry.host, entry.port, entry.username, entry.password,
-                entry.encryption, _ehlo, entry.proxy_cfg,
-                entry.connect_timeout, entry.data_timeout,
+            entry.conn = _open_connection(
+                entry.host,
+                entry.port,
+                entry.username,
+                entry.password,
+                entry.encryption,
+                _ehlo,
+                entry.proxy_cfg,
+                entry.connect_timeout,
+                entry.data_timeout,
                 from_domain=entry.from_domain,
             )
             entry.last_used = now
@@ -874,21 +1046,28 @@ class SmtpPool:
 # MODULE-LEVEL HELPERS
 # ═══════════════════════════════════════════════════════════════
 
+
 def send_via_pool(
-    pool:        SmtpPool,
-    smtp_cfg:    dict,
+    pool: SmtpPool,
+    smtp_cfg: dict,
     msg,
-    from_email:  str,
-    to_email:    str,
+    from_email: str,
+    to_email: str,
     ehlo_domain: str = "",
-    proxy_cfg:   Optional[dict] = None,
+    proxy_cfg: Optional[dict] = None,
 ) -> str:
     """
     Send one pre-built MIME message via a SmtpPool.
     Returns server key used (for via_label).
     """
-    return pool.send(smtp_cfg, msg, from_email, to_email,
-                     ehlo_domain=ehlo_domain, proxy_cfg=proxy_cfg)
+    return pool.send(
+        smtp_cfg,
+        msg,
+        from_email,
+        to_email,
+        ehlo_domain=ehlo_domain,
+        proxy_cfg=proxy_cfg,
+    )
 
 
 # ─── Per-user SMTP pools ────────────────────────────────────────
@@ -897,8 +1076,8 @@ def send_via_pool(
 # The legacy single-pool API (get_global_pool / reset_global_pool) is
 # kept as a thin shim that addresses bucket "" (used by helpers like
 # send_one_email() that pre-date uid plumbing).
-_pools: dict = {}                         # uid (str|None) → SmtpPool
-_global_lock  = threading.Lock()
+_pools: dict = {}  # uid (str|None) → SmtpPool
+_global_lock = threading.Lock()
 
 
 def get_pool(uid=None) -> SmtpPool:
@@ -914,12 +1093,12 @@ def get_pool(uid=None) -> SmtpPool:
 
 def reset_pool(
     uid=None,
-    max_sends_per_conn: int   = DEFAULT_MAX_SENDS_PER_CONN,
-    idle_timeout:       int   = DEFAULT_IDLE_TIMEOUT,
-    max_per_hour:       int   = DEFAULT_MAX_PER_HOUR,
-    connect_timeout:    int   = 10,
-    data_timeout:       int   = 60,
-    send_delay:         float = DEFAULT_SEND_DELAY,
+    max_sends_per_conn: int = DEFAULT_MAX_SENDS_PER_CONN,
+    idle_timeout: int = DEFAULT_IDLE_TIMEOUT,
+    max_per_hour: int = DEFAULT_MAX_PER_HOUR,
+    connect_timeout: int = 10,
+    data_timeout: int = 60,
+    send_delay: float = DEFAULT_SEND_DELAY,
 ):
     """Replace JUST this user's pool — never touches other users' pools.
     Called at the start of each campaign so its stats start fresh and
@@ -929,15 +1108,17 @@ def reset_pool(
     with _global_lock:
         existing = _pools.get(key)
         if existing is not None:
-            try: existing.close_all()
-            except Exception: pass
+            try:
+                existing.close_all()
+            except Exception:
+                pass
         _pools[key] = SmtpPool(
-            max_sends_per_conn = max_sends_per_conn,
-            idle_timeout       = idle_timeout,
-            max_per_hour       = max_per_hour,
-            connect_timeout    = connect_timeout,
-            data_timeout       = data_timeout,
-            send_delay         = send_delay,
+            max_sends_per_conn=max_sends_per_conn,
+            idle_timeout=idle_timeout,
+            max_per_hour=max_per_hour,
+            connect_timeout=connect_timeout,
+            data_timeout=data_timeout,
+            send_delay=send_delay,
         )
 
 
@@ -958,22 +1139,23 @@ def reset_global_pool(*args, **kwargs):
 # campaign.py can swap the import without changing call sites.
 # ═══════════════════════════════════════════════════════════════
 
+
 def send_smtp(
-    smtp_cfg:        dict,
-    sender:          dict,
-    lead:            dict,
-    resolved_html:   str,
-    resolved_plain:  str,
-    resolved_subj:   str,
-    dlv:             dict,
-    custom_headers:  list,
-    proxy_cfg:       Optional[dict]  = None,
-    pool:            Optional[SmtpPool] = None,
-    attachments:     Optional[dict]  = None,
-    ehlo_domain:     str             = "",
-    smtp_auth_email: str             = "",
-    envelope_from:   str             = "",
-    send_delay:      float           = DEFAULT_SEND_DELAY,
+    smtp_cfg: dict,
+    sender: dict,
+    lead: dict,
+    resolved_html: str,
+    resolved_plain: str,
+    resolved_subj: str,
+    dlv: dict,
+    custom_headers: list,
+    proxy_cfg: Optional[dict] = None,
+    pool: Optional[SmtpPool] = None,
+    attachments: Optional[dict] = None,
+    ehlo_domain: str = "",
+    smtp_auth_email: str = "",
+    envelope_from: str = "",
+    send_delay: float = DEFAULT_SEND_DELAY,
 ) -> str:
     """
     Drop-in replacement for the original send_smtp() in synthtel_server.py.
@@ -992,8 +1174,8 @@ def send_smtp(
     from core.mime_builder import build_message
 
     from_email = sender.get("fromEmail", "")
-    to_email   = lead.get("email", "")
-    ehlo       = (
+    to_email = lead.get("email", "")
+    ehlo = (
         ehlo_domain
         or (from_email.split("@")[-1] if "@" in from_email else "")
         or smtp_cfg.get("host", "mail.example.com")
@@ -1003,18 +1185,18 @@ def send_smtp(
     _auth_email = smtp_auth_email or smtp_cfg.get("smtp_auth_email", "")
 
     msg, meta = build_message(
-        lead             = lead,
-        sender           = sender,
-        subject          = resolved_subj,
-        html             = resolved_html,
-        plain            = resolved_plain,
-        dlv              = dlv,
-        custom_hdrs      = custom_headers,
-        attachments      = attachments or {},
-        ehlo_domain      = ehlo,
-        smtp_auth_email  = _auth_email,
-        envelope_from    = envelope_from or "",
-        preheader        = (dlv or {}).get("preheader", ""),
+        lead=lead,
+        sender=sender,
+        subject=resolved_subj,
+        html=resolved_html,
+        plain=resolved_plain,
+        dlv=dlv,
+        custom_hdrs=custom_headers,
+        attachments=attachments or {},
+        ehlo_domain=ehlo,
+        smtp_auth_email=_auth_email,
+        envelope_from=envelope_from or "",
+        preheader=(dlv or {}).get("preheader", ""),
     )
 
     # Log any build warnings without failing the send
@@ -1032,8 +1214,13 @@ def send_smtp(
     if send_delay > 0 and pool is None:
         target_pool.send_delay = send_delay
     via_used = send_via_pool(
-        target_pool, smtp_cfg, msg, _env_from, to_email,
-        ehlo_domain=ehlo, proxy_cfg=proxy_cfg,
+        target_pool,
+        smtp_cfg,
+        msg,
+        _env_from,
+        to_email,
+        ehlo_domain=ehlo,
+        proxy_cfg=proxy_cfg,
     )
     # Stash the Message-ID on the via string via a sidecar attribute so
     # callers that care (campaign.py → IMAP delete-sent) can recover it

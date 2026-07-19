@@ -68,12 +68,15 @@ http://<your-vps-ip>/
 
 nginx serves the React SPA on port 80 and reverse-proxies `/api/*` to the Python backend on `127.0.0.1:5001`. The backend never listens on a public port directly.
 
-**Default credentials (change immediately after first login):**
+**First-time login:**
 
-| Field | Value |
-|-------|-------|
-| Username | `admin` |
-| Password | `admin` |
+On first run a default `admin` user is created with a random password, which is printed in the application log. Retrieve it with:
+
+```bash
+sudo grep -E 'Generated admin password|admin password' /opt/synthtel/synthtel.log
+```
+
+You must change this password immediately after first login.
 
 Sessions last 24 hours by default. Failed login attempts are rate-limited; 10 failures from one IP triggers a 15-minute lockout.
 

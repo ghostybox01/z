@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """
 core/campaign.py — SynthTel Campaign Orchestrator
 ==================================================
@@ -42,24 +43,21 @@ Public API:
         yield json.dumps(event) + "\\n"
 """
 
-import json
 import logging
 import os
 import random
-import socket
 import time
 import threading
 import html as html_lib
 import re
 import hashlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue as _Queue, Empty as _QueueEmpty
-from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
 from typing import Generator, Optional
 
 log = logging.getLogger(__name__)
 
 from core.tags import resolve_tags, build_context
+
 try:
     from core.suppression_list import is_suppressed as _is_suppressed
 except Exception:
@@ -67,44 +65,52 @@ except Exception:
 
 try:
     from core.link_encoder import (
-        resolve_link_tags, build_redirect_attachment,
-        get_method_from_tag, METHOD_HTML_ATTACHMENT, METHOD_CF_SECURITY_CHECK,
+        resolve_link_tags,
+        get_method_from_tag,
     )
+
     _HAS_LINK_ENCODER = True
 except ImportError:
     _HAS_LINK_ENCODER = False
 
 try:
-    from core.email_sorter import sort_leads, get_provider_delay, PROVIDER_META
+    from core.email_sorter import sort_leads
+
     _HAS_SORTER = True
 except ImportError:
     _HAS_SORTER = False
 
 try:
     # NOTE: the module was renamed from core.b2b_sender to core.b2b_manager.
-    # core.b2b_manager exposes a B2BSender + b2b_from_cfg compatibility shim
+    # core.b2b_manager exposes a b2b_from_cfg compatibility shim
     # so this import keeps working unchanged for downstream callers.
-    from core.b2b_manager import B2BSender, b2b_from_cfg
+    from core.b2b_manager import b2b_from_cfg
+
     _HAS_B2B = True
 except ImportError:
     _HAS_B2B = False
 
 from core.spam_filter import apply_spam_filter, apply_full_bypass
 from core.smtp_sender import (
-    send_smtp, get_global_pool, reset_global_pool,
-    get_pool as _smtp_get_pool, reset_pool as _smtp_reset_pool,
+    send_smtp,
+    get_global_pool,
+    get_pool as _smtp_get_pool,
+    reset_pool as _smtp_reset_pool,
     SmtpPool,
 )
 from core.mx_sender import (
-    send_direct_mx, get_global_ctx, reset_global_ctx,
-    get_ctx as _mx_get_ctx, reset_ctx as _mx_reset_ctx,
-    MxSenderContext, preflight_check_senders,
+    send_direct_mx,
+    get_ctx as _mx_get_ctx,
+    reset_ctx as _mx_reset_ctx,
+    MxSenderContext,
+    preflight_check_senders,
 )
 from core.api_sender import send_api, build_api_headers
 from core.owa_sender import send_owa
 from core.crm_sender import send_crm
 from core.tunnel_manager import (
-    open_ssh_socks, close_all_tunnels, close_tunnel,
+    open_ssh_socks,
+    close_all_tunnels,
 )
 from core.mime_builder import build_message
 
@@ -121,28 +127,73 @@ WARMUP_LIMITS: dict = {
     5: 999_999,
 }
 
-STRICT_DOMAINS = frozenset({
-    "gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
-    "aol.com", "icloud.com", "live.com", "msn.com", "ymail.com",
-    "yahoo.co.uk", "yahoo.com.au", "hotmail.co.uk",
-    "me.com", "mac.com",
-})
+STRICT_DOMAINS = frozenset(
+    {
+        "gmail.com",
+        "yahoo.com",
+        "hotmail.com",
+        "outlook.com",
+        "aol.com",
+        "icloud.com",
+        "live.com",
+        "msn.com",
+        "ymail.com",
+        "yahoo.co.uk",
+        "yahoo.com.au",
+        "hotmail.co.uk",
+        "me.com",
+        "mac.com",
+    }
+)
 
-MS_RATE_DOMAINS = frozenset({
-    "hotmail.com", "outlook.com", "live.com", "msn.com",
-    "hotmail.co.uk", "hotmail.fr", "outlook.co.uk",
-})
+MS_RATE_DOMAINS = frozenset(
+    {
+        "hotmail.com",
+        "outlook.com",
+        "live.com",
+        "msn.com",
+        "hotmail.co.uk",
+        "hotmail.fr",
+        "outlook.co.uk",
+    }
+)
 
-VALID_METHODS = frozenset({"smtp", "api", "owa", "crm", "tunnel", "b2b", "office", "mx", "cpanel", "ssti_probe"})
+VALID_METHODS = frozenset(
+    {
+        "smtp",
+        "api",
+        "owa",
+        "crm",
+        "tunnel",
+        "b2b",
+        "office",
+        "mx",
+        "cpanel",
+        "ssti_probe",
+    }
+)
 
 # Free-email domains that can never be authenticated via third-party ESPs.
 # Re-uses STRICT_DOMAINS plus a few extras common as "from" addresses.
-_FREE_EMAIL_DOMAINS = STRICT_DOMAINS | frozenset({
-    "protonmail.com", "protonmail.ch", "pm.me",
-    "zoho.com", "zohomail.com", "mail.com", "gmx.com", "gmx.net",
-    "yandex.com", "yandex.ru", "fastmail.com", "fastmail.fm",
-    "tutanota.com", "tutanota.de", "hushmail.com",
-})
+_FREE_EMAIL_DOMAINS = STRICT_DOMAINS | frozenset(
+    {
+        "protonmail.com",
+        "protonmail.ch",
+        "pm.me",
+        "zoho.com",
+        "zohomail.com",
+        "mail.com",
+        "gmx.com",
+        "gmx.net",
+        "yandex.com",
+        "yandex.ru",
+        "fastmail.com",
+        "fastmail.fm",
+        "tutanota.com",
+        "tutanota.de",
+        "hushmail.com",
+    }
+)
 
 
 def _dns_txt(domain: str, timeout: int = 6) -> list:
@@ -150,14 +201,16 @@ def _dns_txt(domain: str, timeout: int = 6) -> list:
 
     Falls back to an empty list on any error so callers never crash.
     """
-    import urllib.request as _ur, json as _json
+    import core.urlopen_compat as _ur
+    import json as _json
+
     try:
         url = f"https://dns.google/resolve?name={domain}&type=TXT"
         req = _ur.Request(url, headers={"Accept": "application/json"})
         with _ur.urlopen(req, timeout=timeout) as resp:
             data = _json.loads(resp.read().decode())
         records = []
-        for ans in (data.get("Answer") or []):
+        for ans in data.get("Answer") or []:
             val = (ans.get("data") or "").strip().strip('"')
             # Multi-chunk TXT records come as `"chunk1" "chunk2"` — join them.
             val = val.replace('" "', "")
@@ -187,7 +240,8 @@ def _get_dmarc(domain: str) -> str:
 def _dmarc_policy(record: str) -> str:
     """Extract p= tag from a DMARC record string. Returns 'none'/'quarantine'/'reject'/''."""
     import re as _re_d
-    m = _re_d.search(r'\bp=(\w+)', record or "")
+
+    m = _re_d.search(r"\bp=(\w+)", record or "")
     return m.group(1).lower() if m else ""
 
 
@@ -199,7 +253,7 @@ def _preflight_sender_auth(senders: list, method: str, servers: list = None) -> 
     """
     import concurrent.futures as _cf_auth
 
-    domain_sample: dict = {}   # domain → first from_email seen
+    domain_sample: dict = {}  # domain → first from_email seen
     for s in senders:
         fe = (s.get("fromEmail", "") if isinstance(s, dict) else str(s)).strip()
         if "@" not in fe:
@@ -214,36 +268,44 @@ def _preflight_sender_auth(senders: list, method: str, servers: list = None) -> 
         # Free email + API ESP = structurally impossible to authenticate
         if method == "api" and domain in _FREE_EMAIL_DOMAINS:
             return {
-                "domain": domain, "from_email": sample_email,
+                "domain": domain,
+                "from_email": sample_email,
                 "level": "error",
                 "msg": (
                     f"@{domain} cannot be authenticated through an API ESP "
                     f"(SPF/DKIM alignment will always fail — {domain} is a free email provider). "
                     f"Use a domain you own and have verified in Brevo/SendGrid."
                 ),
-                "spf": "", "dmarc": "",
+                "spf": "",
+                "dmarc": "",
             }
 
-        spf   = _get_spf(domain)
+        spf = _get_spf(domain)
         dmarc = _get_dmarc(domain)
-        pol   = _dmarc_policy(dmarc)
+        pol = _dmarc_policy(dmarc)
 
         issues, level = [], "ok"
 
         if not spf:
-            issues.append("no SPF record — add 'v=spf1 include:<ESP> ~all' for your relay")
+            issues.append(
+                "no SPF record — add 'v=spf1 include:<ESP> ~all' for your relay"
+            )
             level = "warn"
 
         if pol == "reject":
-            issues.append(f"DMARC p=reject — receivers will reject unauthenticated mail")
+            issues.append("DMARC p=reject — receivers will reject unauthenticated mail")
             level = "error"
         elif pol == "quarantine":
-            issues.append(f"DMARC p=quarantine — unauthenticated mail goes to spam")
+            issues.append("DMARC p=quarantine — unauthenticated mail goes to spam")
             if level == "ok":
                 level = "warn"
 
         if method in ("smtp", "tunnel", "isp") and spf and servers:
-            srv_hosts = {(s.get("host") or "").strip().lower() for s in servers if isinstance(s, dict)}
+            srv_hosts = {
+                (s.get("host") or "").strip().lower()
+                for s in servers
+                if isinstance(s, dict)
+            }
             srv_hosts.discard("")
             spf_l = spf.lower()
             # Only flag -all when we can't see our relay in the record at all.
@@ -257,14 +319,23 @@ def _preflight_sender_auth(senders: list, method: str, servers: list = None) -> 
                         level = "warn"
 
         if not issues:
-            detail = f"SPF ✓" + (f", DMARC p={pol}" if pol else ", no DMARC")
-            return {"domain": domain, "from_email": sample_email, "level": "ok",
-                    "msg": f"{domain}: {detail}", "spf": spf, "dmarc": dmarc}
+            detail = "SPF ✓" + (f", DMARC p={pol}" if pol else ", no DMARC")
+            return {
+                "domain": domain,
+                "from_email": sample_email,
+                "level": "ok",
+                "msg": f"{domain}: {detail}",
+                "spf": spf,
+                "dmarc": dmarc,
+            }
 
         return {
-            "domain": domain, "from_email": sample_email, "level": level,
+            "domain": domain,
+            "from_email": sample_email,
+            "level": level,
             "msg": f"{sample_email}: " + " | ".join(issues),
-            "spf": spf or "(none)", "dmarc": dmarc or "(none)",
+            "spf": spf or "(none)",
+            "dmarc": dmarc or "(none)",
         }
 
     results = []
@@ -274,22 +345,39 @@ def _preflight_sender_auth(senders: list, method: str, servers: list = None) -> 
             for fut in _cf_auth.as_completed(futs, timeout=20):
                 try:
                     results.append(fut.result(timeout=0))
-                except Exception as exc:
+                except Exception:
                     d, e = futs[fut]
-                    results.append({"domain": d, "from_email": e, "level": "ok",
-                                     "msg": f"{d}: auth check skipped", "spf": "", "dmarc": ""})
+                    results.append(
+                        {
+                            "domain": d,
+                            "from_email": e,
+                            "level": "ok",
+                            "msg": f"{d}: auth check skipped",
+                            "spf": "",
+                            "dmarc": "",
+                        }
+                    )
         except _cf_auth.TimeoutError:
             # DNS checks exceeded 20s — mark remaining domains as skipped
-            checked = {id(f) for f in results}
+            {id(f) for f in results}
             for fut, (d, e) in futs.items():
                 if not fut.done():
-                    results.append({"domain": d, "from_email": e, "level": "ok",
-                                     "msg": f"{d}: auth check timed out", "spf": "", "dmarc": ""})
+                    results.append(
+                        {
+                            "domain": d,
+                            "from_email": e,
+                            "level": "ok",
+                            "msg": f"{d}: auth check timed out",
+                            "spf": "",
+                            "dmarc": "",
+                        }
+                    )
     return results
 
 
 def _check_socks5(host: str, port: int, timeout: int = 5) -> tuple:
     import socket as _sock
+
     try:
         s = _sock.create_connection((host, port), timeout=timeout)
         s.close()
@@ -298,12 +386,22 @@ def _check_socks5(host: str, port: int, timeout: int = 5) -> tuple:
         return False, str(e)
 
 
-def _restart_3proxy_via_ssh(host: str, user: str, password: str, port: int = 22) -> tuple:
+def _restart_3proxy_via_ssh(
+    host: str, user: str, password: str, port: int = 22
+) -> tuple:
     try:
-        import paramiko
-        c = paramiko.SSHClient()
-        c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        c.connect(host, port=port, username=user, password=password, timeout=15)
+        from core.ssh_helper import create_ssh_client
+
+        c = create_ssh_client()
+        c.connect(
+            host,
+            port=port,
+            username=user,
+            password=password,
+            timeout=15,
+            look_for_keys=False,
+            allow_agent=False,
+        )
         cmds = [
             "Stop-Process -Name 3proxy -Force -ErrorAction SilentlyContinue",
             "Start-Sleep 1",
@@ -323,8 +421,8 @@ def _restart_3proxy_via_ssh(host: str, user: str, password: str, port: int = 22)
 
 
 def _preflight_isp_tunnel(tun: dict) -> tuple:
-    host     = tun.get("socksHost") or tun.get("sshHost", "")
-    port     = int(tun.get("socksPort", 1080))
+    host = tun.get("socksHost") or tun.get("sshHost", "")
+    port = int(tun.get("socksPort", 1080))
     ssh_user = tun.get("sshUser", "Administrator")
     ssh_pass = tun.get("sshPass", "")
     ssh_port = int(tun.get("rdpSshPort", 22))
@@ -337,6 +435,7 @@ def _preflight_isp_tunnel(tun: dict) -> tuple:
         rok, rmsg = _restart_3proxy_via_ssh(host, ssh_user, ssh_pass, ssh_port)
         if rok:
             import time as _time
+
             _time.sleep(4)
             ok2, err2 = _check_socks5(host, port)
             if ok2:
@@ -368,17 +467,18 @@ DELAY_UNITS = {
 # LOCAL HELPERS
 # ═══════════════════════════════════════════════════════════════
 
+
 def _strip_html(html_str: str) -> str:
     """
     Legacy plain-text extractor kept for backwards compatibility with
     any code that calls campaign._strip_html() directly.
     For MIME building, mime_builder._strip_html() is used (see FIX-1).
     """
-    text = re.sub(r'<br\s*/?>', '\n', html_str or "")
-    text = re.sub(r'</p>', '\n\n', text, flags=re.I)
-    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r"<br\s*/?>", "\n", html_str or "")
+    text = re.sub(r"</p>", "\n\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
     text = html_lib.unescape(text)
-    return re.sub(r'\n{3,}', '\n\n', text).strip()
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 def _inject_unsub_link(html_str: str, unsub_url: str, email: str) -> str:
@@ -387,12 +487,12 @@ def _inject_unsub_link(html_str: str, unsub_url: str, email: str) -> str:
         '<div style="text-align:center;padding:20px 0 10px;margin-top:20px;'
         'border-top:1px solid #eee;font-size:11px;color:#999;font-family:Arial,sans-serif">'
         f'<a href="{url}" style="color:#999;text-decoration:underline">Unsubscribe</a>'
-        ' | '
+        " | "
         f'<a href="{url}" style="color:#999;text-decoration:underline">Manage preferences</a>'
-        '</div>'
+        "</div>"
     )
-    if '</body>' in (html_str or "").lower():
-        return re.sub(r'(</body>)', footer + r'\1', html_str, flags=re.I)
+    if "</body>" in (html_str or "").lower():
+        return re.sub(r"(</body>)", footer + r"\1", html_str, flags=re.I)
     return (html_str or "") + footer
 
 
@@ -414,32 +514,33 @@ def _safe_float(v, default: float = 0.0) -> float:
 # success events so the optional delete-sent flow can log in without the
 # user having to configure IMAP separately.  Falls back to imap.<domain>.
 _IMAP_HOST_MAP = {
-    "gmail.com":      "imap.gmail.com",
+    "gmail.com": "imap.gmail.com",
     "googlemail.com": "imap.gmail.com",
-    "yahoo.com":      "imap.mail.yahoo.com",
-    "ymail.com":      "imap.mail.yahoo.com",
-    "yahoo.co.uk":    "imap.mail.yahoo.com",
-    "yahoo.co.jp":    "imap.mail.yahoo.com",
-    "aol.com":        "imap.aol.com",
-    "icloud.com":     "imap.mail.me.com",
-    "me.com":         "imap.mail.me.com",
-    "mac.com":        "imap.mail.me.com",
-    "outlook.com":    "outlook.office365.com",
-    "hotmail.com":    "outlook.office365.com",
-    "live.com":       "outlook.office365.com",
-    "msn.com":        "outlook.office365.com",
-    "office365.com":  "outlook.office365.com",
-    "zoho.com":       "imap.zoho.com",
-    "zohomail.com":   "imap.zoho.com",
-    "zoho.eu":        "imap.zoho.eu",
-    "fastmail.com":   "imap.fastmail.com",
-    "fastmail.fm":    "imap.fastmail.com",
-    "gmx.com":        "imap.gmx.com",
-    "gmx.net":        "imap.gmx.net",
-    "gmx.de":         "imap.gmx.net",
-    "web.de":         "imap.web.de",
+    "yahoo.com": "imap.mail.yahoo.com",
+    "ymail.com": "imap.mail.yahoo.com",
+    "yahoo.co.uk": "imap.mail.yahoo.com",
+    "yahoo.co.jp": "imap.mail.yahoo.com",
+    "aol.com": "imap.aol.com",
+    "icloud.com": "imap.mail.me.com",
+    "me.com": "imap.mail.me.com",
+    "mac.com": "imap.mail.me.com",
+    "outlook.com": "outlook.office365.com",
+    "hotmail.com": "outlook.office365.com",
+    "live.com": "outlook.office365.com",
+    "msn.com": "outlook.office365.com",
+    "office365.com": "outlook.office365.com",
+    "zoho.com": "imap.zoho.com",
+    "zohomail.com": "imap.zoho.com",
+    "zoho.eu": "imap.zoho.eu",
+    "fastmail.com": "imap.fastmail.com",
+    "fastmail.fm": "imap.fastmail.com",
+    "gmx.com": "imap.gmx.com",
+    "gmx.net": "imap.gmx.net",
+    "gmx.de": "imap.gmx.net",
+    "web.de": "imap.web.de",
     "secureserver.net": "imap.secureserver.net",
 }
+
 
 def _guess_imap_host(email: str) -> str:
     if not email or "@" not in email:
@@ -451,17 +552,20 @@ def _guess_imap_host(email: str) -> str:
     # (Google Workspace, custom-domain ProtonMail bridges, etc.).
     return "imap." + domain
 
+
 def _campaign_abort_requested(uid) -> bool:
     """Best-effort campaign abort check from shared server control map."""
     if not uid:
         return False
     try:
         from core import server as _server
+
         with _server.active_campaigns_lock:
             ctrl = _server.CAMPAIGN_CONTROLS.get(uid) or {}
             return bool(ctrl.get("abort", False))
     except Exception:
         return False
+
 
 def _sleep_interruptible(seconds: float, uid) -> bool:
     """Sleep in short slices so stop requests can interrupt quickly."""
@@ -483,6 +587,7 @@ def _parse_smtp_error(error: Exception, lead_email: str = "") -> str:
     domain = lead_email.split("@")[-1] if "@" in lead_email else ""
 
     import re as _re
+
     smtp_code = ""
     m = _re.search(r"\((\d{3}),", str(error))
     if m:
@@ -499,73 +604,148 @@ def _parse_smtp_error(error: Exception, lead_email: str = "") -> str:
         return f"MX SEND FAILED — all servers for {domain or 'recipient'} rejected. Check proxy/port 25"
     if "nxdomain" in err or "could not resolve mx" in err or "could not resolve" in err:
         return f"DNS ERROR — cannot resolve mail servers for {domain}"
-    if any(x in err for x in ["greylisted", "greylist", "4.2.0", "temporarily deferred"]):
+    if any(
+        x in err for x in ["greylisted", "greylist", "4.2.0", "temporarily deferred"]
+    ):
         return "GREYLISTED — server wants you to retry later (temporary rejection)"
 
-    if any(x in err for x in [
-        "user unknown", "mailbox not found", "does not exist",
-        "no such user", "unknown user", "invalid recipient",
-        "recipient rejected", "mailbox unavailable",
-        "5.1.1", "recipient not found", "account disabled", "undeliverable",
-    ]):
+    if any(
+        x in err
+        for x in [
+            "user unknown",
+            "mailbox not found",
+            "does not exist",
+            "no such user",
+            "unknown user",
+            "invalid recipient",
+            "recipient rejected",
+            "mailbox unavailable",
+            "5.1.1",
+            "recipient not found",
+            "account disabled",
+            "undeliverable",
+        ]
+    ):
         return f"INVALID RECIPIENT — email does not exist or mailbox disabled ({lead_email})"
     if "address rejected" in err and "sender" not in err and "from" not in err:
         return f"INVALID RECIPIENT — email does not exist or mailbox disabled ({lead_email})"
 
-    if any(x in err for x in [
-        "spamhaus", "blacklist", "blocklist", "blocked using",
-        "bl.spamcop", "barracuda", "sorbs", "dnsbl", "rbl",
-        "listed at", "poor reputation", "client host rejected",
-        "5.7.1 service unavailable",
-    ]):
+    if any(
+        x in err
+        for x in [
+            "spamhaus",
+            "blacklist",
+            "blocklist",
+            "blocked using",
+            "bl.spamcop",
+            "barracuda",
+            "sorbs",
+            "dnsbl",
+            "rbl",
+            "listed at",
+            "poor reputation",
+            "client host rejected",
+            "5.7.1 service unavailable",
+        ]
+    ):
         return "IP BLOCKED — your sending IP is on a blacklist or has poor reputation"
 
-    if any(x in err for x in [
-        "too many", "rate limit", "throttl", "exceeded the rate",
-        "too many connections", "4.7.0", "try again later",
-        "service busy", "resources temporarily unavailable",
-        "exceeded sending",
-    ]):
+    if any(
+        x in err
+        for x in [
+            "too many",
+            "rate limit",
+            "throttl",
+            "exceeded the rate",
+            "too many connections",
+            "4.7.0",
+            "try again later",
+            "service busy",
+            "resources temporarily unavailable",
+            "exceeded sending",
+        ]
+    ):
         if domain in MS_RATE_DOMAINS:
             return f"MICROSOFT RATE LIMIT — too fast for {domain}. Rotate IP or increase delay"
         return "RATE LIMITED — server throttling your sends. Slow down or rotate IP"
 
-    if any(x in err for x in [
-        "spf", "dkim", "dmarc", "unauthenticated",
-        "authentication required", "not authenticated",
-        "5.7.26", "5.7.23", "5.7.25",
-    ]):
+    if any(
+        x in err
+        for x in [
+            "spf",
+            "dkim",
+            "dmarc",
+            "unauthenticated",
+            "authentication required",
+            "not authenticated",
+            "5.7.26",
+            "5.7.23",
+            "5.7.25",
+        ]
+    ):
         return "AUTH FAIL — SPF/DKIM/DMARC failed. This IP is not authorized to send for your domain"
 
-    if any(x in err for x in [
-        "spam", "junk", "content rejected", "suspicious",
-        "phish", "message content", "banned content", "high spam",
-    ]):
+    if any(
+        x in err
+        for x in [
+            "spam",
+            "junk",
+            "content rejected",
+            "suspicious",
+            "phish",
+            "message content",
+            "banned content",
+            "high spam",
+        ]
+    ):
         return "CONTENT FILTER — flagged as spam by recipient server"
 
-    if any(x in err for x in [
-        "policy", "organization", "rejected by policy",
-        "content filter", "message rejected", "refused by",
-        "administratively denied", "mailbox policy", "5.7.0",
-    ]):
+    if any(
+        x in err
+        for x in [
+            "policy",
+            "organization",
+            "rejected by policy",
+            "content filter",
+            "message rejected",
+            "refused by",
+            "administratively denied",
+            "mailbox policy",
+            "5.7.0",
+        ]
+    ):
         return "POLICY BLOCK — recipient org/mailbox policy rejected message"
 
-    if any(x in err for x in ["mailbox full", "over quota", "storage exceeded", "5.2.2"]):
+    if any(
+        x in err for x in ["mailbox full", "over quota", "storage exceeded", "5.2.2"]
+    ):
         return f"MAILBOX FULL — {lead_email} inbox is over quota"
 
-    if any(x in err for x in [
-        "connection refused", "connection timed out",
-        "network unreachable", "no route to host", "timed out",
-        "errno 111", "errno 110", "errno 113",
-    ]):
-        return "CONNECTION FAILED — could not reach mail server. Check host/port/firewall"
+    if any(
+        x in err
+        for x in [
+            "connection refused",
+            "connection timed out",
+            "network unreachable",
+            "no route to host",
+            "timed out",
+            "errno 111",
+            "errno 110",
+            "errno 113",
+        ]
+    ):
+        return (
+            "CONNECTION FAILED — could not reach mail server. Check host/port/firewall"
+        )
 
     if any(x in err for x in ["ssl", "tls", "certificate", "handshake"]):
         return f"SSL/TLS ERROR — {str(error)[:120]}"
 
     if any(x in err for x in ["socks", "proxy", "0x02", "not allowed"]):
         if "0x02" in err or "not allowed" in err.lower():
-            return "SOCKS BLOCK — proxy blocked connection. Port 25 blocked or proxy down"
+            return (
+                "SOCKS BLOCK — proxy blocked connection. Port 25 blocked or proxy down"
+            )
         return f"PROXY ERROR — {str(error)[:120]}"
 
     if any(x in err for x in ["auth", "login", "535", "534", "authentication"]):
@@ -586,85 +766,87 @@ def _pick(pool: list, rotation: str, index: int):
 # CAMPAIGN OPTIONS
 # ═══════════════════════════════════════════════════════════════
 
+
 class CampaignOptions:
     """Typed container for all campaign configuration."""
 
     def __init__(
         self,
-        method:         str   = "smtp",
-        smtps:          list  = None,
-        apis:           list  = None,
-        owas:           list  = None,
-        crms:           list  = None,
-        tunnels:        list  = None,
-        senders:        list  = None,
-        subjects:       list  = None,
-        from_names:     list  = None,
-        reply_tos:      list  = None,
-        leads:          list  = None,
-        html_body:      str   = "",
-        html_bodies:    list  = None,
-        plain_body:     str   = "",
-        rotation:       dict  = None,
-        paired_mode:    bool  = False,
-        dlv:            dict  = None,
-        sending:        dict  = None,
-        links_cfg:      dict  = None,
-        custom_headers: list  = None,
-        attachments:    dict  = None,
-        proxy:          dict  = None,
-        uid:            str   = None,
-        inbox_profile:  bool  = True,
+        method: str = "smtp",
+        smtps: list = None,
+        apis: list = None,
+        owas: list = None,
+        crms: list = None,
+        tunnels: list = None,
+        senders: list = None,
+        subjects: list = None,
+        from_names: list = None,
+        reply_tos: list = None,
+        leads: list = None,
+        html_body: str = "",
+        html_bodies: list = None,
+        plain_body: str = "",
+        rotation: dict = None,
+        paired_mode: bool = False,
+        dlv: dict = None,
+        sending: dict = None,
+        links_cfg: dict = None,
+        custom_headers: list = None,
+        attachments: dict = None,
+        proxy: dict = None,
+        uid: str = None,
+        inbox_profile: bool = True,
         skip_preflight_dns: bool = False,
-        bcc_mode:           bool  = False,
-        bcc_max:            int   = 5,
-        subject_encoding:   int   = 0,
-        link_method:        int   = 0,
-        b2b_cfg:            dict  = None,
-        connector_host:     str   = "",
-        office_relay:       dict  = None,
-        cpanels:            list  = None,
-        cpanel_prefix:      str   = "",
+        bcc_mode: bool = False,
+        bcc_max: int = 5,
+        subject_encoding: int = 0,
+        link_method: int = 0,
+        b2b_cfg: dict = None,
+        connector_host: str = "",
+        office_relay: dict = None,
+        cpanels: list = None,
+        cpanel_prefix: str = "",
     ):
-        self.uid            = uid
-        self.inbox_profile  = bool(inbox_profile)
-        self.method         = method if method in VALID_METHODS else "smtp"
-        self.smtps          = smtps   or []
-        self.apis           = apis    or []
-        self.owas           = owas    or []
-        self.crms           = crms    or []
-        self.tunnels        = tunnels or []
-        self.senders        = senders or []
-        self.subjects       = subjects or [""]
-        self.from_names     = from_names or []
-        self.reply_tos      = reply_tos  or []
-        self.leads          = leads   or []
-        self.html_body      = html_body   or ""
-        self.html_bodies    = html_bodies or []
-        self.plain_body     = plain_body  or ""
-        self.rotation       = rotation       or {}
-        self.paired_mode    = bool(paired_mode)
-        self.dlv            = dlv            or {}
-        self.sending        = sending        or {}
-        self.links_cfg      = links_cfg      or {}
+        self.uid = uid
+        self.inbox_profile = bool(inbox_profile)
+        self.method = method if method in VALID_METHODS else "smtp"
+        self.smtps = smtps or []
+        self.apis = apis or []
+        self.owas = owas or []
+        self.crms = crms or []
+        self.tunnels = tunnels or []
+        self.senders = senders or []
+        self.subjects = subjects or [""]
+        self.from_names = from_names or []
+        self.reply_tos = reply_tos or []
+        self.leads = leads or []
+        self.html_body = html_body or ""
+        self.html_bodies = html_bodies or []
+        self.plain_body = plain_body or ""
+        self.rotation = rotation or {}
+        self.paired_mode = bool(paired_mode)
+        self.dlv = dlv or {}
+        self.sending = sending or {}
+        self.links_cfg = links_cfg or {}
         self.custom_headers = custom_headers or []
-        self.attachments    = attachments    or {}
-        self.proxy          = proxy          or {}
+        self.attachments = attachments or {}
+        self.proxy = proxy or {}
         self.skip_preflight_dns = bool(skip_preflight_dns)
-        self.bcc_mode         = bool(bcc_mode)
-        self.bcc_max          = int(bcc_max)
+        self.bcc_mode = bool(bcc_mode)
+        self.bcc_max = int(bcc_max)
         self.subject_encoding = int(subject_encoding)
-        self.link_method      = int(link_method)
-        self.b2b_cfg          = b2b_cfg or {}
-        self.connector_host   = connector_host or ""
-        self.office_relay     = office_relay or {}
-        self.cpanels          = cpanels or []
-        self.cpanel_prefix    = cpanel_prefix or ""
+        self.link_method = int(link_method)
+        self.b2b_cfg = b2b_cfg or {}
+        self.connector_host = connector_host or ""
+        self.office_relay = office_relay or {}
+        self.cpanels = cpanels or []
+        self.cpanel_prefix = cpanel_prefix or ""
 
     @classmethod
     def _build_proxy_cfg(cls, data: dict) -> dict:
         """Parse proxies array from frontend into internal {list, rotation} dict."""
         import re as _re
+
         raw_list = data.get("proxies") or []
         rotation = data.get("proxyRotation") or "random"
         if not raw_list:
@@ -682,18 +864,32 @@ class CampaignOptions:
             if not raw:
                 continue
             m = _re.match(
-                r'^(?:(socks5|socks4|http|https)://)?(?:([^:@]+):([^@]+)@)?([\w.\-]+):(\d+)$',
-                raw.strip()
+                r"^(?:(socks5|socks4|http|https)://)?(?:([^:@]+):([^@]+)@)?([\w.\-]+):(\d+)$",
+                raw.strip(),
             )
             if m:
                 scheme, user, pw, host, port = m.groups()
-                parsed.append({"type": scheme or "socks5", "host": host,
-                                "port": int(port), "username": user or "", "password": pw or ""})
+                parsed.append(
+                    {
+                        "type": scheme or "socks5",
+                        "host": host,
+                        "port": int(port),
+                        "username": user or "",
+                        "password": pw or "",
+                    }
+                )
             else:
                 parts = raw.rsplit(":", 1)
                 if len(parts) == 2 and parts[1].isdigit():
-                    parsed.append({"type": data.get("proxyType","socks5"), "host": parts[0],
-                                    "port": int(parts[1]), "username": "", "password": ""})
+                    parsed.append(
+                        {
+                            "type": data.get("proxyType", "socks5"),
+                            "host": parts[0],
+                            "port": int(parts[1]),
+                            "username": "",
+                            "password": "",
+                        }
+                    )
         if not parsed:
             return data.get("proxy") or {}
         return {"list": parsed, "rotation": rotation}
@@ -701,13 +897,13 @@ class CampaignOptions:
     @classmethod
     def _build_links_cfg_from_data(cls, data: dict) -> dict:
         links_raw = data.get("linkRotation", [])
-        mode      = data.get("linkRotMode", "sequential")
+        mode = data.get("linkRotMode", "sequential")
         if not links_raw:
             return {}
         links = []
         for item in links_raw:
             if isinstance(item, dict):
-                url   = item.get("url") or item.get("link") or ""
+                url = item.get("url") or item.get("link") or ""
                 limit = int(item.get("limit") or item.get("max") or 0)
                 if url:
                     links.append({"url": url, "limit": limit, "sent": 0})
@@ -723,40 +919,51 @@ class CampaignOptions:
 
         raw_smtps = data.get("smtps") or data.get("smtpServers", [])
         smtps = []
-        for s in (raw_smtps or []):
+        for s in raw_smtps or []:
             if not isinstance(s, dict):
                 continue
             enc = str(s.get("encryption", "")).upper().strip()
             if not enc:
                 enc = "SSL" if bool(s.get("ssl", False)) else "TLS"
-            smtps.append({
-                **s,
-                "username": s.get("username", s.get("user", "")),
-                "password": s.get("password", s.get("pass", "")),
-                "encryption": enc,
-            })
+            smtps.append(
+                {
+                    **s,
+                    "username": s.get("username", s.get("user", "")),
+                    "password": s.get("password", s.get("pass", "")),
+                    "encryption": enc,
+                }
+            )
         _raw_apis = data.get("apis") or data.get("apiKeys", [])
+
         # Frontend stores key as {provider, key} but api_sender expects {provider, apiKey}
         # Also auto-detect provider from key format in case dropdown was wrong when saved
         def _detect_provider(k: str) -> str:
-            if not k: return "sendgrid"
-            if k.startswith("SG."): return "sendgrid"
-            if k.startswith("key-"): return "mailgun"
-            if k.startswith("AKIA") or k.startswith("ASIA"): return "ses"
-            if k.startswith("xkeysib-") or k.startswith("xsmtpsib-"): return "brevo"
-            if len(k) == 40 and k.replace("-","").isalnum(): return "postmark"
-            if k.startswith("re_"): return "resend"
+            if not k:
+                return "sendgrid"
+            if k.startswith("SG."):
+                return "sendgrid"
+            if k.startswith("key-"):
+                return "mailgun"
+            if k.startswith("AKIA") or k.startswith("ASIA"):
+                return "ses"
+            if k.startswith("xkeysib-") or k.startswith("xsmtpsib-"):
+                return "brevo"
+            if len(k) == 40 and k.replace("-", "").isalnum():
+                return "postmark"
+            if k.startswith("re_"):
+                return "resend"
             return "sendgrid"
+
         # Provider name aliases — frontend uses different names than api_sender expects
         _PROVIDER_ALIASES = {
-            "ses-api": "ses",       # frontend calls it ses-api, api_sender expects ses
-            "aws":     "ses",
+            "ses-api": "ses",  # frontend calls it ses-api, api_sender expects ses
+            "aws": "ses",
             "aws-ses": "ses",
-            "brevo":   "brevo",
+            "brevo": "brevo",
             "sendinblue": "brevo",
         }
         apis = []
-        for a in (_raw_apis or []):
+        for a in _raw_apis or []:
             if isinstance(a, dict):
                 if "key" in a and "apiKey" not in a:
                     a = {**a, "apiKey": a["key"]}
@@ -769,42 +976,52 @@ class CampaignOptions:
                 raw_key = a.get("apiKey") or a.get("key") or ""
                 if raw_key:
                     detected = _detect_provider(raw_key)
-                    if (raw_key.startswith("SG.") and saved != "sendgrid") or \
-                       (raw_key.startswith("key-") and saved != "mailgun") or \
-                       (raw_key.startswith("xkeysib-") and saved != "brevo") or \
-                       (raw_key.startswith("re_") and saved != "resend"):
+                    if (
+                        (raw_key.startswith("SG.") and saved != "sendgrid")
+                        or (raw_key.startswith("key-") and saved != "mailgun")
+                        or (raw_key.startswith("xkeysib-") and saved != "brevo")
+                        or (raw_key.startswith("re_") and saved != "resend")
+                    ):
                         a = {**a, "provider": detected}
                 apis.append(a)
-        _raw_owas = data.get("owas") or ([data["owa"]] if isinstance(data.get("owa"), dict) else data.get("owa", []))
+        _raw_owas = data.get("owas") or (
+            [data["owa"]] if isinstance(data.get("owa"), dict) else data.get("owa", [])
+        )
         owas = []
-        for o in (_raw_owas or []):
+        for o in _raw_owas or []:
             if not isinstance(o, dict):
                 continue
-            owas.append({
-                **o,
-                "ewsUrl": o.get("ewsUrl", o.get("url", "")),
-                "email": o.get("email", o.get("username", "")),
-                "oauthToken": o.get("oauthToken", o.get("token", "")),
-            })
+            owas.append(
+                {
+                    **o,
+                    "ewsUrl": o.get("ewsUrl", o.get("url", "")),
+                    "email": o.get("email", o.get("username", "")),
+                    "oauthToken": o.get("oauthToken", o.get("token", "")),
+                }
+            )
 
-        _raw_crms = data.get("crms") or ([data["crm"]] if isinstance(data.get("crm"), dict) else data.get("crm", []))
+        _raw_crms = data.get("crms") or (
+            [data["crm"]] if isinstance(data.get("crm"), dict) else data.get("crm", [])
+        )
         crms = []
-        for c in (_raw_crms or []):
+        for c in _raw_crms or []:
             if not isinstance(c, dict):
                 continue
-            crms.append({
-                **c,
-                "endpoint": c.get("endpoint", c.get("url", "")),
-                "apiKey": c.get("apiKey", c.get("token", "")),
-            })
+            crms.append(
+                {
+                    **c,
+                    "endpoint": c.get("endpoint", c.get("url", "")),
+                    "apiKey": c.get("apiKey", c.get("token", "")),
+                }
+            )
         tunnels = data.get("tunnels") or data.get("ispTunnels") or []
         tunnels = [t for t in (tunnels or []) if isinstance(t, dict)]
 
         raw_senders = data.get("senders") or data.get("fromEmails", [])
-        senders     = []
-        from_name   = data.get("fromName", "")
-        from_names  = data.get("fromNames", []) or ([from_name] if from_name else [])
-        reply_to    = data.get("replyTo", "")
+        senders = []
+        from_name = data.get("fromName", "")
+        from_names = data.get("fromNames", []) or ([from_name] if from_name else [])
+        reply_to = data.get("replyTo", "")
         reply_tos_raw = data.get("replyTos", [])
         if isinstance(reply_tos_raw, str):
             reply_tos_raw = [r.strip() for r in reply_tos_raw.split("\n") if r.strip()]
@@ -821,11 +1038,11 @@ class CampaignOptions:
 
         raw_leads = data.get("leads", [])
         leads = []
-        for l in raw_leads:
-            if isinstance(l, dict):
-                leads.append(l)
-            elif isinstance(l, str):
-                leads.append({"email": l, "name": "", "company": ""})
+        for lead in raw_leads:
+            if isinstance(lead, dict):
+                leads.append(lead)
+            elif isinstance(lead, str):
+                leads.append({"email": lead, "name": "", "company": ""})
 
         _smtp_n = len(smtps)
         _pm_req = data.get("pairedMode")
@@ -837,99 +1054,105 @@ class CampaignOptions:
             _paired_mode = method == "smtp" and _smtp_n > 1
 
         return cls(
-            method         = method,
-            smtps          = smtps,
-            apis           = apis,
-            owas           = owas,
-            crms           = crms,
-            tunnels        = tunnels,
-            senders        = senders,
-            subjects       = data.get("subjects") or ([data["subject"]] if data.get("subject") else [""]),
-            leads          = leads,
-            html_body      = data.get("htmlBody") or data.get("html", ""),
-            html_bodies    = data.get("htmlBodies") or [],
-            plain_body     = data.get("plainBody") or data.get("plain", ""),
-            reply_tos      = reply_tos,
-            rotation       = data.get("rotation", None) or {
+            method=method,
+            smtps=smtps,
+            apis=apis,
+            owas=owas,
+            crms=crms,
+            tunnels=tunnels,
+            senders=senders,
+            subjects=data.get("subjects")
+            or ([data["subject"]] if data.get("subject") else [""]),
+            leads=leads,
+            html_body=data.get("htmlBody") or data.get("html", ""),
+            html_bodies=data.get("htmlBodies") or [],
+            plain_body=data.get("plainBody") or data.get("plain", ""),
+            reply_tos=reply_tos,
+            rotation=data.get("rotation", None)
+            or {
                 "sender": data.get("rotationMode", "random"),
-                "smtp":   data.get("rotationMode", "random"),
-                "mx":     data.get("rotationMode", "random"),
+                "smtp": data.get("rotationMode", "random"),
+                "mx": data.get("rotationMode", "random"),
             },
-            paired_mode    = _paired_mode,
-            dlv            = data.get("deliverability") or {
-                "injectUnsub":  data.get("autoInjectUnsub", False),
-                "unsubUrl":     data.get("unsubUrl", ""),
-                "unsubEmail":   data.get("unsubEmail", ""),
-                "listUnsub":    data.get("listUnsub", False),
-                "oneClickUnsub":data.get("oneClickUnsub", False),
+            paired_mode=_paired_mode,
+            dlv=data.get("deliverability")
+            or {
+                "injectUnsub": data.get("autoInjectUnsub", False),
+                "unsubUrl": data.get("unsubUrl", ""),
+                "unsubEmail": data.get("unsubEmail", ""),
+                "listUnsub": data.get("listUnsub", False),
+                "oneClickUnsub": data.get("oneClickUnsub", False),
                 # FIX-G: autoPlain now defaults True — always generate clean plain text
-                "autoPlain":         data.get("autoPlainText", True),
-                "spamFilter":        data.get("spamFilter", False),
+                "autoPlain": data.get("autoPlainText", True),
+                "spamFilter": data.get("spamFilter", False),
                 # FIX-3 note: hideFromEmail no longer injects zero-width chars
-                "hideFromEmail":     data.get("hideFromEmail", False),
-                "autoFlagEmail":     data.get("autoFlagEmail", False),
-                "antiDetect":        data.get("antiDetect", False),
+                "hideFromEmail": data.get("hideFromEmail", False),
+                "autoFlagEmail": data.get("autoFlagEmail", False),
+                "antiDetect": data.get("antiDetect", False),
                 "allowSyntheticHeaders": bool(data.get("allowSyntheticHeaders", False)),
                 "allowRiskyBypass": bool(data.get("allowRiskyBypass", False)),
-                "priority":          data.get("emailPriority", "normal"),
+                "priority": data.get("emailPriority", "normal"),
                 # FIX-D: threadSimulate default changed True → False
-                "threadSimulate":    data.get("threadSimulate", False),
+                "threadSimulate": data.get("threadSimulate", False),
                 # FIX-E: msExchangeHeaders default changed True → False
                 "msExchangeHeaders": data.get("msExchangeHeaders", False),
-                "feedbackIdAuto":    data.get("feedbackIdAuto", False),
-                "listIdAuto":        data.get("listIdAuto", False),
-                "xMailer":           data.get("xMailer", "random"),
-                "sensitivity":       data.get("sensitivity", ""),
+                "feedbackIdAuto": data.get("feedbackIdAuto", False),
+                "listIdAuto": data.get("listIdAuto", False),
+                "xMailer": data.get("xMailer", "random"),
+                "sensitivity": data.get("sensitivity", ""),
                 # FIX-F: originatingIpAuto default changed True → False
                 "originatingIpAuto": data.get("originatingIpAuto", False),
-                "gmailDelay":        data.get("gmailDelay", 5),
-                "msDelay":           data.get("msDelay", 8),
-                "preheader":         data.get("preheader", ""),
-                "delayJitter":       bool(data.get("jitter", 0)),
-                "jitterRange":       float(data.get("jitter", 0) or 0),
-                "domainThrottle":    data.get("domainThrottle", True),
-                "rateLimitPause":    data.get("rateLimitPause", True),
-                "embedImages":       data.get("embedImages", True),
+                "gmailDelay": data.get("gmailDelay", 5),
+                "msDelay": data.get("msDelay", 8),
+                "preheader": data.get("preheader", ""),
+                "delayJitter": bool(data.get("jitter", 0)),
+                "jitterRange": float(data.get("jitter", 0) or 0),
+                "domainThrottle": data.get("domainThrottle", True),
+                "rateLimitPause": data.get("rateLimitPause", True),
+                "embedImages": data.get("embedImages", True),
             },
-            sending        = data.get("sending") or {
-                "delay":          data.get("delay", 0),
-                "delayUnit":      data.get("delayUnit", "seconds"),
-                "batchSize":      data.get("batchSize", 0),
-                "batchDelay":     data.get("batchDelay", 0),
+            sending=data.get("sending")
+            or {
+                "delay": data.get("delay", 0),
+                "delayUnit": data.get("delayUnit", "seconds"),
+                "batchSize": data.get("batchSize", 0),
+                "batchDelay": data.get("batchDelay", 0),
                 "batchDelayUnit": data.get("batchDelayUnit", "seconds"),
-                "threads":        data.get("threads", 1),
-                "maxConnections": data.get("maxConnections") or data.get("concurrent") or 1,
-                "sendsPerSec":    data.get("sendsPerSec", 0),
-                "resumeFrom":     data.get("resumeFrom", 0),
-                "cooldownEvery":  data.get("cooldownEvery", 0),
-                "cooldownSecs":   data.get("cooldownSecs", 60),
+                "threads": data.get("threads", 1),
+                "maxConnections": data.get("maxConnections")
+                or data.get("concurrent")
+                or 1,
+                "sendsPerSec": data.get("sendsPerSec", 0),
+                "resumeFrom": data.get("resumeFrom", 0),
+                "cooldownEvery": data.get("cooldownEvery", 0),
+                "cooldownSecs": data.get("cooldownSecs", 60),
                 "batchPauseSecs": data.get("batchPauseSecs", 0),
-                "testEmail":      data.get("testEmail", ""),
-                "testEveryN":     data.get("testEveryN", 0),
+                "testEmail": data.get("testEmail", ""),
+                "testEveryN": data.get("testEveryN", 0),
                 "htmlRotateMode": data.get("htmlRotateMode", "random"),
                 # Per-SMTP failover settings (UI: Method → SMTP → Rotation
                 # & Failover card).  Defaults match what the campaign code
                 # used before the option existed.
-                "smtpAutoDisable":   bool(data.get("smtpAutoDisable", True)),
+                "smtpAutoDisable": bool(data.get("smtpAutoDisable", True)),
                 "smtpFailThreshold": int(data.get("smtpFailThreshold", 5) or 5),
-                "smtpCooldownSecs":  float(data.get("smtpCooldownSecs", 60) or 60),
+                "smtpCooldownSecs": float(data.get("smtpCooldownSecs", 60) or 60),
             },
-            links_cfg      = cls._build_links_cfg_from_data(data),
-            custom_headers = data.get("customHeaders") or data.get("headers", []),
-            attachments    = data.get("attachments") or {},
-            proxy          = cls._build_proxy_cfg(data),
-            uid            = data.get("_uid"),
-            inbox_profile  = bool(data.get("inboxProfile", True)),
-            skip_preflight_dns = bool(data.get("skipPreflightDns", False)),
-            bcc_mode           = bool(data.get("bccMode", False)),
-            bcc_max            = int(data.get("bccMax", 5)),
-            subject_encoding   = int(data.get("subjectEncoding", 0)),
-            link_method        = int(data.get("linkMethod", 0)),
-            b2b_cfg            = data.get("b2bConfig") or data.get("b2b") or {},
-            connector_host     = data.get("connectorHost") or "",
-            office_relay       = data.get("officeRelay") or {},
-            cpanels            = [c for c in (data.get("cpanels") or []) if isinstance(c, dict)],
-            cpanel_prefix      = data.get("cpanelPrefix") or "",
+            links_cfg=cls._build_links_cfg_from_data(data),
+            custom_headers=data.get("customHeaders") or data.get("headers", []),
+            attachments=data.get("attachments") or {},
+            proxy=cls._build_proxy_cfg(data),
+            uid=data.get("_uid"),
+            inbox_profile=bool(data.get("inboxProfile", True)),
+            skip_preflight_dns=bool(data.get("skipPreflightDns", False)),
+            bcc_mode=bool(data.get("bccMode", False)),
+            bcc_max=int(data.get("bccMax", 5)),
+            subject_encoding=int(data.get("subjectEncoding", 0)),
+            link_method=int(data.get("linkMethod", 0)),
+            b2b_cfg=data.get("b2bConfig") or data.get("b2b") or {},
+            connector_host=data.get("connectorHost") or "",
+            office_relay=data.get("officeRelay") or {},
+            cpanels=[c for c in (data.get("cpanels") or []) if isinstance(c, dict)],
+            cpanel_prefix=data.get("cpanelPrefix") or "",
         )
 
 
@@ -950,36 +1173,70 @@ class CampaignOptions:
 
 def _is_rate_limit(error_str: str) -> bool:
     e = error_str.lower()
-    return any(x in e for x in [
-        "too many", "rate limit", "throttl", "4.7.0",
-        "try again later", "service busy", "resources temporarily unavailable",
-    ])
+    return any(
+        x in e
+        for x in [
+            "too many",
+            "rate limit",
+            "throttl",
+            "4.7.0",
+            "try again later",
+            "service busy",
+            "resources temporarily unavailable",
+        ]
+    )
 
 
 def _is_sender_policy_error(error_str: str) -> bool:
     """True if the failure is specifically about the FROM address being rejected."""
     e = error_str.lower()
-    return any(x in e for x in [
-        "aup#pol", "sender rejected", "sender not authorized",
-        "sender address rejected", "sender policy",
-        "mail from not allowed", "your email address has been blocked",
-        "envelope sender",
-    ])
+    return any(
+        x in e
+        for x in [
+            "aup#pol",
+            "sender rejected",
+            "sender not authorized",
+            "sender address rejected",
+            "sender policy",
+            "mail from not allowed",
+            "your email address has been blocked",
+            "envelope sender",
+        ]
+    )
 
 
 def _is_infrastructure_error(error_str: str) -> bool:
     """True if the failure is a proxy/network/transient issue (not sender-specific)."""
     e = error_str.lower()
-    return any(x in e for x in [
-        "connection refused", "connection reset", "connection closed",
-        "connection unexpectedly closed", "socket error", "socket closed",
-        "timed out", "timeout", "eof occurred", "broken pipe",
-        "network unreachable", "no route", "socks", "proxy",
-        "aup#mxrt", "temporarily unavailable", "greylisted", "greylist",
-        "domain skipped", "sender removed",
-        "ip blocked", "blacklist", "poor reputation",  # proxy IP issues — not sender faults
-        "ssl/tls error",  # proxy TLS negotiation failure — not sender's fault
-    ])
+    return any(
+        x in e
+        for x in [
+            "connection refused",
+            "connection reset",
+            "connection closed",
+            "connection unexpectedly closed",
+            "socket error",
+            "socket closed",
+            "timed out",
+            "timeout",
+            "eof occurred",
+            "broken pipe",
+            "network unreachable",
+            "no route",
+            "socks",
+            "proxy",
+            "aup#mxrt",
+            "temporarily unavailable",
+            "greylisted",
+            "greylist",
+            "domain skipped",
+            "sender removed",
+            "ip blocked",
+            "blacklist",
+            "poor reputation",  # proxy IP issues — not sender faults
+            "ssl/tls error",  # proxy TLS negotiation failure — not sender's fault
+        ]
+    )
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -996,14 +1253,14 @@ def _preflight_tunnels(opts: CampaignOptions) -> Generator:
 
     # For ISP tunnels, smtp is provided via the tunnel ispSmtpHost
     isp_tunnels = [t for t in opts.tunnels if t.get("tunnelType") == "isp"]
-    has_smtp    = bool(opts.smtps) or bool(isp_tunnels)
+    has_smtp = bool(opts.smtps) or bool(isp_tunnels)
     opened: list = []
     opts._opened_ports = opened  # type: ignore[attr-defined]
 
     if isp_tunnels:
         # Distinguish direct niceproxy from legacy RDP→3proxy path
         _direct = [t for t in isp_tunnels if t.get("proxyHost")]
-        _rdp    = [t for t in isp_tunnels if not t.get("proxyHost") and t.get("sshHost")]
+        _rdp = [t for t in isp_tunnels if not t.get("proxyHost") and t.get("sshHost")]
         if _direct and not _rdp:
             mode_msg = f"Mode: ISP Proxy (direct) — {len(_direct)} proxy → ISP SMTP"
         elif _rdp and not _direct:
@@ -1018,7 +1275,7 @@ def _preflight_tunnels(opts: CampaignOptions) -> Generator:
 
     # Check PySocks is available
     try:
-        import socks as _socks
+        import socks  # noqa: F401
     except ImportError:
         yield {
             "type": "error",
@@ -1061,9 +1318,12 @@ def _preflight_tunnels(opts: CampaignOptions) -> Generator:
         # ── Test SOCKS5 connectivity ──
         try:
             import socks as _tsocks
+
             _ts = _tsocks.socksocket(_socket.AF_INET, _socket.SOCK_STREAM)
             _ts.set_proxy(
-                _tsocks.SOCKS5, proxy_h, proxy_p,
+                _tsocks.SOCKS5,
+                proxy_h,
+                proxy_p,
                 username=t.get("proxyUser") or t.get("sshUser") or None,
                 password=t.get("proxyPass") or t.get("sshKey") or None,
             )
@@ -1088,9 +1348,12 @@ def _preflight_tunnels(opts: CampaignOptions) -> Generator:
         if not has_smtp:
             try:
                 import socks as _psocks
+
                 _p = _psocks.socksocket(_socket.AF_INET, _socket.SOCK_STREAM)
                 _p.set_proxy(
-                    _psocks.SOCKS5, proxy_h, proxy_p,
+                    _psocks.SOCKS5,
+                    proxy_h,
+                    proxy_p,
                     username=t.get("proxyUser") or t.get("sshUser") or None,
                     password=t.get("proxyPass") or t.get("sshKey") or None,
                 )
@@ -1119,19 +1382,20 @@ def _preflight_tunnels(opts: CampaignOptions) -> Generator:
 # SEND DISPATCH
 # ═══════════════════════════════════════════════════════════════
 
+
 def _send_one(
-    opts:    CampaignOptions,
-    i:       int,
-    lead:    dict,
-    sender:  dict,
-    server:  dict,
+    opts: CampaignOptions,
+    i: int,
+    lead: dict,
+    sender: dict,
+    server: dict,
     subject: str,
-    html:    str,
-    plain:   str,
-    pool:    SmtpPool,
-    mx_ctx:  MxSenderContext,
+    html: str,
+    plain: str,
+    pool: SmtpPool,
+    mx_ctx: MxSenderContext,
     override_proxy: dict = None,
-    dead_proxies:   set  = None,
+    dead_proxies: set = None,
 ) -> tuple:
     """
     Dispatch a single send through the appropriate module.
@@ -1141,12 +1405,11 @@ def _send_one(
         (False, error_msg, via_label) on failure
     """
     method = opts.method
-    dlv    = opts.dlv
-    hdrs   = opts.custom_headers
+    dlv = opts.dlv
+    hdrs = opts.custom_headers
 
     # Default via label — overridden below per method
-    via = server.get("label", server.get("provider",
-                     server.get("host", method)))
+    via = server.get("label", server.get("provider", server.get("host", method)))
 
     # ─── OFFICE / M365 INBOUND CONNECTOR ────────────────────
     # Sends via port 25 to the O365 smart host. The connector's allowed IP
@@ -1155,22 +1418,36 @@ def _send_one(
     if method == "office":
         connector_host = getattr(opts, "connector_host", "").strip()
         if not connector_host:
-            return False, "Office Admin: connector hostname not set — configure it in Method → Office Admin tab", via
+            return (
+                False,
+                "Office Admin: connector hostname not set — configure it in Method → Office Admin tab",
+                via,
+            )
         office_relay = getattr(opts, "office_relay", {}) or {}
         try:
             from .o365_relay import send_via_o365_relay as _o365_send
             from .mime_builder import build_message as _build_msg
+
             # Build with synthetic Exchange headers disabled — o365_relay injects
             # the full connector trust chain directly into raw bytes so there
             # are no duplicates regardless of the campaign dlv settings.
-            _office_dlv = {**dlv, "allowSyntheticHeaders": False, "msExchangeHeaders": False}
+            _office_dlv = {
+                **dlv,
+                "allowSyntheticHeaders": False,
+                "msExchangeHeaders": False,
+            }
             _msg, _meta = _build_msg(
-                lead=lead, sender=sender,
-                subject=subject, html=html, plain=plain,
-                dlv=_office_dlv, custom_hdrs=hdrs,
+                lead=lead,
+                sender=sender,
+                subject=subject,
+                html=html,
+                plain=plain,
+                dlv=_office_dlv,
+                custom_hdrs=hdrs,
                 attachments=opts.attachments or {},
             )
             import email.policy as _ep
+
             _raw = _msg.as_bytes(policy=_ep.SMTP)
             relay_cfg = {"mxHost": connector_host, "port": 25}
             result = _o365_send(
@@ -1181,7 +1458,11 @@ def _send_one(
                 relay_ssh=office_relay if office_relay.get("host") else None,
             )
             if result["ok"]:
-                _via = f"office-relay/{office_relay['host']}" if office_relay.get("host") else f"office/{connector_host}:25"
+                _via = (
+                    f"office-relay/{office_relay['host']}"
+                    if office_relay.get("host")
+                    else f"office/{connector_host}:25"
+                )
                 return True, "", _via
             return False, result.get("error", "O365 send failed"), via
         except Exception as exc:
@@ -1192,32 +1473,38 @@ def _send_one(
         proxy_cfg = None
         if override_proxy:
             proxy_cfg = override_proxy
-            via += f" via {proxy_cfg.get('type','socks5')}:{proxy_cfg.get('host','')}"
+            via += f" via {proxy_cfg.get('type', 'socks5')}:{proxy_cfg.get('host', '')}"
         elif opts.proxy:
-            pl  = opts.proxy.get("list", [])
+            pl = opts.proxy.get("list", [])
             rot = opts.proxy.get("rotation", "random")
             if pl:
-                _live_pl = [p for p in pl if (p.get("host","") if isinstance(p,dict) else str(p)) not in (dead_proxies or set())]
+                _live_pl = [
+                    p
+                    for p in pl
+                    if (p.get("host", "") if isinstance(p, dict) else str(p))
+                    not in (dead_proxies or set())
+                ]
                 proxy_cfg = _pick(_live_pl or pl, rot, i)
                 if proxy_cfg:
-                    via += f" via {proxy_cfg.get('type','proxy')}:{proxy_cfg.get('host','')}"
+                    via += f" via {proxy_cfg.get('type', 'proxy')}:{proxy_cfg.get('host', '')}"
         # Note: SSL (port 465) connections through SOCKS5 are auto-downgraded to STARTTLS/587
         # in smtp_sender._open_connection — so proxy works transparently with all encryption modes.
         try:
             via_used = send_smtp(
-                smtp_cfg        = server,
-                sender          = sender,
-                lead            = lead,
-                resolved_html   = html,
-                resolved_plain  = plain,
-                resolved_subj   = subject,
-                dlv             = dlv,
-                custom_headers  = hdrs,
-                proxy_cfg       = proxy_cfg,
-                pool            = pool,
-                attachments     = opts.attachments or {},
-                envelope_from   = server.get("envelope_from", ""),
-                smtp_auth_email = server.get("smtp_auth_email") or server.get("username", ""),
+                smtp_cfg=server,
+                sender=sender,
+                lead=lead,
+                resolved_html=html,
+                resolved_plain=plain,
+                resolved_subj=subject,
+                dlv=dlv,
+                custom_headers=hdrs,
+                proxy_cfg=proxy_cfg,
+                pool=pool,
+                attachments=opts.attachments or {},
+                envelope_from=server.get("envelope_from", ""),
+                smtp_auth_email=server.get("smtp_auth_email")
+                or server.get("username", ""),
             )
             return True, "", via_used or via
         except Exception as exc:
@@ -1225,8 +1512,8 @@ def _send_one(
 
     # ─── TUNNEL ─────────────────────────────────────────────
     elif method == "tunnel":
-        tun = server     # server IS the tunnel config in tunnel method
-        tt  = tun.get("tunnelType", "ssh")
+        tun = server  # server IS the tunnel config in tunnel method
+        tt = tun.get("tunnelType", "ssh")
 
         if tt == "isp":
             # Use niceproxy.io (ISP proxy) directly as SOCKS5 if credentials present
@@ -1239,14 +1526,22 @@ def _send_one(
             if proxy_host:
                 # Direct mode: VPS → niceproxy.io (SOCKS5) → smtp.shaw.ca:25
                 if dead_proxies and proxy_host in dead_proxies:
-                    return False, f"IP BLOCKED — proxy {proxy_host} is blacklisted (skipping)", f"ISP {proxy_host}"
+                    return (
+                        False,
+                        f"IP BLOCKED — proxy {proxy_host} is blacklisted (skipping)",
+                        f"ISP {proxy_host}",
+                    )
                 sock_ok, sock_msg = _check_socks5(proxy_host, proxy_port, timeout=8)
                 if not sock_ok:
-                    return False, f"ISP proxy {proxy_host}:{proxy_port} unreachable — {sock_msg}. Check proxy credentials.", f"ISP {proxy_host}"
+                    return (
+                        False,
+                        f"ISP proxy {proxy_host}:{proxy_port} unreachable — {sock_msg}. Check proxy credentials.",
+                        f"ISP {proxy_host}",
+                    )
                 proxy = {
-                    "type":     "socks5",
-                    "host":     proxy_host,
-                    "port":     str(proxy_port),
+                    "type": "socks5",
+                    "host": proxy_host,
+                    "port": str(proxy_port),
                     "username": proxy_user,
                     "password": proxy_pass,
                 }
@@ -1257,19 +1552,29 @@ def _send_one(
                 socks_port = int(tun.get("socksPort", 1080))
                 sock_ok, sock_msg = _check_socks5(socks_host, socks_port, timeout=5)
                 if not sock_ok:
-                    ssh_pass   = tun.get("sshPass") or tun.get("rdpPass", "")
-                    ssh_user   = tun.get("sshUser") or tun.get("rdpUser", "Administrator")
+                    ssh_pass = tun.get("sshPass") or tun.get("rdpPass", "")
+                    ssh_user = tun.get("sshUser") or tun.get("rdpUser", "Administrator")
                     ssh_port_n = int(tun.get("rdpSshPort", 22))
                     if ssh_pass:
-                        _restart_3proxy_via_ssh(socks_host, ssh_user, ssh_pass, ssh_port_n)
-                        import time as _t; _t.sleep(4)
-                        sock_ok, sock_msg = _check_socks5(socks_host, socks_port, timeout=5)
+                        _restart_3proxy_via_ssh(
+                            socks_host, ssh_user, ssh_pass, ssh_port_n
+                        )
+                        import time as _t
+
+                        _t.sleep(4)
+                        sock_ok, sock_msg = _check_socks5(
+                            socks_host, socks_port, timeout=5
+                        )
                     if not sock_ok:
-                        return False, f"SOCKS5 {socks_host}:{socks_port} unreachable — {sock_msg}. 3proxy may be down.", f"ISP {socks_host}"
+                        return (
+                            False,
+                            f"SOCKS5 {socks_host}:{socks_port} unreachable — {sock_msg}. 3proxy may be down.",
+                            f"ISP {socks_host}",
+                        )
                 proxy = {
-                    "type":     "socks5",
-                    "host":     socks_host,
-                    "port":     str(socks_port),
+                    "type": "socks5",
+                    "host": socks_host,
+                    "port": str(socks_port),
                     "username": None,
                     "password": None,
                 }
@@ -1289,113 +1594,128 @@ def _send_one(
 
         # ISP-specific: EHLO domain should be the ISP domain (e.g. shaw.ca), not the From domain.
         # fromDomain is auto-filled by the SMTP probe (e.g. "shaw.ca" from "smtp.shaw.ca").
-        _isp_ehlo   = tun.get("fromDomain") or tun.get("ehloDomain") or ""
+        _isp_ehlo = tun.get("fromDomain") or tun.get("ehloDomain") or ""
         # smtpFromEmail: a shaw.ca account to use as the MAIL FROM envelope sender.
         # When set, overrides the campaign From for the envelope (fixes SPF).
         _isp_auth_email = tun.get("smtpFromEmail") or tun.get("smtpUser") or ""
 
         if not smtp_pool and tt == "isp" and tun.get("ispSmtpHost"):
-            smtp_pool = [{
-                "host":            tun["ispSmtpHost"],
-                "port":            int(tun.get("ispSmtpPort", 25)),
-                "username":        tun.get("smtpUser", ""),
-                "password":        tun.get("smtpPass", ""),
-                "encryption":      "NONE",
-                "label":           f"ISP SMTP ({tun['ispSmtpHost']})",
-                "smtp_auth_email": _isp_auth_email,
-                "ehlo_override":   _isp_ehlo,
-                # envelope_from: if set, overrides MAIL FROM to match ISP-authorized address
-                "envelope_from":   _isp_auth_email,
-            }]
+            smtp_pool = [
+                {
+                    "host": tun["ispSmtpHost"],
+                    "port": int(tun.get("ispSmtpPort", 25)),
+                    "username": tun.get("smtpUser", ""),
+                    "password": tun.get("smtpPass", ""),
+                    "encryption": "NONE",
+                    "label": f"ISP SMTP ({tun['ispSmtpHost']})",
+                    "smtp_auth_email": _isp_auth_email,
+                    "ehlo_override": _isp_ehlo,
+                    # envelope_from: if set, overrides MAIL FROM to match ISP-authorized address
+                    "envelope_from": _isp_auth_email,
+                }
+            ]
         if smtp_pool:
-            rot      = opts.rotation.get("smtp", "random")
+            rot = opts.rotation.get("smtp", "random")
             smtp_srv = _pick(smtp_pool, rot, i)
-            srv_lbl  = smtp_srv.get("label", smtp_srv.get("host", "SMTP"))
+            srv_lbl = smtp_srv.get("label", smtp_srv.get("host", "SMTP"))
             import logging as _sl
+
             _sl.getLogger("synthtel").info(
                 "[ISP SEND] SOCKS5=%s:%s (user=%s) → SMTP=%s:%s enc=%s",
-                proxy["host"], proxy["port"], proxy.get("username","none"),
-                smtp_srv.get("host"), smtp_srv.get("port"), smtp_srv.get("encryption")
+                proxy["host"],
+                proxy["port"],
+                proxy.get("username", "none"),
+                smtp_srv.get("host"),
+                smtp_srv.get("port"),
+                smtp_srv.get("encryption"),
             )
             try:
                 via_used = send_smtp(
-                    smtp_cfg        = smtp_srv,
-                    sender          = sender,
-                    lead            = lead,
-                    resolved_html   = html,
-                    resolved_plain  = plain,
-                    smtp_auth_email = smtp_srv.get("smtp_auth_email", ""),
-                    ehlo_domain     = smtp_srv.get("ehlo_override", ""),
-                    envelope_from   = smtp_srv.get("envelope_from", ""),
-                    resolved_subj  = subject,
-                    dlv            = dlv,
-                    custom_headers = hdrs,
-                    proxy_cfg      = proxy,
-                    pool           = pool,
-                    attachments    = opts.attachments or {},
+                    smtp_cfg=smtp_srv,
+                    sender=sender,
+                    lead=lead,
+                    resolved_html=html,
+                    resolved_plain=plain,
+                    smtp_auth_email=smtp_srv.get("smtp_auth_email", ""),
+                    ehlo_domain=smtp_srv.get("ehlo_override", ""),
+                    envelope_from=smtp_srv.get("envelope_from", ""),
+                    resolved_subj=subject,
+                    dlv=dlv,
+                    custom_headers=hdrs,
+                    proxy_cfg=proxy,
+                    pool=pool,
+                    attachments=opts.attachments or {},
                 )
                 return True, "", f"{srv_lbl} via {proxy_label}"
             except Exception as exc:
-                return False, _parse_smtp_error(exc, lead.get("email", "")), f"{srv_lbl} via {proxy_label}"
+                return (
+                    False,
+                    _parse_smtp_error(exc, lead.get("email", "")),
+                    f"{srv_lbl} via {proxy_label}",
+                )
 
         # Fallback: direct-to-MX through tunnel (needs port 25)
         else:
-            from_email  = sender.get("fromEmail", "")
+            from_email = sender.get("fromEmail", "")
             ehlo_domain = (
                 tun.get("ehloDomain", "")
                 or (from_email.split("@")[-1] if "@" in from_email else "")
                 or "mail.local"
             )
             socks_cfg = {
-                "host":     proxy["host"],
-                "port":     proxy["port"],
+                "host": proxy["host"],
+                "port": proxy["port"],
                 "username": proxy.get("username"),
                 "password": proxy.get("password"),
             }
             try:
                 msg, _ = build_message(
-                    lead        = lead,
-                    sender      = sender,
-                    subject     = subject,
-                    html        = html,
-                    plain       = plain,
-                    dlv         = dlv,
-                    custom_hdrs = hdrs,
-                    ehlo_domain = ehlo_domain,
-                    preheader   = (dlv or {}).get("preheader", ""),
-                    attachments = opts.attachments or {},
+                    lead=lead,
+                    sender=sender,
+                    subject=subject,
+                    html=html,
+                    plain=plain,
+                    dlv=dlv,
+                    custom_hdrs=hdrs,
+                    ehlo_domain=ehlo_domain,
+                    preheader=(dlv or {}).get("preheader", ""),
+                    attachments=opts.attachments or {},
                 )
                 mx_host = send_direct_mx(
-                    lead_email  = lead["email"],
-                    sender      = sender,
-                    msg         = msg,
-                    ehlo_domain = ehlo_domain,
-                    socks_proxy = socks_cfg,
-                    ctx         = mx_ctx,
+                    lead_email=lead["email"],
+                    sender=sender,
+                    msg=msg,
+                    ehlo_domain=ehlo_domain,
+                    socks_proxy=socks_cfg,
+                    ctx=mx_ctx,
                 )
                 return True, "", f"{proxy_label} → MX:{mx_host}"
             except Exception as exc:
-                return False, _parse_smtp_error(exc, lead.get("email", "")), f"{proxy_label} → MX"
+                return (
+                    False,
+                    _parse_smtp_error(exc, lead.get("email", "")),
+                    f"{proxy_label} → MX",
+                )
 
     # ─── API ────────────────────────────────────────────────
     elif method == "api":
         try:
             extra_h = build_api_headers(
-                dlv            = dlv,
-                lead           = lead,
-                custom_headers = hdrs,
-                sender         = sender,
+                dlv=dlv,
+                lead=lead,
+                custom_headers=hdrs,
+                sender=sender,
             )
             send_api(
-                api_cfg          = server,
-                sender           = sender,
-                lead             = lead,
-                resolved_html    = html,
-                resolved_subject = subject,
-                extra_headers    = extra_h,
-                resolved_plain   = plain,
-                uid              = getattr(opts, "uid", None),
-                attachments      = opts.attachments or {},
+                api_cfg=server,
+                sender=sender,
+                lead=lead,
+                resolved_html=html,
+                resolved_subject=subject,
+                extra_headers=extra_h,
+                resolved_plain=plain,
+                uid=getattr(opts, "uid", None),
+                attachments=opts.attachments or {},
             )
             return True, "", server.get("label", server.get("provider", "API"))
         except Exception as exc:
@@ -1405,14 +1725,14 @@ def _send_one(
     elif method == "owa":
         try:
             send_owa(
-                owa_cfg          = server,
-                sender           = sender,
-                lead             = lead,
-                resolved_html    = html,
-                resolved_plain   = plain,
-                resolved_subject = subject,
-                dlv              = dlv,
-                custom_headers   = hdrs,
+                owa_cfg=server,
+                sender=sender,
+                lead=lead,
+                resolved_html=html,
+                resolved_plain=plain,
+                resolved_subject=subject,
+                dlv=dlv,
+                custom_headers=hdrs,
             )
             return True, "", server.get("label", server.get("email", "OWA"))
         except Exception as exc:
@@ -1422,13 +1742,13 @@ def _send_one(
     elif method == "crm":
         try:
             send_crm(
-                crm_cfg          = server,
-                sender           = sender,
-                lead             = lead,
-                resolved_html    = html,
-                resolved_subject = subject,
-                i                = i,
-                resolved_plain   = plain,
+                crm_cfg=server,
+                sender=sender,
+                lead=lead,
+                resolved_html=html,
+                resolved_subject=subject,
+                i=i,
+                resolved_plain=plain,
             )
             return True, "", server.get("label", server.get("provider", "CRM"))
         except Exception as exc:
@@ -1441,21 +1761,21 @@ def _send_one(
     # is evaluating user-controlled input through a template engine.
     elif method == "ssti_probe":
         _SSTI_PROBES = [
-            ("Jinja2 / Twig",   "{{7*7}}"),
-            ("Django",          "{% if 1 %}SSTI_OK{% endif %}"),
-            ("Mako",            "${7*7}"),
-            ("Ruby ERB",        "<%= 7*7 %>"),
-            ("Smarty",          "{7*7}"),
-            ("FreeMarker",      "${7*7}"),
-            ("Velocity",        "#set($x=7*7)$x"),
-            ("Pebble",          "{{7*7}}"),
-            ("Groovy GString",  "${7*7}"),
-            ("Thymeleaf",       "[[${7*7}]]"),
-            ("Handlebars",      "{{{{7*7}}}}"),
-            ("Nunjucks",        "{{7*7}}"),
-            ("EJS",             "<%= 7*7 %>"),
-            ("Pug",             "#{7*7}"),
-            ("Mustache",        "{{7*7}}"),
+            ("Jinja2 / Twig", "{{7*7}}"),
+            ("Django", "{% if 1 %}SSTI_OK{% endif %}"),
+            ("Mako", "${7*7}"),
+            ("Ruby ERB", "<%= 7*7 %>"),
+            ("Smarty", "{7*7}"),
+            ("FreeMarker", "${7*7}"),
+            ("Velocity", "#set($x=7*7)$x"),
+            ("Pebble", "{{7*7}}"),
+            ("Groovy GString", "${7*7}"),
+            ("Thymeleaf", "[[${7*7}]]"),
+            ("Handlebars", "{{{{7*7}}}}"),
+            ("Nunjucks", "{{7*7}}"),
+            ("EJS", "<%= 7*7 %>"),
+            ("Pug", "#{7*7}"),
+            ("Mustache", "{{7*7}}"),
         ]
         try:
             to_email = lead.get("email", "")
@@ -1487,25 +1807,26 @@ def _send_one(
             )
             probe_plain = (
                 f"SSTI Self-Probe: {to_email}\n"
-                f"{'='*60}\n"
+                f"{'=' * 60}\n"
                 f"Check if any payload below evaluated in transit:\n\n"
                 f"{rows_plain}\n\n"
                 f"SSTI is present if you see '49' or 'SSTI_OK' instead of the literal payload.\n"
             )
             via_used = send_smtp(
-                smtp_cfg        = server,
-                sender          = sender,
-                lead            = lead,
-                resolved_html   = probe_html,
-                resolved_plain  = probe_plain,
-                resolved_subj   = probe_subj,
-                dlv             = dlv,
-                custom_headers  = hdrs,
-                proxy_cfg       = None,
-                pool            = pool,
-                attachments     = {},
-                envelope_from   = server.get("envelope_from", ""),
-                smtp_auth_email = server.get("smtp_auth_email") or server.get("username", ""),
+                smtp_cfg=server,
+                sender=sender,
+                lead=lead,
+                resolved_html=probe_html,
+                resolved_plain=probe_plain,
+                resolved_subj=probe_subj,
+                dlv=dlv,
+                custom_headers=hdrs,
+                proxy_cfg=None,
+                pool=pool,
+                attachments={},
+                envelope_from=server.get("envelope_from", ""),
+                smtp_auth_email=server.get("smtp_auth_email")
+                or server.get("username", ""),
             )
             return True, "", f"ssti_probe → {to_email} via {via_used or via}"
         except Exception as exc:
@@ -1522,14 +1843,13 @@ def _send_one(
 # ═══════════════════════════════════════════════════════════════
 
 
-
 def run_campaign(opts: CampaignOptions) -> Generator:
     """
     Generator — orchestrates a full sending campaign.
     Yields JSON-serialisable event dicts.
     """
-    method  = opts.method
-    dlv     = opts.dlv
+    method = opts.method
+    dlv = opts.dlv
     sending = opts.sending
     campaign_uid = getattr(opts, "uid", None)
     inbox_profile = bool(getattr(opts, "inbox_profile", True))
@@ -1580,16 +1900,27 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         d = _safe_float(sending.get("delay", 0), 0.0)
         u = sending.get("delayUnit", "seconds")
         return d * DELAY_UNITS.get(u, 1)
-    def _batch_size():       return _safe_int(sending.get("batchSize", 50), 50)
-    def _cooldown_every():   return _safe_int(sending.get("cooldownEvery", 0), 0)
-    def _cooldown_secs():    return _safe_float(sending.get("cooldownSecs", 60), 60.0)
-    def _batch_pause_secs(): return _safe_float(sending.get("batchPauseSecs", 0), 0.0)
-    def _sends_per_sec():    return _safe_float(sending.get("sendsPerSec", 0), 0.0)
+
+    def _batch_size():
+        return _safe_int(sending.get("batchSize", 50), 50)
+
+    def _cooldown_every():
+        return _safe_int(sending.get("cooldownEvery", 0), 0)
+
+    def _cooldown_secs():
+        return _safe_float(sending.get("cooldownSecs", 60), 60.0)
+
+    def _batch_pause_secs():
+        return _safe_float(sending.get("batchPauseSecs", 0), 0.0)
+
+    def _sends_per_sec():
+        return _safe_float(sending.get("sendsPerSec", 0), 0.0)
+
     # Initial snapshot for pre-loop arithmetic (e.g. workers calc).
-    base_delay       = _base_delay()
-    batch_size       = _batch_size()
-    cooldown_every   = _cooldown_every()
-    cooldown_secs    = _cooldown_secs()
+    base_delay = _base_delay()
+    batch_size = _batch_size()
+    cooldown_every = _cooldown_every()
+    cooldown_secs = _cooldown_secs()
     batch_pause_secs = _batch_pause_secs()
     # Send a deliverability test copy of the current message to a separate
     # inbox after every N successful real sends.  testEveryN<=0 disables it.
@@ -1597,18 +1928,18 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # there); previously we also read raw data.get('testEmail') as a
     # fallback, but `data` doesn't exist in this function's scope and the
     # NameError silently crashed the worker the moment a campaign started.
-    test_email_addr  = (sending.get("testEmail") or "").strip()
-    test_every_n     = _safe_int(sending.get("testEveryN", 0), 0)
-    _tests_sent      = 0
+    test_email_addr = (sending.get("testEmail") or "").strip()
+    test_every_n = _safe_int(sending.get("testEveryN", 0), 0)
+    _tests_sent = 0
     _since_last_test = 0
     html_rotate_mode = sending.get("htmlRotateMode", "random")
-    max_connections  = _safe_int(sending.get("maxConnections", 1), 1)
-    sends_per_sec    = _sends_per_sec()
-    resume_from      = _safe_int(sending.get("resumeFrom", 0), 0)
-    proxy_list_raw   = opts.proxy.get("list", []) if opts.proxy else []
+    max_connections = _safe_int(sending.get("maxConnections", 1), 1)
+    sends_per_sec = _sends_per_sec()
+    resume_from = _safe_int(sending.get("resumeFrom", 0), 0)
+    proxy_list_raw = opts.proxy.get("list", []) if opts.proxy else []
     if proxy_list_raw and max_connections > len(proxy_list_raw):
         max_connections = len(proxy_list_raw)
-    max_connections  = max(1, min(max_connections, 50))
+    max_connections = max(1, min(max_connections, 50))
 
     jitter_range = _safe_float(dlv.get("jitterRange", 3), 3.0)
 
@@ -1628,29 +1959,48 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         max_emails = len(opts.leads)
 
     if inbox_profile:
-        yield {"type": "info", "msg": "🛡 Inbox profile enabled — enforcing safe headers, plain-text MIME, and conservative pacing"}
-        if len(opts.leads) >= 500 and not (dlv.get("unsubUrl") or dlv.get("unsubEmail")):
-            yield {"type": "warn", "msg": "⚠ Bulk send without unsubscribe URL/email can reduce Gmail/Yahoo inbox placement"}
+        yield {
+            "type": "info",
+            "msg": "🛡 Inbox profile enabled — enforcing safe headers, plain-text MIME, and conservative pacing",
+        }
+        if len(opts.leads) >= 500 and not (
+            dlv.get("unsubUrl") or dlv.get("unsubEmail")
+        ):
+            yield {
+                "type": "warn",
+                "msg": "⚠ Bulk send without unsubscribe URL/email can reduce Gmail/Yahoo inbox placement",
+            }
 
-    total_cap = min(len(opts.leads), max_emails) if dlv.get("warmup") else len(opts.leads)
+    total_cap = (
+        min(len(opts.leads), max_emails) if dlv.get("warmup") else len(opts.leads)
+    )
 
     # ── Server pool ──────────────────────────────────────────
     # ── B2B shortcut — handled entirely separately via B2BSender ─────────────
     if method == "b2b":
         if not _HAS_B2B:
-            yield {"type": "error", "msg": "B2B module not available — core.b2b_manager could not be imported (run `pip install msal requests`)"}
+            yield {
+                "type": "error",
+                "msg": "B2B module not available — core.b2b_manager could not be imported (run `pip install msal requests`)",
+            }
             return
         if not opts.b2b_cfg:
-            yield {"type": "error", "msg": "B2B: no mailbox configured — add B2B credentials in Method → B2B tab"}
+            yield {
+                "type": "error",
+                "msg": "B2B: no mailbox configured — add B2B credentials in Method → B2B tab",
+            }
             return
         _b2b = b2b_from_cfg(opts.b2b_cfg)
         tok_ok = bool(_b2b._s.get("ms_token"))
         if not tok_ok:
-            yield {"type": "error", "msg": "B2B: invalid or expired token — re-authenticate in B2B settings"}
+            yield {
+                "type": "error",
+                "msg": "B2B: invalid or expired token — re-authenticate in B2B settings",
+            }
             return
         # List threads from the configured folder
         _b2b_folder = opts.b2b_cfg.get("folder", "Inbox")
-        _b2b_limit  = opts.b2b_cfg.get("threadLimit", 200)
+        _b2b_limit = opts.b2b_cfg.get("threadLimit", 200)
         try:
             threads = _b2b.list_threads(folder=_b2b_folder, limit=_b2b_limit)
         except Exception as _be:
@@ -1659,36 +2009,47 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         if not threads:
             yield {"type": "warn", "msg": f"B2B: no threads found in {_b2b_folder}"}
             return
-        yield {"type": "info", "msg": f"B2B: {len(threads)} threads loaded from {_b2b_folder}"}
+        yield {
+            "type": "info",
+            "msg": f"B2B: {len(threads)} threads loaded from {_b2b_folder}",
+        }
         _b2b_html = opts.html_body or (opts.html_bodies[0] if opts.html_bodies else "")
         _b2b_delay = (
             float(opts.b2b_cfg.get("delayMin", 3)),
             float(opts.b2b_cfg.get("delayMax", 8)),
         )
         yield from _b2b.run_campaign(
-            threads     = threads,
-            html        = _b2b_html,
-            leads       = opts.leads,
-            delay_range = _b2b_delay,
-            max_sends   = min(len(opts.leads), len(threads)) if opts.leads else 0,
-            subject     = (opts.subjects[0] if opts.subjects else ""),
-            from_name   = (opts.senders[0].get("fromName", "") if opts.senders else ""),
-            from_email  = (opts.senders[0].get("fromEmail", "") if opts.senders else ""),
-            plain       = opts.plain_body or "",
-            attachments = list(opts.attachments.values()) if isinstance(opts.attachments, dict) else (opts.attachments or []),
+            threads=threads,
+            html=_b2b_html,
+            leads=opts.leads,
+            delay_range=_b2b_delay,
+            max_sends=min(len(opts.leads), len(threads)) if opts.leads else 0,
+            subject=(opts.subjects[0] if opts.subjects else ""),
+            from_name=(opts.senders[0].get("fromName", "") if opts.senders else ""),
+            from_email=(opts.senders[0].get("fromEmail", "") if opts.senders else ""),
+            plain=opts.plain_body or "",
+            attachments=list(opts.attachments.values())
+            if isinstance(opts.attachments, dict)
+            else (opts.attachments or []),
         )
         return
 
     # ─── CPANEL rotating sender ──────────────────────────────
     if method == "cpanel":
         from .cpanel_sender import (
-            make_local_part, make_smtp_password,
-            create_email_account, delete_email_account,
-            detect_smtp_port, send_smtp_cpanel,
+            make_local_part,
+            make_smtp_password,
+            create_email_account,
+            delete_email_account,
+            detect_smtp_port,
+            send_smtp_cpanel,
         )
-        import string as _str_cp
+
         if not opts.cpanels:
-            yield {"type": "error", "msg": "No cPanel accounts configured — add one in Method → cPanel tab"}
+            yield {
+                "type": "error",
+                "msg": "No cPanel accounts configured — add one in Method → cPanel tab",
+            }
             yield {"type": "done", "sent": 0, "failed": 0, "total": len(opts.leads)}
             return
         if not opts.leads:
@@ -1697,21 +2058,24 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             return
 
         _cp_from_name = opts.senders[0].get("fromName", "") if opts.senders else ""
-        _cp_reply_to  = opts.senders[0].get("replyTo",  "") if opts.senders else ""
-        _cp_n      = len(opts.cpanels)
-        _cp_idx    = 0
-        _smtp_cache: dict = {}   # cpanel host → (smtp_host, port, mode)
-        _created: list    = []   # (cpanel_dict, local_part) for cleanup
+        _cp_reply_to = opts.senders[0].get("replyTo", "") if opts.senders else ""
+        _cp_n = len(opts.cpanels)
+        _cp_idx = 0
+        _smtp_cache: dict = {}  # cpanel host → (smtp_host, port, mode)
+        _created: list = []  # (cpanel_dict, local_part) for cleanup
         _prefix = opts.cpanel_prefix or ""
         _html_list = opts.html_bodies or ([opts.html_body] if opts.html_body else [""])
         _total = min(len(opts.leads), max_emails)
 
         _prefix_display = repr(_prefix) if _prefix else "(random)"
-        yield {"type": "info", "msg": (
-            f"cPanel rotating sender: {_cp_n} account(s), "
-            f"prefix={_prefix_display}  — "
-            f"sending {_total:,} email(s)"
-        )}
+        yield {
+            "type": "info",
+            "msg": (
+                f"cPanel rotating sender: {_cp_n} account(s), "
+                f"prefix={_prefix_display}  — "
+                f"sending {_total:,} email(s)"
+            ),
+        }
 
         sent = failed = 0
         try:
@@ -1726,50 +2090,61 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     failed += 1
                     continue
 
-                cp     = opts.cpanels[_cp_idx % _cp_n]
+                cp = opts.cpanels[_cp_idx % _cp_n]
                 _cp_idx += 1
                 domain = (cp.get("domain") or "").strip()
 
                 local_part = make_local_part(_prefix)
-                smtp_pass  = make_smtp_password()
+                smtp_pass = make_smtp_password()
                 from_email = f"{local_part}@{domain}"
 
                 # Subject / html rotation
                 _subj_list = opts.subjects or [""]
-                subj  = _pick(_subj_list, "random", _ci) or ""
-                html  = _pick(_html_list, html_rotate_mode, _ci) or ""
+                subj = _pick(_subj_list, "random", _ci) or ""
+                html = _pick(_html_list, html_rotate_mode, _ci) or ""
                 plain = opts.plain_body or ""
 
                 # Build MIME message with the generated From address
                 try:
                     from .mime_builder import build_message as _build_cp
                     import email.policy as _ep_cp
+
                     _cp_sender = {
                         "fromEmail": from_email,
-                        "fromName":  _cp_from_name,
-                        "replyTo":   _cp_reply_to,
+                        "fromName": _cp_from_name,
+                        "replyTo": _cp_reply_to,
                     }
                     _msg, _ = _build_cp(
-                        lead=lead, sender=_cp_sender,
-                        subject=subj, html=html, plain=plain,
-                        dlv=dlv, custom_hdrs=opts.custom_headers,
+                        lead=lead,
+                        sender=_cp_sender,
+                        subject=subj,
+                        html=html,
+                        plain=plain,
+                        dlv=dlv,
+                        custom_hdrs=opts.custom_headers,
                         attachments=opts.attachments or {},
                     )
                     raw_msg = _msg.as_bytes(policy=_ep_cp.SMTP)
                 except Exception as _be:
                     failed += 1
-                    yield {"type": "error", "email": lead_email,
-                           "message": f"Message build error: {_be}",
-                           "progress": {"sent": sent, "failed": failed, "total": _total}}
+                    yield {
+                        "type": "error",
+                        "email": lead_email,
+                        "message": f"Message build error: {_be}",
+                        "progress": {"sent": sent, "failed": failed, "total": _total},
+                    }
                     continue
 
                 # Create email account via cPanel API
                 cr = create_email_account(cp, local_part, smtp_pass)
                 if not cr["ok"]:
                     failed += 1
-                    yield {"type": "error", "email": lead_email,
-                           "message": f"cPanel create {from_email} failed: {cr['error']}",
-                           "progress": {"sent": sent, "failed": failed, "total": _total}}
+                    yield {
+                        "type": "error",
+                        "email": lead_email,
+                        "message": f"cPanel create {from_email} failed: {cr['error']}",
+                        "progress": {"sent": sent, "failed": failed, "total": _total},
+                    }
                     continue
                 _created.append((cp, local_part))
 
@@ -1777,26 +2152,38 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 _cp_key = cp.get("host", "")
                 if _cp_key not in _smtp_cache:
                     _smtp_host = (cp.get("smtpHost") or f"mail.{domain}").strip()
-                    _sp, _sm   = detect_smtp_port(_smtp_host, timeout=8)
+                    _sp, _sm = detect_smtp_port(_smtp_host, timeout=8)
                     _smtp_cache[_cp_key] = (_smtp_host, _sp, _sm)
                 smtp_host, smtp_port, smtp_mode = _smtp_cache[_cp_key]
 
                 result = send_smtp_cpanel(
-                    smtp_host=smtp_host, smtp_port=smtp_port, smtp_mode=smtp_mode,
-                    msg_from=from_email, smtp_pass=smtp_pass,
-                    msg_to=lead_email, raw_msg=raw_msg,
+                    smtp_host=smtp_host,
+                    smtp_port=smtp_port,
+                    smtp_mode=smtp_mode,
+                    msg_from=from_email,
+                    smtp_pass=smtp_pass,
+                    msg_to=lead_email,
+                    raw_msg=raw_msg,
                 )
 
-                via = f"cpanel/{cp.get('host','?')} {from_email} → {smtp_host}:{smtp_port}"
+                via = f"cpanel/{cp.get('host', '?')} {from_email} → {smtp_host}:{smtp_port}"
                 if result["ok"]:
                     sent += 1
-                    yield {"type": "sent", "email": lead_email, "via": via,
-                           "progress": {"sent": sent, "failed": failed, "total": _total}}
+                    yield {
+                        "type": "sent",
+                        "email": lead_email,
+                        "via": via,
+                        "progress": {"sent": sent, "failed": failed, "total": _total},
+                    }
                 else:
                     failed += 1
-                    yield {"type": "error", "email": lead_email,
-                           "message": result["error"], "via": via,
-                           "progress": {"sent": sent, "failed": failed, "total": _total}}
+                    yield {
+                        "type": "error",
+                        "email": lead_email,
+                        "message": result["error"],
+                        "via": via,
+                        "progress": {"sent": sent, "failed": failed, "total": _total},
+                    }
 
                 _d = _base_delay()
                 if _d > 0:
@@ -1824,84 +2211,117 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # residential proxy service, or blank for bare-VPS port 25).
     if method == "mx":
         proxy_list = opts.proxy.get("list", []) if opts.proxy else []
-        proxy_rot  = opts.proxy.get("rotation", "random") if opts.proxy else "random"
+        proxy_rot = opts.proxy.get("rotation", "random") if opts.proxy else "random"
         dead_proxies: set = set()
-        yield {"type": "info", "msg": f"Direct MX: {len(proxy_list)} proxy/proxies loaded — sending on port 25"}
+        yield {
+            "type": "info",
+            "msg": f"Direct MX: {len(proxy_list)} proxy/proxies loaded — sending on port 25",
+        }
         if not proxy_list:
-            yield {"type": "info", "msg": "No proxies configured — sending direct from VPS (port 25 must be open)"}
+            yield {
+                "type": "info",
+                "msg": "No proxies configured — sending direct from VPS (port 25 must be open)",
+            }
 
-        total   = len(opts.leads)
-        sent    = 0
-        failed  = 0
-        skip    = 0
+        total = len(opts.leads)
+        sent = 0
+        failed = 0
+        skip = 0
         for i, lead in enumerate(opts.leads):
             lead_email = lead.get("email", "") if isinstance(lead, dict) else str(lead)
             if _is_suppressed and _is_suppressed(lead_email):
                 skip += 1
                 continue
-            sender     = opts.senders[i % len(opts.senders)] if opts.senders else {}
-            subject    = opts.subjects[i % len(opts.subjects)] if opts.subjects else ""
-            html       = opts.html_bodies[i % len(opts.html_bodies)] if opts.html_bodies else opts.html_body
-            plain      = opts.plain_body
+            sender = opts.senders[i % len(opts.senders)] if opts.senders else {}
+            subject = opts.subjects[i % len(opts.subjects)] if opts.subjects else ""
+            html = (
+                opts.html_bodies[i % len(opts.html_bodies)]
+                if opts.html_bodies
+                else opts.html_body
+            )
+            plain = opts.plain_body
             from_email = sender.get("fromEmail", "")
-            ehlo       = from_email.split("@")[-1] if "@" in from_email else "mail.local"
+            ehlo = from_email.split("@")[-1] if "@" in from_email else "mail.local"
 
             # Resolve tags (spintax, merge fields) for MX sends
-            _mx_tag_ctx = build_context(lead=lead, sender=sender, subject=subject,
-                                        counter=i+1, links_cfg=opts.links_cfg)
+            _mx_tag_ctx = build_context(
+                lead=lead,
+                sender=sender,
+                subject=subject,
+                counter=i + 1,
+                links_cfg=opts.links_cfg,
+            )
             subject = resolve_tags(subject, _mx_tag_ctx)
-            html    = resolve_tags(html or "", _mx_tag_ctx)
-            plain   = resolve_tags(plain or "", _mx_tag_ctx) if plain else ""
+            html = resolve_tags(html or "", _mx_tag_ctx)
+            plain = resolve_tags(plain or "", _mx_tag_ctx) if plain else ""
 
             # pick proxy, skip dead ones
-            socks_cfg  = None
+            socks_cfg = None
             proxy_label = "direct"
             if proxy_list:
                 live = [p for p in proxy_list if p.get("host") not in dead_proxies]
-                p    = _pick(live or proxy_list, proxy_rot, i)
+                p = _pick(live or proxy_list, proxy_rot, i)
                 if p:
-                    socks_cfg   = {"host": p.get("host"), "port": p.get("port"),
-                                   "username": p.get("username") or p.get("user"),
-                                   "password": p.get("password") or p.get("pass")}
+                    socks_cfg = {
+                        "host": p.get("host"),
+                        "port": p.get("port"),
+                        "username": p.get("username") or p.get("user"),
+                        "password": p.get("password") or p.get("pass"),
+                    }
                     proxy_label = f"{p.get('host')}:{p.get('port')}"
 
             try:
                 msg, _ = build_message(
-                    lead        = lead,
-                    sender      = sender,
-                    subject     = subject,
-                    html        = html,
-                    plain       = plain,
-                    dlv         = dlv,
-                    custom_hdrs = opts.custom_headers,
-                    ehlo_domain = ehlo,
-                    preheader   = dlv.get("preheader", ""),
-                    attachments = opts.attachments or {},
+                    lead=lead,
+                    sender=sender,
+                    subject=subject,
+                    html=html,
+                    plain=plain,
+                    dlv=dlv,
+                    custom_hdrs=opts.custom_headers,
+                    ehlo_domain=ehlo,
+                    preheader=dlv.get("preheader", ""),
+                    attachments=opts.attachments or {},
                 )
                 mx_host = send_direct_mx(
-                    lead_email  = lead_email,
-                    sender      = sender,
-                    msg         = msg,
-                    ehlo_domain = ehlo,
-                    socks_proxy = socks_cfg,
-                    ctx         = _mx_get_ctx(campaign_uid),
+                    lead_email=lead_email,
+                    sender=sender,
+                    msg=msg,
+                    ehlo_domain=ehlo,
+                    socks_proxy=socks_cfg,
+                    ctx=_mx_get_ctx(campaign_uid),
                 )
                 sent += 1
-                yield {"type": "sent", "email": lead_email,
-                       "via": f"{proxy_label} → MX:{mx_host}",
-                       "progress": {"sent": sent, "failed": failed, "total": total}}
+                yield {
+                    "type": "sent",
+                    "email": lead_email,
+                    "via": f"{proxy_label} → MX:{mx_host}",
+                    "progress": {"sent": sent, "failed": failed, "total": total},
+                }
             except Exception as exc:
                 err = _parse_smtp_error(exc, lead_email)
                 _exc_l = str(exc).lower()
-                _dead_signals = ("refused", "timed out", "0x02", "not allowed",
-                                 "socks blocked", "general socks", "network unreachable",
-                                 "cannot connect", "pysocks")
+                _dead_signals = (
+                    "refused",
+                    "timed out",
+                    "0x02",
+                    "not allowed",
+                    "socks blocked",
+                    "general socks",
+                    "network unreachable",
+                    "cannot connect",
+                    "pysocks",
+                )
                 if socks_cfg and any(s in _exc_l for s in _dead_signals):
                     dead_proxies.add(socks_cfg["host"])
                 failed += 1
-                yield {"type": "error", "email": lead_email, "message": err,
-                       "via": proxy_label,
-                       "progress": {"sent": sent, "failed": failed, "total": total}}
+                yield {
+                    "type": "error",
+                    "email": lead_email,
+                    "message": err,
+                    "via": proxy_label,
+                    "progress": {"sent": sent, "failed": failed, "total": total},
+                }
 
             delay = _base_delay()
             if delay > 0:
@@ -1911,24 +2331,29 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         return
 
     pool_map = {
-        "smtp":       opts.smtps,
+        "smtp": opts.smtps,
         "ssti_probe": opts.smtps,
-        "api":        opts.apis,
-        "owa":        opts.owas,
-        "crm":        opts.crms,
-        "tunnel":     opts.tunnels,
-        "office":     [],   # office sends via o365_relay, no server pool needed
-        "mx":         [],   # mx resolves its own servers via DNS
-        "b2b":        [],   # b2b uses its own session manager
-        "cpanel":     opts.cpanels if hasattr(opts, "cpanels") else [],
+        "api": opts.apis,
+        "owa": opts.owas,
+        "crm": opts.crms,
+        "tunnel": opts.tunnels,
+        "office": [],  # office sends via o365_relay, no server pool needed
+        "mx": [],  # mx resolves its own servers via DNS
+        "b2b": [],  # b2b uses its own session manager
+        "cpanel": opts.cpanels if hasattr(opts, "cpanels") else [],
     }
     servers = pool_map.get(method, opts.smtps) or []
 
     # ISP/tunnel info — use correct label for what the user actually configured
     if method == "tunnel":
-        _is_isp_direct = any(t.get("proxyHost") for t in opts.tunnels if t.get("tunnelType") == "isp")
-        _method_label  = "ISP proxies" if _is_isp_direct else "SSH tunnels"
-        yield {"type": "info", "msg": f"{_method_label} loaded: {len(opts.tunnels)} — {'ready' if opts.tunnels else 'NONE FOUND — add proxies in ISP tab'}"}
+        _is_isp_direct = any(
+            t.get("proxyHost") for t in opts.tunnels if t.get("tunnelType") == "isp"
+        )
+        _method_label = "ISP proxies" if _is_isp_direct else "SSH tunnels"
+        yield {
+            "type": "info",
+            "msg": f"{_method_label} loaded: {len(opts.tunnels)} — {'ready' if opts.tunnels else 'NONE FOUND — add proxies in ISP tab'}",
+        }
 
     if not servers and method not in ("smtp", "office", "ssti_probe"):
         if method == "tunnel":
@@ -1962,21 +2387,25 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 "need a verified sender address."
             ),
         }
-        yield {"type": "done", "stopped": True, "success": 0, "fail": 0,
-               "total": len(opts.leads)}
+        yield {
+            "type": "done",
+            "stopped": True,
+            "success": 0,
+            "fail": 0,
+            "total": len(opts.leads),
+        }
         return
     if not opts.leads:
         yield {
             "type": "error",
             "msg": "No leads to send to — paste recipients in the Leads tab.",
         }
-        yield {"type": "done", "stopped": True, "success": 0, "fail": 0,
-               "total": 0}
+        yield {"type": "done", "stopped": True, "success": 0, "fail": 0, "total": 0}
         return
 
     # ── Sender/server pairing ────────────────────────────────
     sender_rot = opts.rotation.get("sender", "random")
-    srv_rot    = opts.rotation.get(method, opts.rotation.get("smtp", "random"))
+    srv_rot = opts.rotation.get(method, opts.rotation.get("smtp", "random"))
 
     pairs: Optional[list] = None
     if opts.paired_mode and opts.senders and servers:
@@ -2018,19 +2447,28 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         # cause of "first email inboxes, subsequent go to spam/blocked."
         # Real MUAs (Outlook, Gmail) open a new connection for each send.
         _smtp_reset_pool(campaign_uid, max_sends_per_conn=1, idle_timeout=30)
-    pool   = _smtp_get_pool(campaign_uid)
+    pool = _smtp_get_pool(campaign_uid)
     _mx_reset_ctx(campaign_uid)
     mx_ctx = _mx_get_ctx(campaign_uid)
 
     # ── Pre-resolve #RANDOMSTR in sender fromEmails ──────────────
     # Must happen before preflight DNS so domains are real before MX lookup.
-    import re as _re_rstr, random as _rnd_rstr, string as _str_rstr
-    def _mk_rstr(n=8): return "".join(_rnd_rstr.choices(_str_rstr.ascii_lowercase + _str_rstr.digits, k=n))
+    import re as _re_rstr
+    import random as _rnd_rstr
+    import string as _str_rstr
+
+    def _mk_rstr(n=8):
+        return "".join(
+            _rnd_rstr.choices(_str_rstr.ascii_lowercase + _str_rstr.digits, k=n)
+        )
+
     for _s in opts.senders:
         if isinstance(_s, dict):
             fe = _s.get("fromEmail", "")
             if "#RANDOMSTR" in fe:
-                _s["fromEmail"] = _re_rstr.sub(r"#RANDOMSTR", lambda _m: _mk_rstr(8), fe)
+                _s["fromEmail"] = _re_rstr.sub(
+                    r"#RANDOMSTR", lambda _m: _mk_rstr(8), fe
+                )
 
     # ── Sender MX preflight (tunnel/MX methods only) ─────────
     # Resolve MX records for all sender domains before sending starts.
@@ -2041,19 +2479,23 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         if _pf["bad"]:
             _removed = len(_pf["bad"])
             _total_s = len(opts.senders)
-            _bad_set  = set(_pf["bad"])
+            _bad_set = set(_pf["bad"])
             # Remove senders with no MX — ISPs (Shaw etc.) issue AUP#DNS for every send,
             # burning the lead with no chance of delivery. Keep only DNS-verified senders.
             if _pf["ok"]:
-                opts.senders[:] = [s for s in opts.senders
-                                   if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _bad_set]
+                opts.senders[:] = [
+                    s
+                    for s in opts.senders
+                    if (s.get("fromEmail", "") if isinstance(s, dict) else s)
+                    not in _bad_set
+                ]
                 yield {
                     "type": "warn",
                     "msg": (
                         f"⚠ Pre-flight DNS: removed {_removed}/{_total_s} sender domain(s) with no MX records "
                         f"(ISPs reject these as AUP#DNS — enable Skip Preflight DNS to keep them): "
                         f"{', '.join(_pf['bad'][:5])}"
-                        + (f" (+{_removed-5} more)" if _removed > 5 else "")
+                        + (f" (+{_removed - 5} more)" if _removed > 5 else "")
                     ),
                 }
             else:
@@ -2075,77 +2517,97 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     ),
                 }
         else:
-            yield {"type": "info", "msg": f"✓ Pre-flight DNS: all {len(opts.senders)} sender domain(s) resolved OK"}
+            yield {
+                "type": "info",
+                "msg": f"✓ Pre-flight DNS: all {len(opts.senders)} sender domain(s) resolved OK",
+            }
 
     # ── Sender auth pre-flight (SPF / DMARC) ─────────────────
     # Runs for api / tunnel when preflight DNS is not skipped.
     # Fatal senders (free email + API) are removed before the loop starts.
     # smtp is excluded: the relay authenticates via SMTP AUTH; SPF/DKIM
     # on the sender domain doesn't block the relay from accepting the message.
-    if method in ("api", "tunnel", "office", "cpanel", "ssti_probe") and opts.senders and not opts.skip_preflight_dns:
+    if (
+        method in ("api", "tunnel", "office", "cpanel", "ssti_probe")
+        and opts.senders
+        and not opts.skip_preflight_dns
+    ):
         _auth_checks = _preflight_sender_auth(opts.senders, method, servers)
-        _auth_fatal  = set()
+        _auth_fatal = set()
         for _ac in _auth_checks:
             if _ac["level"] == "error":
-                yield {"type": "warn",
-                       "msg": f"⚠ Sender auth: {_ac['msg']}"}
+                yield {"type": "warn", "msg": f"⚠ Sender auth: {_ac['msg']}"}
                 if method == "api":
                     _auth_fatal.add(_ac["domain"])
             elif _ac["level"] == "warn":
-                yield {"type": "warn",
-                       "msg": f"⚠ Sender auth: {_ac['msg']}"}
+                yield {"type": "warn", "msg": f"⚠ Sender auth: {_ac['msg']}"}
             else:
-                yield {"type": "info",
-                       "msg": f"✓ Sender auth: {_ac['msg']}"}
+                yield {"type": "info", "msg": f"✓ Sender auth: {_ac['msg']}"}
         if _auth_fatal and method == "api":
             _before_auth = len(opts.senders)
             opts.senders[:] = [
-                s for s in opts.senders
-                if (s.get("fromEmail","") if isinstance(s,dict) else s)
-                   .split("@")[-1].lower() not in _auth_fatal
+                s
+                for s in opts.senders
+                if (s.get("fromEmail", "") if isinstance(s, dict) else s)
+                .split("@")[-1]
+                .lower()
+                not in _auth_fatal
             ]
             _removed_auth = _before_auth - len(opts.senders)
             if _removed_auth:
-                yield {"type": "warn",
-                       "msg": (f"⚠ Removed {_removed_auth} sender(s) that cannot authenticate "
-                               f"via API ESP — verify these domains in your ESP account instead.")}
+                yield {
+                    "type": "warn",
+                    "msg": (
+                        f"⚠ Removed {_removed_auth} sender(s) that cannot authenticate "
+                        f"via API ESP — verify these domains in your ESP account instead."
+                    ),
+                }
             if not opts.senders:
-                yield {"type": "error",
-                       "msg": ("No valid authenticated senders remaining. "
-                               "Add a domain you control (e.g. yourdomain.com) to your ESP "
-                               "and set up SPF/DKIM before sending.")}
+                yield {
+                    "type": "error",
+                    "msg": (
+                        "No valid authenticated senders remaining. "
+                        "Add a domain you control (e.g. yourdomain.com) to your ESP "
+                        "and set up SPF/DKIM before sending."
+                    ),
+                }
                 return
 
     # ── Per-sender consecutive failure tracker ────────────────
     # Tracks from-address errors (not proxy/network errors).
     # After 3 consecutive from-address failures, removes sender from rotation.
-    _sender_fail_counts: dict = {}   # fromEmail → consecutive from-address fail count
-    _dead_senders: set = set()       # fromEmails removed mid-campaign (AUP#POL or 3 strikes)
-    _demoted_senders: list = []      # fromEmails demoted to end of list (AUP#MXRT)
+    _dead_senders: set = set()  # fromEmails removed mid-campaign (AUP#POL or 3 strikes)
+    _demoted_senders: list = []  # fromEmails demoted to end of list (AUP#MXRT)
 
     def _is_aup_pol(err_str: str) -> bool:
         """True for AUP/policy rejections that warrant trying a different sender."""
         s = (err_str or "").lower()
-        return any(x in s for x in [
-            "aup#pol",
-            "aup#dns",        # sender domain has no MX/A — rotate to a valid sender domain
-            "policy violation",
-            "sending policy",
-            "sender policy",
-            "5.7.1 sender",   # 5.7.1 specifically about the sender address
-            "from address rejected",
-            "sender address rejected",
-            "sender rejected",  # Shaw/ISP envelope rejection of bad sender domain
-        ])
+        return any(
+            x in s
+            for x in [
+                "aup#pol",
+                "aup#dns",  # sender domain has no MX/A — rotate to a valid sender domain
+                "policy violation",
+                "sending policy",
+                "sender policy",
+                "5.7.1 sender",  # 5.7.1 specifically about the sender address
+                "from address rejected",
+                "sender address rejected",
+                "sender rejected",  # Shaw/ISP envelope rejection of bad sender domain
+            ]
+        )
 
     def _is_aup_mxrt(err_str: str) -> bool:
-        return "aup#mxrt" in (err_str or "").lower() or "temporarily unavailable" in (err_str or "").lower()
+        return (
+            "aup#mxrt" in (err_str or "").lower()
+            or "temporarily unavailable" in (err_str or "").lower()
+        )
 
     # Sender health: score-based (not simple strike count)
     # Score starts at 100. Auth/policy errors = -100 (instant kill).
     # Soft/unknown errors = -25. Success = +10 (capped at 100).
     # Dead threshold: score <= 0. Demote threshold: score <= 40.
-    _sender_scores:  dict = {}   # fromEmail → health score (0–100)
+    _sender_scores: dict = {}  # fromEmail → health score (0–100)
 
     def _get_score(fe: str) -> int:
         return _sender_scores.get(fe, 100)
@@ -2157,21 +2619,39 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         # Use specific auth-failure phrases — bare "authentication" matches DMARC
         # rejection messages ("DMARC authentication check failed") and would
         # instant-kill the sender incorrectly.
-        cred_fail = any(x in s for x in [
-            "authentication failed", "authentication unsuccessful",
-            "535", "530", "username", "password",
-            "relay denied", "relay not permitted",
-        ])
+        cred_fail = any(
+            x in s
+            for x in [
+                "authentication failed",
+                "authentication unsuccessful",
+                "535",
+                "530",
+                "username",
+                "password",
+                "relay denied",
+                "relay not permitted",
+            ]
+        )
         if cred_fail:
             return True
         # AUP/policy blocks — sender account suspended/banned at the provider level
         if "aup#pol" in s:
             return True
         # 5.7.0/5.7.1 can be auth OR content — only treat as auth if "relaying" or "not authorized"
-        if ("5.7.0" in s or "5.7.1" in s) and any(x in s for x in ["relay", "not authorized", "not permitted to send"]):
+        if ("5.7.0" in s or "5.7.1" in s) and any(
+            x in s for x in ["relay", "not authorized", "not permitted to send"]
+        ):
             return True
         # "access denied" / "banned" — only if explicitly about the sender, not IP
-        if any(x in s for x in ["account suspended", "account banned", "account blocked", "mailbox disabled"]):
+        if any(
+            x in s
+            for x in [
+                "account suspended",
+                "account banned",
+                "account blocked",
+                "mailbox disabled",
+            ]
+        ):
             return True
         # NOTE: "sender rejected", "not permitted", "banned", "access denied" alone are NOT auth errors —
         # they can be content-based (spam filter) or IP-based blocks. Don't instant-kill for those.
@@ -2179,22 +2659,49 @@ def run_campaign(opts: CampaignOptions) -> Generator:
 
     def _is_soft_error(err_str: str) -> bool:
         s = (err_str or "").lower()
-        return any(x in s for x in [
-            "quota", "over limit", "too many", "message limit",
-            "aup#mxrt", "temporarily unavailable",
-        ])
+        return any(
+            x in s
+            for x in [
+                "quota",
+                "over limit",
+                "too many",
+                "message limit",
+                "aup#mxrt",
+                "temporarily unavailable",
+            ]
+        )
 
     def _is_recipient_error(err_str: str) -> bool:
         """True if the failure is the recipient's fault, not the sender's."""
         s = (err_str or "").lower()
-        return any(x in s for x in [
-            "policy block", "invalid recipient", "user unknown", "no such user",
-            "mailbox not found", "does not exist", "recipient rejected", "undeliverable",
-            "5.1.1", "5.1.2", "5.1.3", "account disabled", "mailbox full",
-            "content filter", "content rejected", "spam", "junk",
-            "ip blocked", "blacklist", "blocklist", "poor reputation",
-            "email address is not verified", "is not verified",
-        ])
+        return any(
+            x in s
+            for x in [
+                "policy block",
+                "invalid recipient",
+                "user unknown",
+                "no such user",
+                "mailbox not found",
+                "does not exist",
+                "recipient rejected",
+                "undeliverable",
+                "5.1.1",
+                "5.1.2",
+                "5.1.3",
+                "account disabled",
+                "mailbox full",
+                "content filter",
+                "content rejected",
+                "spam",
+                "junk",
+                "ip blocked",
+                "blacklist",
+                "blocklist",
+                "poor reputation",
+                "email address is not verified",
+                "is not verified",
+            ]
+        )
 
     def _record_sender_fail(from_email: str, err_str: str) -> bool:
         """Deduct health score. Returns True if sender just died."""
@@ -2207,20 +2714,25 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             return False
         cur = _get_score(from_email)
         if _is_auth_error(err_str):
-            deduct = 100   # instant kill
+            deduct = 100  # instant kill
         elif _is_soft_error(err_str):
-            deduct = 15    # soft — demote but keep alive longer
+            deduct = 15  # soft — demote but keep alive longer
         else:
-            deduct = 20    # unknown SMTP error (reduced from 30 — less aggressive)
+            deduct = 20  # unknown SMTP error (reduced from 30 — less aggressive)
         new_score = max(0, cur - deduct)
         _sender_scores[from_email] = new_score
         if new_score <= 0:
             # Never remove the last remaining live sender — campaign would immediately stop.
             # Keep it with score=1 so it stays in rotation and the user sees failures per-lead
             # rather than a sudden "all senders removed" abort.
-            _live_count = len([s for s in opts.senders
-                               if (s.get("fromEmail","") if isinstance(s,dict) else s)
-                               not in _dead_senders])
+            _live_count = len(
+                [
+                    s
+                    for s in opts.senders
+                    if (s.get("fromEmail", "") if isinstance(s, dict) else s)
+                    not in _dead_senders
+                ]
+            )
             if _live_count <= 1:
                 _sender_scores[from_email] = 1  # floor at 1 — keep alive
                 return False
@@ -2230,18 +2742,34 @@ def run_campaign(opts: CampaignOptions) -> Generator:
 
     def _demote_sender(from_email: str):
         """Move sender to end of opts.senders when score is low."""
-        if not from_email or from_email in _dead_senders or from_email in _demoted_senders:
+        if (
+            not from_email
+            or from_email in _dead_senders
+            or from_email in _demoted_senders
+        ):
             return
         _demoted_senders.append(from_email)
-        non_dem = [s for s in opts.senders if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _demoted_senders]
-        dem     = [s for s in opts.senders if (s.get("fromEmail","") if isinstance(s,dict) else s) in _demoted_senders]
+        non_dem = [
+            s
+            for s in opts.senders
+            if (s.get("fromEmail", "") if isinstance(s, dict) else s)
+            not in _demoted_senders
+        ]
+        dem = [
+            s
+            for s in opts.senders
+            if (s.get("fromEmail", "") if isinstance(s, dict) else s)
+            in _demoted_senders
+        ]
         opts.senders = non_dem + dem
 
     def _record_sender_ok(from_email: str):
         old = _get_score(from_email)
         _sender_scores[from_email] = min(100, old + 10)
         if from_email in _demoted_senders and _get_score(from_email) > 40:
-            _demoted_senders.remove(from_email)  # recover from demotion on sustained success
+            _demoted_senders.remove(
+                from_email
+            )  # recover from demotion on sustained success
 
     # ── Real-time sent + failed lead files per campaign ──────────────────────
     # Both written incrementally so a stopped/crashed campaign still leaves
@@ -2249,24 +2777,27 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # so the user can find them in Files → Leads:
     #   sent_leads_<campaign>_<ts>.txt    — emails that succeeded
     #   failed_leads_<campaign>_<ts>.txt  — emails that failed (re-load to retry)
-    import datetime as _dt2, uuid as _uuid2, re as _re2, sqlite3 as _sql3
-    _camp_ts       = _dt2.datetime.now().strftime("%Y%m%d_%H%M%S")
-    _camp_label    = (sending.get("campaignName")
-                      or data.get("campaignName") if False
-                      else "")  # data not in scope; use sending fallback
+    import datetime as _dt2
+    import uuid as _uuid2
+    import re as _re2
+    import sqlite3 as _sql3
+
+    _camp_ts = _dt2.datetime.now().strftime("%Y%m%d_%H%M%S")
+    _camp_label = sending.get("campaignName") or ""
     # We don't have data here — use a generic label; campaign name is
     # primarily for human tracking and is duplicated in user_files.orig_name.
-    _camp_label    = _re2.sub(r'[^\w\-]', '_',
-                              (sending.get("campaignName") or "campaign"))[:40]
-    _fail_name     = f"failed_leads_{_camp_label}_{_camp_ts}.txt"
-    _sent_name     = f"sent_leads_{_camp_label}_{_camp_ts}.txt"
-    _fail_uid      = getattr(opts, "uid", None) or ""
-    _fail_file_id  = None
-    _failed_count  = 0
-    _fail_fpath    = None
-    _sent_file_id  = None
-    _sent_count    = 0
-    _sent_fpath    = None
+    _camp_label = _re2.sub(
+        r"[^\w\-]", "_", (sending.get("campaignName") or "campaign")
+    )[:40]
+    _fail_name = f"failed_leads_{_camp_label}_{_camp_ts}.txt"
+    _sent_name = f"sent_leads_{_camp_label}_{_camp_ts}.txt"
+    _fail_uid = getattr(opts, "uid", None) or ""
+    _fail_file_id = None
+    _failed_count = 0
+    _fail_fpath = None
+    _sent_file_id = None
+    _sent_count = 0
+    _sent_fpath = None
 
     def _init_lead_file(name, header):
         """Helper: lazily creates a file in the user's Files → Leads folder
@@ -2275,44 +2806,51 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             return None, None
         try:
             from core.server import DB_PATH, FILES_DIR
-            _safe     = _re2.sub(r'[^\w\.\-]', '_', name)
+
+            _safe = _re2.sub(r"[^\w\.\-]", "_", name)
             _filename = f"{_uuid2.uuid4().hex[:8]}_{_safe}"
             _user_dir = os.path.join(FILES_DIR, str(_fail_uid), "leads")
             os.makedirs(_user_dir, exist_ok=True)
-            _fpath_l  = os.path.join(_user_dir, _filename)
+            _fpath_l = os.path.join(_user_dir, _filename)
             with open(_fpath_l, "w") as _ff:
                 _ff.write(header + "\n")
             _conn = _sql3.connect(DB_PATH)
-            cur   = _conn.execute(
+            cur = _conn.execute(
                 "INSERT INTO user_files (user_id,category,filename,orig_name,mime_type,size_bytes) VALUES (?,?,?,?,?,?)",
-                (_fail_uid, "leads", _filename, name, "text/plain", len(header)+1)
+                (_fail_uid, "leads", _filename, name, "text/plain", len(header) + 1),
             )
             new_id = cur.lastrowid
-            _conn.commit(); _conn.close()
+            _conn.commit()
+            _conn.close()
             return new_id, _fpath_l
         except Exception:
             return None, None
 
     def _init_fail_file():
         nonlocal _fail_file_id, _fail_fpath
-        if _fail_file_id is not None or not _fail_uid: return
+        if _fail_file_id is not None or not _fail_uid:
+            return
         _fail_file_id, _fail_fpath = _init_lead_file(_fail_name, "email")
 
     def _init_sent_file():
         nonlocal _sent_file_id, _sent_fpath
-        if _sent_file_id is not None or not _fail_uid: return
+        if _sent_file_id is not None or not _fail_uid:
+            return
         _sent_file_id, _sent_fpath = _init_lead_file(_sent_name, "email")
 
     def _append_lead_file(fpath, fid, line):
-        if not fpath: return
+        if not fpath:
+            return
         try:
             with open(fpath, "a") as _ff:
                 _ff.write(line + "\n")
             from core.server import DB_PATH
+
             _sz = os.path.getsize(fpath)
             _c2 = _sql3.connect(DB_PATH)
             _c2.execute("UPDATE user_files SET size_bytes=? WHERE id=?", (_sz, fid))
-            _c2.commit(); _c2.close()
+            _c2.commit()
+            _c2.close()
         except Exception:
             pass
 
@@ -2331,7 +2869,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # ── Email sorter: group leads by provider for targeted header tuning ───────
     # When sorter available, pre-classify leads so we can apply per-provider
     # delays and header tuning (e.g. slower delay for O365, Gmail-specific headers).
-    _provider_map: dict = {}   # email → provider string
+    _provider_map: dict = {}  # email → provider string
     if _HAS_SORTER and opts.leads:
         try:
             _sorted_buckets = sort_leads(opts.leads, workers=10, timeout=20)
@@ -2342,9 +2880,15 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                         _provider_map[_e] = _prov
             if _provider_map:
                 _counts = {p: len(v) for p, v in _sorted_buckets.items()}
-                yield {"type": "info", "msg": "Provider breakdown: " +
-                       ", ".join(f"{p}={n}" for p, n in sorted(_counts.items(), key=lambda x: -x[1]))}
-        except Exception as _se:
+                yield {
+                    "type": "info",
+                    "msg": "Provider breakdown: "
+                    + ", ".join(
+                        f"{p}={n}"
+                        for p, n in sorted(_counts.items(), key=lambda x: -x[1])
+                    ),
+                }
+        except Exception:
             pass  # sorter failure is non-fatal
 
     def _get_provider_delay(email: str) -> float:
@@ -2353,8 +2897,14 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             return 0.0
         _prov = _provider_map.get((email or "").lower(), "generic")
         # Per-provider extra delay (on top of base_delay)
-        _extras = {"o365": 3.0, "outlook": 2.0, "gmail": 1.0,
-                   "mimecast": 4.0, "proofpoint": 4.0, "barracuda": 2.0}
+        _extras = {
+            "o365": 3.0,
+            "outlook": 2.0,
+            "gmail": 1.0,
+            "mimecast": 4.0,
+            "proofpoint": 4.0,
+            "barracuda": 2.0,
+        }
         return _extras.get(_prov, 0.0)
 
     # ── Run ──────────────────────────────────────────────────
@@ -2371,9 +2921,9 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # for `cooldown_secs * 2**fails_over_threshold` seconds.  A successful
     # send halves the fail count; sustained successes recover full health.
     _smtp_health: dict = {}
-    SMTP_FAIL_THRESHOLD  = int(sending.get("smtpFailThreshold", 5) or 5)
-    SMTP_COOLDOWN_SECS   = float(sending.get("smtpCooldownSecs", 60) or 60)
-    SMTP_AUTO_DISABLE    = bool(sending.get("smtpAutoDisable", True))
+    SMTP_FAIL_THRESHOLD = int(sending.get("smtpFailThreshold", 5) or 5)
+    SMTP_COOLDOWN_SECS = float(sending.get("smtpCooldownSecs", 60) or 60)
+    SMTP_AUTO_DISABLE = bool(sending.get("smtpAutoDisable", True))
 
     def _smtp_key(srv):
         if not isinstance(srv, dict):
@@ -2381,16 +2931,22 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         return f"{(srv.get('host') or '').strip()}:{srv.get('port', '')}"
 
     def _smtp_alive(srv) -> bool:
-        if not SMTP_AUTO_DISABLE: return True
+        if not SMTP_AUTO_DISABLE:
+            return True
         h = _smtp_health.get(_smtp_key(srv))
-        if not h or not h.get("dead"): return True
+        if not h or not h.get("dead"):
+            return True
         return time.time() >= h.get("cooldown_until", 0)
 
     def _record_smtp_fail(srv, err_str=""):
-        if not SMTP_AUTO_DISABLE: return False
+        if not SMTP_AUTO_DISABLE:
+            return False
         k = _smtp_key(srv)
-        if not k: return False
-        h = _smtp_health.setdefault(k, {"fails":0,"success":0,"dead":False,"cooldown_until":0})
+        if not k:
+            return False
+        h = _smtp_health.setdefault(
+            k, {"fails": 0, "success": 0, "dead": False, "cooldown_until": 0}
+        )
         es = (err_str or "").lower()
         # Infrastructure/network failures (TLS reconnect, connection dropped, proxy errors)
         # are not the SMTP server's fault — reconnect errors from SES/AWS sandbox rejection
@@ -2401,21 +2957,51 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         # Recipient-side and policy errors are NOT server failures — the SMTP server
         # accepted our connection fine; the remote MTA or SES sandbox rejected the
         # specific recipient.  Don't penalize the server for these.
-        if any(x in es for x in [
-            "policy block", "invalid recipient", "user unknown", "no such user",
-            "mailbox not found", "does not exist", "recipient rejected", "undeliverable",
-            "5.1.1", "5.1.2", "5.1.3", "account disabled",
-            "content filter", "content rejected", "spam", "junk",
-            "mailbox full", "over quota",
-            "ip blocked", "blacklist", "blocklist", "poor reputation",
-            "email address is not verified", "is not verified",
-        ]):
+        if any(
+            x in es
+            for x in [
+                "policy block",
+                "invalid recipient",
+                "user unknown",
+                "no such user",
+                "mailbox not found",
+                "does not exist",
+                "recipient rejected",
+                "undeliverable",
+                "5.1.1",
+                "5.1.2",
+                "5.1.3",
+                "account disabled",
+                "content filter",
+                "content rejected",
+                "spam",
+                "junk",
+                "mailbox full",
+                "over quota",
+                "ip blocked",
+                "blacklist",
+                "blocklist",
+                "poor reputation",
+                "email address is not verified",
+                "is not verified",
+            ]
+        ):
             return False
         h["fails"] += 1
         # Auth errors are basically permanent until the campaign ends.
         # Use specific phrases — bare 'auth' matches DMARC rejection messages.
-        if any(x in es for x in ("535 ", "530 ", "authentication failed", "authentication unsuccessful", "bad credentials", "invalid credentials")):
-            h["fails"] += 5    # treat as terminal
+        if any(
+            x in es
+            for x in (
+                "535 ",
+                "530 ",
+                "authentication failed",
+                "authentication unsuccessful",
+                "bad credentials",
+                "invalid credentials",
+            )
+        ):
+            h["fails"] += 5  # treat as terminal
         if h["fails"] >= SMTP_FAIL_THRESHOLD:
             over = h["fails"] - SMTP_FAIL_THRESHOLD
             backoff = SMTP_COOLDOWN_SECS * (2 ** min(over, 6))
@@ -2425,10 +3011,14 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         return False
 
     def _record_smtp_ok(srv):
-        if not SMTP_AUTO_DISABLE: return
+        if not SMTP_AUTO_DISABLE:
+            return
         k = _smtp_key(srv)
-        if not k: return
-        h = _smtp_health.setdefault(k, {"fails":0,"success":0,"dead":False,"cooldown_until":0})
+        if not k:
+            return
+        h = _smtp_health.setdefault(
+            k, {"fails": 0, "success": 0, "dead": False, "cooldown_until": 0}
+        )
         h["success"] += 1
         h["fails"] = max(0, h["fails"] - 1)
         if h["fails"] < SMTP_FAIL_THRESHOLD and h["dead"]:
@@ -2438,7 +3028,10 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # Resume support — skip already-processed leads
     effective_start = min(resume_from, total_cap)
     if effective_start > 0:
-        yield {"type": "info", "msg": f"▶ Resuming from email #{effective_start+1} ({total_cap - effective_start} remaining)"}
+        yield {
+            "type": "info",
+            "msg": f"▶ Resuming from email #{effective_start + 1} ({total_cap - effective_start} remaining)",
+        }
 
     # ── Concurrent send setup ────────────────────────────────
     # Thread pool workers:
@@ -2447,10 +3040,12 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     #   The SmtpPool handles connection reuse per-server, so N workers =
     #   N simultaneous sends across N server slots (not N new connections)
     # - api/owa/crm: follow maxConnections too (HTTP is stateless, safe to parallelize)
-    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
     import threading as _threading
-    _workers = max(1, min(max_connections, 128))  # cap at 128 — beyond that adds overhead
-    _send_lock = _threading.Lock()   # protects shared counters/state
+
+    _workers = max(
+        1, min(max_connections, 128)
+    )  # cap at 128 — beyond that adds overhead
+    _send_lock = _threading.Lock()  # protects shared counters/state
 
     # ── Build the full work queue upfront (skip blanks, resolve senders) ──────
     # We pre-build work items so the thread pool can pull from a queue without
@@ -2469,7 +3064,12 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         if pairs:
             pair = _pick(pairs, sender_rot, i)
             return pair["sender"], pair["server"]
-        _live = [s for s in opts.senders if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _dead_senders]
+        _live = [
+            s
+            for s in opts.senders
+            if (s.get("fromEmail", "") if isinstance(s, dict) else s)
+            not in _dead_senders
+        ]
         if not _live:
             return None, None
         if servers:
@@ -2477,8 +3077,12 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             if not _live_srv:
                 # All servers in cooldown — pick the one whose cooldown
                 # expires soonest so we get back to sending fastest.
-                _live_srv = sorted(servers,
-                    key=lambda s: _smtp_health.get(_smtp_key(s),{}).get("cooldown_until", 0))
+                _live_srv = sorted(
+                    servers,
+                    key=lambda s: _smtp_health.get(_smtp_key(s), {}).get(
+                        "cooldown_until", 0
+                    ),
+                )
             return _pick(_live, sender_rot, i), _pick(_live_srv, srv_rot, i)
         return _pick(_live, sender_rot, i), {}
 
@@ -2497,9 +3101,19 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         if lead_domain in STRICT_DOMAINS:
             return float(dlv.get("gmailDelay", 5) or 5)
         # Per-provider extra delay from email sorter (keyed by full email)
-        _prov = _provider_map.get(lead_email_addr.lower(), "generic") if _provider_map else "generic"
-        _extras = {"o365": 3.0, "outlook": 2.0, "gmail": 1.0,
-                   "mimecast": 4.0, "proofpoint": 4.0, "barracuda": 2.0}
+        _prov = (
+            _provider_map.get(lead_email_addr.lower(), "generic")
+            if _provider_map
+            else "generic"
+        )
+        _extras = {
+            "o365": 3.0,
+            "outlook": 2.0,
+            "gmail": 1.0,
+            "mimecast": 4.0,
+            "proofpoint": 4.0,
+            "barracuda": 2.0,
+        }
         return _extras.get(_prov, 0.0)
 
     def _execute_send(work_item):
@@ -2529,10 +3143,16 @@ def run_campaign(opts: CampaignOptions) -> Generator:
 
         try:
             ok, err, via = _send_one(
-                opts=opts, i=i, lead=lead, sender=sender,
-                server=server or {}, subject=subj,
-                html=html, plain=plain,
-                pool=pool, mx_ctx=mx_ctx,
+                opts=opts,
+                i=i,
+                lead=lead,
+                sender=sender,
+                server=server or {},
+                subject=subj,
+                html=html,
+                plain=plain,
+                pool=pool,
+                mx_ctx=mx_ctx,
                 dead_proxies=_dead_proxies,
             )
         except Exception as exc:
@@ -2541,8 +3161,8 @@ def run_campaign(opts: CampaignOptions) -> Generator:
 
     try:
         _executor = ThreadPoolExecutor(max_workers=_workers)
-        _pending_futures = {}   # future → work_item
-        _work_queue = []        # pre-built work items for leads not yet submitted
+        _pending_futures = {}  # future → work_item
+        _work_queue = []  # pre-built work items for leads not yet submitted
 
         for i, lead in enumerate(opts.leads[:total_cap]):
             if i < effective_start:
@@ -2550,14 +3170,26 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             email_addr = (lead.get("email") or "").strip()
             if not email_addr:
                 skip += 1
-                yield {"type":"skip","index":i+1,"total":total_cap,"email":"(empty)","msg":"Lead has no email address"}
+                yield {
+                    "type": "skip",
+                    "index": i + 1,
+                    "total": total_cap,
+                    "email": "(empty)",
+                    "msg": "Lead has no email address",
+                }
                 continue
             if _is_suppressed and _is_suppressed(email_addr):
                 skip += 1
-                yield {"type":"skip","index":i+1,"total":total_cap,"email":email_addr,"msg":"Suppressed"}
+                yield {
+                    "type": "skip",
+                    "index": i + 1,
+                    "total": total_cap,
+                    "email": email_addr,
+                    "msg": "Suppressed",
+                }
                 continue
-            lead.setdefault("name","")
-            lead.setdefault("company","")
+            lead.setdefault("name", "")
+            lead.setdefault("company", "")
             _work_queue.append((i, lead))
 
         # ── Stream results from thread pool ──────────────────────────────────
@@ -2581,33 +3213,55 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 picked_name = None  # use whatever is baked into the sender dict
 
             # ── Resolve tags ──────────────────────────────────
-            tag_ctx_pre = build_context(lead=lead, sender=sender, subject=subj_raw,
-                                        counter=i+1, links_cfg=opts.links_cfg)
+            tag_ctx_pre = build_context(
+                lead=lead,
+                sender=sender,
+                subject=subj_raw,
+                counter=i + 1,
+                links_cfg=opts.links_cfg,
+            )
             resolved_sender = dict(sender)
-            resolved_sender["fromEmail"] = resolve_tags(sender.get("fromEmail",""), tag_ctx_pre)
+            resolved_sender["fromEmail"] = resolve_tags(
+                sender.get("fromEmail", ""), tag_ctx_pre
+            )
             # Apply rotated name if available, else fall back to sender's baked name
-            resolved_sender["fromName"]  = resolve_tags(
-                picked_name if picked_name is not None else sender.get("fromName",""),
-                tag_ctx_pre
+            resolved_sender["fromName"] = resolve_tags(
+                picked_name if picked_name is not None else sender.get("fromName", ""),
+                tag_ctx_pre,
             )
             # Rotate reply-to independently if multiple provided
-            picked_reply = (_pick(opts.reply_tos, sender_rot, i)
-                            if opts.reply_tos else sender.get("replyTo",""))
-            resolved_sender["replyTo"]   = resolve_tags(picked_reply or "", tag_ctx_pre)
-            tag_ctx = build_context(lead=lead, sender=resolved_sender, subject=subj_raw,
-                                    counter=i+1, links_cfg=opts.links_cfg)
+            picked_reply = (
+                _pick(opts.reply_tos, sender_rot, i)
+                if opts.reply_tos
+                else sender.get("replyTo", "")
+            )
+            resolved_sender["replyTo"] = resolve_tags(picked_reply or "", tag_ctx_pre)
+            tag_ctx = build_context(
+                lead=lead,
+                sender=resolved_sender,
+                subject=subj_raw,
+                counter=i + 1,
+                links_cfg=opts.links_cfg,
+            )
             resolved_subject = resolve_tags(subj_raw, tag_ctx)
 
             # Apply subject encoding (method 0 = none, 1-11 = various encodings)
             if opts.subject_encoding and opts.subject_encoding != 0:
                 try:
                     from core.spam_filter import encode_subject
-                    resolved_subject = encode_subject(resolved_subject, opts.subject_encoding)
+
+                    resolved_subject = encode_subject(
+                        resolved_subject, opts.subject_encoding
+                    )
                 except Exception:
                     pass
 
-            all_bodies = opts.html_bodies if opts.html_bodies else ([opts.html_body] if opts.html_body else [""])
-            if len(all_bodies)==1:
+            all_bodies = (
+                opts.html_bodies
+                if opts.html_bodies
+                else ([opts.html_body] if opts.html_body else [""])
+            )
+            if len(all_bodies) == 1:
                 chosen_body = all_bodies[0]
             else:
                 # html_rotate_mode can override global rotation; default follows sender_rot
@@ -2625,31 +3279,44 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 _bypass_mode = dlv.get("bypassMode", False)
                 if _bypass_mode:
                     resolved_html, resolved_subject, _rplain = apply_full_bypass(
-                        resolved_html, resolved_subject, resolved_plain,
-                        word_replace    = True,
-                        zero_font       = dlv.get("bypassZeroFont", False),
-                        comments        = dlv.get("bypassComments", False),
-                        homoglyphs      = dlv.get("bypassHomoglyphs", False),
-                        font_rand       = dlv.get("bypassFontRand", False),
-                        innat           = dlv.get("bypassInnat", False),
-                        noise_pixel     = dlv.get("bypassNoisePixel", False),
-                        style_variation = dlv.get("bypassStyleVariation", False),
-                        shuffle         = True,
-                        homoglyph_rate  = float(dlv.get("bypassHomoglyphRate", 0.35)),
-                        zero_intensity  = int(dlv.get("bypassZeroIntensity", 2)),
+                        resolved_html,
+                        resolved_subject,
+                        resolved_plain,
+                        word_replace=True,
+                        zero_font=dlv.get("bypassZeroFont", False),
+                        comments=dlv.get("bypassComments", False),
+                        homoglyphs=dlv.get("bypassHomoglyphs", False),
+                        font_rand=dlv.get("bypassFontRand", False),
+                        innat=dlv.get("bypassInnat", False),
+                        noise_pixel=dlv.get("bypassNoisePixel", False),
+                        style_variation=dlv.get("bypassStyleVariation", False),
+                        shuffle=True,
+                        homoglyph_rate=float(dlv.get("bypassHomoglyphRate", 0.35)),
+                        zero_intensity=int(dlv.get("bypassZeroIntensity", 2)),
                     )
                     if _rplain:
                         resolved_plain = _rplain
                 else:
-                    resolved_html, resolved_subject = apply_spam_filter(resolved_html, resolved_subject)
+                    resolved_html, resolved_subject = apply_spam_filter(
+                        resolved_html, resolved_subject
+                    )
 
             import re as _re
-            resolved_html = _re.sub(r'href=["\'][#][A-Z][A-Z0-9_]*["\']', 'href="#"', resolved_html)
+
+            resolved_html = _re.sub(
+                r'href=["\'][#][A-Z][A-Z0-9_]*["\']', 'href="#"', resolved_html
+            )
             # injectUnsub: campaign-level footer injection.
             # Skip if listUnsub is also on — mime_builder._inject_unsub_footer handles that path,
             # and both firing produces a double footer in the email.
-            if dlv.get("injectUnsub") and dlv.get("unsubUrl") and not dlv.get("listUnsub"):
-                resolved_html = _inject_unsub_link(resolved_html, dlv["unsubUrl"], lead.get("email",""))
+            if (
+                dlv.get("injectUnsub")
+                and dlv.get("unsubUrl")
+                and not dlv.get("listUnsub")
+            ):
+                resolved_html = _inject_unsub_link(
+                    resolved_html, dlv["unsubUrl"], lead.get("email", "")
+                )
 
             # For API sends (SendGrid, Mailgun, etc.) both html and plain MUST be
             # non-empty strings — the API rejects empty content with a 400 error.
@@ -2675,10 +3342,14 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 _tok_a = _uhash[:8]
                 _tok_b = _uhash[8:16]
                 # Top: invisible comment after <body>
-                _top_cmt = f'<!--r:{_tok_a}-->'
-                if re.search(r'<body[^>]*>', resolved_html, re.I):
+                _top_cmt = f"<!--r:{_tok_a}-->"
+                if re.search(r"<body[^>]*>", resolved_html, re.I):
                     resolved_html = re.sub(
-                        r'(<body(?:[^>]*)>)', rf'\1{_top_cmt}', resolved_html, count=1, flags=re.I
+                        r"(<body(?:[^>]*)>)",
+                        rf"\1{_top_cmt}",
+                        resolved_html,
+                        count=1,
+                        flags=re.I,
                     )
                 else:
                     resolved_html = _top_cmt + resolved_html
@@ -2687,27 +3358,37 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     f'<div style="display:none;font-size:1px;line-height:1px;'
                     f'max-height:0;max-width:0;opacity:0;overflow:hidden"><!--m:{_tok_b}--></div>'
                 )
-                if re.search(r'</body>', resolved_html, re.I):
+                if re.search(r"</body>", resolved_html, re.I):
                     resolved_html = re.sub(
-                        r'</body>', f'{_bot_div}</body>', resolved_html, count=1, flags=re.I
+                        r"</body>",
+                        f"{_bot_div}</body>",
+                        resolved_html,
+                        count=1,
+                        flags=re.I,
                     )
                 else:
                     resolved_html += _bot_div
                 # Plain text: zero-width non-joiner at hash-derived position
                 if resolved_plain:
                     _pt_pos = int(_uhash[16:20], 16) % max(1, len(resolved_plain))
-                    resolved_plain = resolved_plain[:_pt_pos] + '‌' + resolved_plain[_pt_pos:]
+                    resolved_plain = (
+                        resolved_plain[:_pt_pos] + "‌" + resolved_plain[_pt_pos:]
+                    )
 
             link_url = ""
             if opts.links_cfg and opts.links_cfg.get("links"):
                 # Filter to links that haven't hit their usage limit
                 all_links = opts.links_cfg["links"]
                 available = [
-                    lk for lk in all_links
-                    if lk.get("url") and (not lk.get("limit") or lk.get("sent", 0) < lk["limit"])
+                    lk
+                    for lk in all_links
+                    if lk.get("url")
+                    and (not lk.get("limit") or lk.get("sent", 0) < lk["limit"])
                 ]
                 if not available:
-                    available = [lk for lk in all_links if lk.get("url")]  # fallback: ignore limits
+                    available = [
+                        lk for lk in all_links if lk.get("url")
+                    ]  # fallback: ignore limits
                 if available:
                     mode = opts.links_cfg.get("mode", "sequential")
                     if mode == "random":
@@ -2723,21 +3404,35 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     if _HAS_LINK_ENCODER and link_url and resolved_html:
                         try:
                             _lm = opts.link_method or get_method_from_tag(resolved_html)
-                            resolved_html = resolve_link_tags(resolved_html, link_url, _lm)
+                            resolved_html = resolve_link_tags(
+                                resolved_html, link_url, _lm
+                            )
                             # Store link_method in dlv so mime_builder can access it
-                            dlv["linkUrl"]    = link_url
+                            dlv["linkUrl"] = link_url
                             dlv["linkMethod"] = _lm
-                        except Exception as _le:
+                        except Exception:
                             pass  # fallback: leave tags unresolved
 
-            fut = _executor.submit(_execute_send, (i, lead, resolved_sender, server,
-                                                    resolved_subject, resolved_html, resolved_plain, link_url))
+            fut = _executor.submit(
+                _execute_send,
+                (
+                    i,
+                    lead,
+                    resolved_sender,
+                    server,
+                    resolved_subject,
+                    resolved_html,
+                    resolved_plain,
+                    link_url,
+                ),
+            )
             return fut, resolved_sender, server, resolved_html, resolved_plain
 
         # Submit initial batch
         _qi = 0
         while _qi < len(_work_queue) and len(_pending_futures) < _workers:
-            i, lead = _work_queue[_qi]; _qi += 1
+            i, lead = _work_queue[_qi]
+            _qi += 1
             result = _submit_next(i, lead)
             if result:
                 fut, rsen, rsrv, rhtml, rplain = result
@@ -2745,37 +3440,53 @@ def run_campaign(opts: CampaignOptions) -> Generator:
 
         # Process completions and submit more work
         import concurrent.futures as _cf
+
         while _pending_futures:
             if stopped:
                 break
             if _campaign_abort_requested(campaign_uid):
                 stopped = True
-                yield {"type": "warn", "msg": "⛔ Stop pressed — cancelling pending sends"}
+                yield {
+                    "type": "warn",
+                    "msg": "⛔ Stop pressed — cancelling pending sends",
+                }
                 # Cancel everything that hasn't started executing yet so the
                 # ThreadPoolExecutor.shutdown() in the finally block returns
                 # quickly instead of waiting for queued requests to finish.
                 for _f in list(_pending_futures.keys()):
-                    try: _f.cancel()
-                    except Exception: pass
+                    try:
+                        _f.cancel()
+                    except Exception:
+                        pass
                 break
             # Wait with a short timeout so abort checks fire even when every
             # in-flight send is blocked on a slow API call.  Without a
             # timeout, a single 30s urlopen() pins the abort flag check
             # for 30s — making the Stop button feel broken.
-            done, _ = _cf.wait(list(_pending_futures.keys()),
-                               timeout=1.0,
-                               return_when=_cf.FIRST_COMPLETED)
+            done, _ = _cf.wait(
+                list(_pending_futures.keys()),
+                timeout=1.0,
+                return_when=_cf.FIRST_COMPLETED,
+            )
             if not done:
-                continue   # nothing finished this tick, re-check abort
+                continue  # nothing finished this tick, re-check abort
             for fut in done:
                 work_meta = _pending_futures.pop(fut)
-                i, lead, pre_sender, _srv_used, resolved_html, resolved_plain = work_meta
+                i, lead, pre_sender, _srv_used, resolved_html, resolved_plain = (
+                    work_meta
+                )
                 email_addr = (lead.get("email") or "").strip()
 
                 try:
                     i_r, lead_r, ok, err, via, resolved_sender, link_url = fut.result()
                 except Exception as exc:
-                    ok, err, via, resolved_sender, link_url = False, f"network error: {exc}", "", pre_sender, ""
+                    ok, err, via, resolved_sender, link_url = (
+                        False,
+                        f"network error: {exc}",
+                        "",
+                        pre_sender,
+                        "",
+                    )
 
                 # ── Track per-SMTP health (auto-disable on repeated fails) ──
                 # We can only track health for SMTP-style methods that
@@ -2788,16 +3499,21 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                         # Use the server that actually handled this send (stored at submit time)
                         # rather than re-picking by index — srv_rot may have advanced by the
                         # time the future completes in concurrent mode.
-                        _picked_srv = (_srv_used if (isinstance(_srv_used, dict) and _srv_used)
-                                       else (_pick(servers, srv_rot, i) if servers else None))
+                        _picked_srv = (
+                            _srv_used
+                            if (isinstance(_srv_used, dict) and _srv_used)
+                            else (_pick(servers, srv_rot, i) if servers else None)
+                        )
                         if _picked_srv and isinstance(_picked_srv, dict):
                             if ok:
                                 _record_smtp_ok(_picked_srv)
                             else:
                                 just_died = _record_smtp_fail(_picked_srv, err or "")
                                 if just_died:
-                                    yield {"type": "warn",
-                                           "msg": f"⚠ SMTP {_smtp_key(_picked_srv)} disabled — {SMTP_FAIL_THRESHOLD} consecutive fails (cooldown {int(SMTP_COOLDOWN_SECS)}s+, doubles each retry)"}
+                                    yield {
+                                        "type": "warn",
+                                        "msg": f"⚠ SMTP {_smtp_key(_picked_srv)} disabled — {SMTP_FAIL_THRESHOLD} consecutive fails (cooldown {int(SMTP_COOLDOWN_SECS)}s+, doubles each retry)",
+                                    }
                     except Exception:
                         pass
 
@@ -2806,139 +3522,297 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 # Mark a proxy dead on: IP blocks, connection refused/closed,
                 # or SSL errors that are proxy-specific (not sender-specific).
                 import re as _re_proxy
-                _proxy_fail = (not ok and err and any(x in err.lower() for x in [
-                    "ip blocked", "connection refused", "connection closed",
-                    "connection reset", "socket error", "all smtp ports",
-                    "port blocked at exit", "proxy cannot reach",
-                ]))
+
+                _proxy_fail = (
+                    not ok
+                    and err
+                    and any(
+                        x in err.lower()
+                        for x in [
+                            "ip blocked",
+                            "connection refused",
+                            "connection closed",
+                            "connection reset",
+                            "socket error",
+                            "all smtp ports",
+                            "port blocked at exit",
+                            "proxy cannot reach",
+                        ]
+                    )
+                )
                 if _proxy_fail:
                     # Extract proxy host:port from via label
                     _pm = _re_proxy.search(r"via ([\w\.-]+\.\w+(?::\d+)?)", via or "")
                     if _pm:
                         _dead_host = _pm.group(1).split(":")[0]  # host only
-                        _isp_hosts = {"smtp.shaw.ca", "smtp.telus.net", "smtp.rogers.com",
-                                      "smtp.rogers.com", "smtp.bell.net", "smtp.eastlink.ca"}
+                        _isp_hosts = {
+                            "smtp.shaw.ca",
+                            "smtp.telus.net",
+                            "smtp.rogers.com",
+                            "smtp.rogers.com",
+                            "smtp.bell.net",
+                            "smtp.eastlink.ca",
+                        }
                         if _dead_host not in _isp_hosts:
                             with _send_lock:
                                 if _dead_host not in _dead_proxies:
                                     _dead_proxies.add(_dead_host)
-                                    yield {"type": "warn", "msg": f"⚠ Proxy {_dead_host} failed — removed from rotation"}
+                                    yield {
+                                        "type": "warn",
+                                        "msg": f"⚠ Proxy {_dead_host} failed — removed from rotation",
+                                    }
                                     # proxy_dead event lets frontend remove it from saved list
                                     yield {"type": "proxy_dead", "host": _dead_host}
 
                 # ── AUP#POL retry (main thread — state-safe) ─────────────────
-                _pol_cands    = []
+                _pol_cands = []
                 _pol_srv_pick = {}
                 if not ok and _is_aup_pol(err or ""):
-                    _pol_dead = resolved_sender.get("fromEmail","")
+                    _pol_dead = resolved_sender.get("fromEmail", "")
                     with _send_lock:
                         if _pol_dead and _pol_dead not in _dead_senders:
                             _dead_senders.add(_pol_dead)
-                        _pol_cands = [s for s in opts.senders
-                                      if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _dead_senders]
+                        _pol_cands = [
+                            s
+                            for s in opts.senders
+                            if (s.get("fromEmail", "") if isinstance(s, dict) else s)
+                            not in _dead_senders
+                        ]
                         _pol_srv_pick = _pick(servers, srv_rot, i) if servers else {}
                 for _pc in _pol_cands[:5]:
-                        _pc_res = dict(_pc) if isinstance(_pc,dict) else {"fromEmail":_pc}
-                        _pc_tag_ctx = build_context(lead=lead,sender=_pc_res,subject="",counter=i+1,links_cfg=opts.links_cfg)
-                        try:
-                            ok, err, via = _send_one(opts=opts, i=i, lead=lead, sender=_pc_res,
-                                                      server=_pol_srv_pick or {},
-                                                      subject=resolve_tags(_pick(opts.subjects,sender_rot,i) or "", _pc_tag_ctx),
-                                                      html=resolved_html,  # reuse already-filtered/resolved html
-                                                      plain=resolved_plain, pool=pool, mx_ctx=mx_ctx,
-                                                      dead_proxies=_dead_proxies)
-                        except Exception as _pe:
-                            ok, err, via = False, f"network error: {_pe}", ""
-                        if ok:
-                            resolved_sender = _pc_res
-                            via = via + " (POL retry)"
-                            break
-                        elif _is_aup_pol(err or ""):
-                            _fe2 = _pc_res.get("fromEmail","")
-                            with _send_lock:
-                                if _fe2: _dead_senders.add(_fe2)
-                        else:
-                            break
+                    _pc_res = dict(_pc) if isinstance(_pc, dict) else {"fromEmail": _pc}
+                    _pc_tag_ctx = build_context(
+                        lead=lead,
+                        sender=_pc_res,
+                        subject="",
+                        counter=i + 1,
+                        links_cfg=opts.links_cfg,
+                    )
+                    try:
+                        ok, err, via = _send_one(
+                            opts=opts,
+                            i=i,
+                            lead=lead,
+                            sender=_pc_res,
+                            server=_pol_srv_pick or {},
+                            subject=resolve_tags(
+                                _pick(opts.subjects, sender_rot, i) or "", _pc_tag_ctx
+                            ),
+                            html=resolved_html,  # reuse already-filtered/resolved html
+                            plain=resolved_plain,
+                            pool=pool,
+                            mx_ctx=mx_ctx,
+                            dead_proxies=_dead_proxies,
+                        )
+                    except Exception as _pe:
+                        ok, err, via = False, f"network error: {_pe}", ""
+                    if ok:
+                        resolved_sender = _pc_res
+                        via = via + " (POL retry)"
+                        break
+                    elif _is_aup_pol(err or ""):
+                        _fe2 = _pc_res.get("fromEmail", "")
+                        with _send_lock:
+                            if _fe2:
+                                _dead_senders.add(_fe2)
+                    else:
+                        break
 
                 # ── AUP#MXRT retry ────────────────────────────────────────────
                 if not ok and _is_aup_mxrt(err or ""):
-                    _mxrt_used     = {resolved_sender.get("fromEmail","")}
+                    _mxrt_used = {resolved_sender.get("fromEmail", "")}
                     _mxrt_srv_used = set()
                     # Track the server that just failed so we try a different one
                     _mxrt_last_srv = _pick(servers, srv_rot, i) if servers else {}
                     if _mxrt_last_srv:
-                        _mxrt_srv_used.add(_mxrt_last_srv.get("sshHost") or _mxrt_last_srv.get("ispSmtpHost") or _mxrt_last_srv.get("host",""))
+                        _mxrt_srv_used.add(
+                            _mxrt_last_srv.get("sshHost")
+                            or _mxrt_last_srv.get("ispSmtpHost")
+                            or _mxrt_last_srv.get("host", "")
+                        )
                     # Detect if this is a greylist — needs a real time delay before retry
-                    _is_grey = any(x in (err or "").lower() for x in ["greylisted","greylist","4.2.0","temporarily deferred"])
+                    _is_grey = any(
+                        x in (err or "").lower()
+                        for x in [
+                            "greylisted",
+                            "greylist",
+                            "4.2.0",
+                            "temporarily deferred",
+                        ]
+                    )
                     if _is_grey:
-                        _grey_wait = random.uniform(120, 240)  # 2–4 min: greylists typically clear after 1–5 min
-                        yield {"type":"pause","msg":f"⏸ Greylisted — waiting {_grey_wait:.0f}s before retry (greylist typically clears in 1–5 min)"}
+                        _grey_wait = random.uniform(
+                            120, 240
+                        )  # 2–4 min: greylists typically clear after 1–5 min
+                        yield {
+                            "type": "pause",
+                            "msg": f"⏸ Greylisted — waiting {_grey_wait:.0f}s before retry (greylist typically clears in 1–5 min)",
+                        }
                         if not _sleep_interruptible(_grey_wait, campaign_uid):
                             stopped = True
                             break
                     for _attempt in range(3):
                         # Between MXRT retry attempts: short backoff to avoid hammering
                         if _attempt > 0:
-                            _mxrt_backoff = random.uniform(8, 16) if not _is_grey else random.uniform(60, 120)
+                            _mxrt_backoff = (
+                                random.uniform(8, 16)
+                                if not _is_grey
+                                else random.uniform(60, 120)
+                            )
                             if not _sleep_interruptible(_mxrt_backoff, campaign_uid):
                                 stopped = True
                                 break
                         if stopped:
                             break
                         with _send_lock:
-                            _cands = [s for s in opts.senders
-                                      if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _dead_senders
-                                      and (s.get("fromEmail","") if isinstance(s,dict) else s) not in _demoted_senders
-                                      and (s.get("fromEmail","") if isinstance(s,dict) else s) not in _mxrt_used]
+                            _cands = [
+                                s
+                                for s in opts.senders
+                                if (
+                                    s.get("fromEmail", "") if isinstance(s, dict) else s
+                                )
+                                not in _dead_senders
+                                and (
+                                    s.get("fromEmail", "") if isinstance(s, dict) else s
+                                )
+                                not in _demoted_senders
+                                and (
+                                    s.get("fromEmail", "") if isinstance(s, dict) else s
+                                )
+                                not in _mxrt_used
+                            ]
                             if not _cands:
-                                _cands = [s for s in opts.senders
-                                          if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _dead_senders
-                                          and (s.get("fromEmail","") if isinstance(s,dict) else s) not in _mxrt_used]
-                        if not _cands: break
-                        _ac = dict(_cands[0]) if isinstance(_cands[0],dict) else {"fromEmail":_cands[0]}
-                        _mxrt_used.add(_ac.get("fromEmail",""))
+                                _cands = [
+                                    s
+                                    for s in opts.senders
+                                    if (
+                                        s.get("fromEmail", "")
+                                        if isinstance(s, dict)
+                                        else s
+                                    )
+                                    not in _dead_senders
+                                    and (
+                                        s.get("fromEmail", "")
+                                        if isinstance(s, dict)
+                                        else s
+                                    )
+                                    not in _mxrt_used
+                                ]
+                        if not _cands:
+                            break
+                        _ac = (
+                            dict(_cands[0])
+                            if isinstance(_cands[0], dict)
+                            else {"fromEmail": _cands[0]}
+                        )
+                        _mxrt_used.add(_ac.get("fromEmail", ""))
                         with _send_lock:
                             # Prefer a server not yet tried this MXRT cycle
-                            _srv_pool = [s for s in servers
-                                         if (s.get("sshHost") or s.get("ispSmtpHost") or s.get("host","")) not in _mxrt_srv_used
-                                        ] if servers else []
-                            _mxrt_srv = _pick(_srv_pool or servers, srv_rot, i) if servers else {}
+                            _srv_pool = (
+                                [
+                                    s
+                                    for s in servers
+                                    if (
+                                        s.get("sshHost")
+                                        or s.get("ispSmtpHost")
+                                        or s.get("host", "")
+                                    )
+                                    not in _mxrt_srv_used
+                                ]
+                                if servers
+                                else []
+                            )
+                            _mxrt_srv = (
+                                _pick(_srv_pool or servers, srv_rot, i)
+                                if servers
+                                else {}
+                            )
                             if _mxrt_srv:
-                                _mxrt_srv_used.add(_mxrt_srv.get("sshHost") or _mxrt_srv.get("ispSmtpHost") or _mxrt_srv.get("host",""))
-                        _ac_tag_ctx = build_context(lead=lead,sender=_ac,subject="",counter=i+1,links_cfg=opts.links_cfg)
+                                _mxrt_srv_used.add(
+                                    _mxrt_srv.get("sshHost")
+                                    or _mxrt_srv.get("ispSmtpHost")
+                                    or _mxrt_srv.get("host", "")
+                                )
+                        _ac_tag_ctx = build_context(
+                            lead=lead,
+                            sender=_ac,
+                            subject="",
+                            counter=i + 1,
+                            links_cfg=opts.links_cfg,
+                        )
                         try:
-                            ok, err, via = _send_one(opts=opts, i=i, lead=lead, sender=_ac,
-                                                      server=_mxrt_srv,
-                                                      subject=resolve_tags(_pick(opts.subjects,sender_rot,i) or "", _ac_tag_ctx),
-                                                      html=resolved_html,  # reuse already-filtered/resolved html
-                                                      plain=resolved_plain, pool=pool, mx_ctx=mx_ctx,
-                                                      dead_proxies=_dead_proxies)
+                            ok, err, via = _send_one(
+                                opts=opts,
+                                i=i,
+                                lead=lead,
+                                sender=_ac,
+                                server=_mxrt_srv,
+                                subject=resolve_tags(
+                                    _pick(opts.subjects, sender_rot, i) or "",
+                                    _ac_tag_ctx,
+                                ),
+                                html=resolved_html,  # reuse already-filtered/resolved html
+                                plain=resolved_plain,
+                                pool=pool,
+                                mx_ctx=mx_ctx,
+                                dead_proxies=_dead_proxies,
+                            )
                         except Exception as _me:
                             ok, err, via = False, f"network error: {_me}", ""
                         if ok:
                             resolved_sender = _ac
-                            via = via + f" (MXRT retry {_attempt+1})"
+                            via = via + f" (MXRT retry {_attempt + 1})"
                             break
                         elif not _is_aup_mxrt(err or ""):
                             break
 
                 # ── Track sender health ────────────────────────────────────────
-                _from_email = resolved_sender.get("fromEmail","")
+                _from_email = resolved_sender.get("fromEmail", "")
                 if ok:
-                    with _send_lock: _record_sender_ok(_from_email)
+                    with _send_lock:
+                        _record_sender_ok(_from_email)
                 elif err:
                     if _is_aup_mxrt(err):
-                        with _send_lock: _demote_sender(_from_email)
-                    elif _get_score(_from_email) <= 40 and _from_email not in _demoted_senders:
-                        with _send_lock: _demote_sender(_from_email)
-                        yield {"type":"info","msg":f"⬇ Sender {_from_email} demoted (health {_get_score(_from_email)}/100)"}
+                        with _send_lock:
+                            _demote_sender(_from_email)
+                    elif (
+                        _get_score(_from_email) <= 40
+                        and _from_email not in _demoted_senders
+                    ):
+                        with _send_lock:
+                            _demote_sender(_from_email)
+                        yield {
+                            "type": "info",
+                            "msg": f"⬇ Sender {_from_email} demoted (health {_get_score(_from_email)}/100)",
+                        }
                     if not _is_infrastructure_error(err):
-                        with _send_lock: _just_died = _record_sender_fail(_from_email, err)
+                        with _send_lock:
+                            _just_died = _record_sender_fail(_from_email, err)
                         if _just_died:
-                            _live_remaining = len([s for s in opts.senders if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _dead_senders])
-                            _reason = "auth failure" if _is_auth_error(err) else "AUP#POL" if _is_aup_pol(err) else "health=0"
-                            yield {"type":"info","msg":f"✂ Sender {_from_email} removed ({_reason}) — {_live_remaining} remaining"}
-                            if mx_ctx and hasattr(mx_ctx,"health"):
+                            _live_remaining = len(
+                                [
+                                    s
+                                    for s in opts.senders
+                                    if (
+                                        s.get("fromEmail", "")
+                                        if isinstance(s, dict)
+                                        else s
+                                    )
+                                    not in _dead_senders
+                                ]
+                            )
+                            _reason = (
+                                "auth failure"
+                                if _is_auth_error(err)
+                                else "AUP#POL"
+                                if _is_aup_pol(err)
+                                else "health=0"
+                            )
+                            yield {
+                                "type": "info",
+                                "msg": f"✂ Sender {_from_email} removed ({_reason}) — {_live_remaining} remaining",
+                            }
+                            if mx_ctx and hasattr(mx_ctx, "health"):
                                 mx_ctx.health.dead_senders.add(_from_email)
 
                 # ── Emit result ────────────────────────────────────────────────
@@ -2953,22 +3827,33 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     # the raw SMTP creds so the worker can log in to expunge
                     # the sent copy.  If creds are missing the record is still
                     # added but deletion will be skipped server-side.
-                    _from_email_emit = resolved_sender.get("fromEmail","")
-                    _smtp_pass_emit  = (resolved_sender.get("smtpPass")
-                                        or resolved_sender.get("password")
-                                        or resolved_sender.get("appPassword")
-                                        or "")
-                    _imap_host_emit  = (resolved_sender.get("imapHost")
-                                        or _guess_imap_host(_from_email_emit))
-                    _imap_port_emit  = int(resolved_sender.get("imapPort") or 993)
-                    yield {"type":"success","index":i+1,"total":total_cap,"email":email_addr,
-                           "name":lead.get("name",""),"from":_from_email_emit,
-                           "via": str(via), "link":link_url,"checkpoint":i+1,
-                           "message_id": _msg_id,
-                           "smtp_pass":  _smtp_pass_emit,
-                           "imap_host":  _imap_host_emit,
-                           "imap_port":  _imap_port_emit,
-                           "imap_ssl":   True}
+                    _from_email_emit = resolved_sender.get("fromEmail", "")
+                    _smtp_pass_emit = (
+                        resolved_sender.get("smtpPass")
+                        or resolved_sender.get("password")
+                        or resolved_sender.get("appPassword")
+                        or ""
+                    )
+                    _imap_host_emit = resolved_sender.get(
+                        "imapHost"
+                    ) or _guess_imap_host(_from_email_emit)
+                    _imap_port_emit = int(resolved_sender.get("imapPort") or 993)
+                    yield {
+                        "type": "success",
+                        "index": i + 1,
+                        "total": total_cap,
+                        "email": email_addr,
+                        "name": lead.get("name", ""),
+                        "from": _from_email_emit,
+                        "via": str(via),
+                        "link": link_url,
+                        "checkpoint": i + 1,
+                        "message_id": _msg_id,
+                        "smtp_pass": _smtp_pass_emit,
+                        "imap_host": _imap_host_emit,
+                        "imap_port": _imap_port_emit,
+                        "imap_ssl": True,
+                    }
                     # Persist to the per-campaign sent-leads file so the user
                     # can re-load and resend / cross-check after the run.
                     _append_sent(email_addr)
@@ -2983,100 +3868,176 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                         if _since_last_test >= test_every_n:
                             _since_last_test = 0
                             try:
-                                _test_lead = {"email": test_email_addr,
-                                              "name":  "Deliverability Test",
-                                              "company": ""}
-                                _test_srv = _pick(servers, srv_rot, i) if servers else {}
+                                _test_lead = {
+                                    "email": test_email_addr,
+                                    "name": "Deliverability Test",
+                                    "company": "",
+                                }
+                                _test_srv = (
+                                    _pick(servers, srv_rot, i) if servers else {}
+                                )
                                 _t_ok, _t_err, _t_via = _send_one(
-                                    opts=opts, i=i, lead=_test_lead,
+                                    opts=opts,
+                                    i=i,
+                                    lead=_test_lead,
                                     sender=resolved_sender,
                                     server=_test_srv,
-                                    subject=resolve_tags(_pick(opts.subjects, sender_rot, i) or "",
-                                                          build_context(lead=_test_lead, sender=resolved_sender,
-                                                                        subject="", counter=_tests_sent+1,
-                                                                        links_cfg=opts.links_cfg)),
-                                    html=resolved_html, plain=resolved_plain,
-                                    pool=pool, mx_ctx=mx_ctx,
+                                    subject=resolve_tags(
+                                        _pick(opts.subjects, sender_rot, i) or "",
+                                        build_context(
+                                            lead=_test_lead,
+                                            sender=resolved_sender,
+                                            subject="",
+                                            counter=_tests_sent + 1,
+                                            links_cfg=opts.links_cfg,
+                                        ),
+                                    ),
+                                    html=resolved_html,
+                                    plain=resolved_plain,
+                                    pool=pool,
+                                    mx_ctx=mx_ctx,
                                     dead_proxies=_dead_proxies,
                                 )
                             except Exception as _te:
-                                _t_ok, _t_err, _t_via = False, f"test send error: {_te}", ""
+                                _t_ok, _t_err, _t_via = (
+                                    False,
+                                    f"test send error: {_te}",
+                                    "",
+                                )
                             _tests_sent += 1
-                            yield {"type":"test","email":test_email_addr,"ok":bool(_t_ok),
-                                   "msg": _t_err if not _t_ok else f"via {_t_via}",
-                                   "from": resolved_sender.get("fromEmail",""),
-                                   "test_no": _tests_sent}
+                            yield {
+                                "type": "test",
+                                "email": test_email_addr,
+                                "ok": bool(_t_ok),
+                                "msg": _t_err if not _t_ok else f"via {_t_via}",
+                                "from": resolved_sender.get("fromEmail", ""),
+                                "test_no": _tests_sent,
+                            }
 
                     sends_per_sec = _sends_per_sec()
-                    if sends_per_sec > 0 and not _sleep_interruptible(1.0/sends_per_sec, campaign_uid):
+                    if sends_per_sec > 0 and not _sleep_interruptible(
+                        1.0 / sends_per_sec, campaign_uid
+                    ):
                         stopped = True
                         break
                 else:
                     fail += 1
                     _append_fail(email_addr)
-                    yield {"type":"error","index":i+1,"total":total_cap,"email":email_addr,"error":err}
+                    yield {
+                        "type": "error",
+                        "index": i + 1,
+                        "total": total_cap,
+                        "email": email_addr,
+                        "error": err,
+                    }
                     # Auto-suppress hard bounces — permanent recipient rejections
                     # (550/5.1.1/user unknown) indicate the address doesn't exist.
                     # Adding to suppression list prevents future campaigns from
                     # sending to dead addresses, protecting sender reputation.
-                    if err and any(s in err.lower() for s in (
-                        "recipient rejected", "user unknown", "no such user",
-                        "mailbox not found", "does not exist", "mailbox unavailable",
-                        "address rejected", "5.1.1", "5.1.2", "5.1.3",
-                        "550 5.1.1", "550 5.7.1",
-                    )):
+                    if err and any(
+                        s in err.lower()
+                        for s in (
+                            "recipient rejected",
+                            "user unknown",
+                            "no such user",
+                            "mailbox not found",
+                            "does not exist",
+                            "mailbox unavailable",
+                            "address rejected",
+                            "5.1.1",
+                            "5.1.2",
+                            "5.1.3",
+                            "550 5.1.1",
+                            "550 5.7.1",
+                        )
+                    ):
                         try:
-                            from core.suppression_list import add_suppressed as _add_supp
+                            from core.suppression_list import (
+                                add_suppressed as _add_supp,
+                            )
+
                             _added = _add_supp(email_addr, reason="hard_bounce")
                             if _added:
-                                yield {"type":"info","msg":f"🚫 Hard bounce — {email_addr} added to suppression list"}
+                                yield {
+                                    "type": "info",
+                                    "msg": f"🚫 Hard bounce — {email_addr} added to suppression list",
+                                }
                         except Exception:
                             pass
                     if err and err.startswith("API_RATE_LIMIT:"):
-                        parts = err.split(":",2)
-                        pause = float(parts[1]) if len(parts)>1 else 60.0
-                        msg_  = parts[2] if len(parts)>2 else "API rate limited"
-                        yield {"type":"pause","msg":f"⏸ {msg_}"}
+                        parts = err.split(":", 2)
+                        pause = float(parts[1]) if len(parts) > 1 else 60.0
+                        msg_ = parts[2] if len(parts) > 2 else "API rate limited"
+                        yield {"type": "pause", "msg": f"⏸ {msg_}"}
                         if not _sleep_interruptible(pause, campaign_uid):
                             stopped = True
                             break
-                        yield {"type":"info","msg":f"▶ Resuming after {pause:.0f}s pause"}
+                        yield {
+                            "type": "info",
+                            "msg": f"▶ Resuming after {pause:.0f}s pause",
+                        }
                     elif _is_rate_limit(err):
-                        lead_domain = email_addr.split("@")[-1].lower() if "@" in email_addr else ""
+                        lead_domain = (
+                            email_addr.split("@")[-1].lower()
+                            if "@" in email_addr
+                            else ""
+                        )
                         # If rateLimitPause is False, skip the cooldown and just log the failure
                         if not dlv.get("rateLimitPause", True):
                             pass  # already logged as fail above — just move on
                         elif lead_domain in MS_RATE_DOMAINS:
                             pause = random.uniform(90, 180)
-                            yield {"type":"pause","msg":f"⏸ Microsoft rate limit on {lead_domain} — cooling down {pause:.0f}s (MS needs ~2min)"}
+                            yield {
+                                "type": "pause",
+                                "msg": f"⏸ Microsoft rate limit on {lead_domain} — cooling down {pause:.0f}s (MS needs ~2min)",
+                            }
                             if not _sleep_interruptible(pause, campaign_uid):
                                 stopped = True
                                 break
                         else:
                             pause = random.uniform(15, 45)
-                            yield {"type":"pause","msg":f"⏸ Rate limit on {lead_domain} — cooling down {pause:.0f}s"}
+                            yield {
+                                "type": "pause",
+                                "msg": f"⏸ Rate limit on {lead_domain} — cooling down {pause:.0f}s",
+                            }
                             if not _sleep_interruptible(pause, campaign_uid):
                                 stopped = True
                                 break
 
                 # Cooldown
-                cooldown_every   = _cooldown_every()
-                cooldown_secs    = _cooldown_secs()
-                if cooldown_every>0 and (i+1)%cooldown_every==0 and (i+1)<total_cap:
-                    yield {"type":"pause","msg":f"🧊 Cooldown after {i+1} emails — pausing {cooldown_secs:.0f}s..."}
+                cooldown_every = _cooldown_every()
+                cooldown_secs = _cooldown_secs()
+                if (
+                    cooldown_every > 0
+                    and (i + 1) % cooldown_every == 0
+                    and (i + 1) < total_cap
+                ):
+                    yield {
+                        "type": "pause",
+                        "msg": f"🧊 Cooldown after {i + 1} emails — pausing {cooldown_secs:.0f}s...",
+                    }
                     if not _sleep_interruptible(cooldown_secs, campaign_uid):
                         stopped = True
                         break
 
                 # Batch pause — re-read live so resume-after-pause-with-edits
                 # picks up the user's new values immediately.
-                batch_size       = _batch_size()
+                batch_size = _batch_size()
                 batch_pause_secs = _batch_pause_secs()
-                base_delay       = _base_delay()
-                if batch_size>0 and (i+1)%batch_size==0 and (i+1)<total_cap:
-                    pause_total = batch_pause_secs if batch_pause_secs>0 else base_delay
-                    if dlv.get("delayJitter"): pause_total = max(0.5, pause_total+random.uniform(-jitter_range,jitter_range))
-                    yield {"type":"batch","msg":f"Batch {(i+1)//batch_size} done — pausing {pause_total:.1f}s..."}
+                base_delay = _base_delay()
+                if batch_size > 0 and (i + 1) % batch_size == 0 and (i + 1) < total_cap:
+                    pause_total = (
+                        batch_pause_secs if batch_pause_secs > 0 else base_delay
+                    )
+                    if dlv.get("delayJitter"):
+                        pause_total = max(
+                            0.5,
+                            pause_total + random.uniform(-jitter_range, jitter_range),
+                        )
+                    yield {
+                        "type": "batch",
+                        "msg": f"Batch {(i + 1) // batch_size} done — pausing {pause_total:.1f}s...",
+                    }
                     if not _sleep_interruptible(pause_total, campaign_uid):
                         stopped = True
                         break
@@ -3085,28 +4046,47 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     # Domain throttle is handled inside _execute_send (concurrent-safe)
                     # so we don't duplicate it here.
                     if dlv.get("delayJitter"):
-                        if not _sleep_interruptible(max(0.1, random.uniform(0.3, 1.5 + jitter_range * 0.3)), campaign_uid):
+                        if not _sleep_interruptible(
+                            max(0.1, random.uniform(0.3, 1.5 + jitter_range * 0.3)),
+                            campaign_uid,
+                        ):
                             stopped = True
                             break
-                    elif base_delay>0:
+                    elif base_delay > 0:
                         if not _sleep_interruptible(base_delay, campaign_uid):
                             stopped = True
                             break
 
                 # Check senders still alive
                 with _send_lock:
-                    _still_live = [s for s in opts.senders if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _dead_senders]
+                    _still_live = [
+                        s
+                        for s in opts.senders
+                        if (s.get("fromEmail", "") if isinstance(s, dict) else s)
+                        not in _dead_senders
+                    ]
                 if not _still_live and opts.senders:
-                    yield {"type":"warn","msg":"⚠ All senders removed — campaign stopping"}
+                    yield {
+                        "type": "warn",
+                        "msg": "⚠ All senders removed — campaign stopping",
+                    }
                     break
 
                 # Submit next work item to keep pool full
                 if _qi < len(_work_queue):
-                    i_n, lead_n = _work_queue[_qi]; _qi += 1
+                    i_n, lead_n = _work_queue[_qi]
+                    _qi += 1
                     result_n = _submit_next(i_n, lead_n)
                     if result_n:
                         fut_n, rsen_n, rsrv_n, rhtml_n, rplain_n = result_n
-                        _pending_futures[fut_n] = (i_n, lead_n, rsen_n, rsrv_n, rhtml_n, rplain_n)
+                        _pending_futures[fut_n] = (
+                            i_n,
+                            lead_n,
+                            rsen_n,
+                            rsrv_n,
+                            rhtml_n,
+                            rplain_n,
+                        )
 
         # On stop: shutdown without waiting + cancel pending futures
         # (cancel_futures was added in 3.9; safe to use as we require 3.10+).
@@ -3129,18 +4109,24 @@ def run_campaign(opts: CampaignOptions) -> Generator:
 
         # ── Sent + Failed leads file summary ─────────────────
         if _sent_count > 0 and _sent_fpath:
-            yield {"type": "info", "msg": f"📁 Sent leads → Files: {_sent_name} ({_sent_count} addresses)"}
+            yield {
+                "type": "info",
+                "msg": f"📁 Sent leads → Files: {_sent_name} ({_sent_count} addresses)",
+            }
         if _failed_count > 0 and _fail_fpath:
-            yield {"type": "info", "msg": f"📁 Failed leads → Files: {_fail_name} ({_failed_count} addresses — reload to resend)"}
+            yield {
+                "type": "info",
+                "msg": f"📁 Failed leads → Files: {_fail_name} ({_failed_count} addresses — reload to resend)",
+            }
 
         yield {
-            "type":    "done",
+            "type": "done",
             "success": success,
-            "fail":    fail,
-            "skip":    skip,
-            "total":   total_cap,
+            "fail": fail,
+            "skip": skip,
+            "total": total_cap,
             "stopped": stopped,
-            "warmup":  warmup_msg,
+            "warmup": warmup_msg,
         }
 
     finally:
@@ -3182,46 +4168,64 @@ def process_campaign(data: dict) -> Generator:
             return Response(gen(), mimetype="application/x-ndjson")
     """
     # Raw dump of what frontend sent
-    logging.getLogger("synthtel").info("[RAW] method=%s tunnels_raw=%s ispTunnels_raw=%s",
-        data.get("method"), data.get("tunnels"), data.get("ispTunnels"))
+    logging.getLogger("synthtel").info(
+        "[RAW] method=%s tunnels_raw=%s ispTunnels_raw=%s",
+        data.get("method"),
+        data.get("tunnels"),
+        data.get("ispTunnels"),
+    )
 
     # If no tunnels from frontend, fetch from DB using user session
-    if not data.get("tunnels") and not data.get("ispTunnels") and data.get("method") in ("isp","tunnel"):
+    if (
+        not data.get("tunnels")
+        and not data.get("ispTunnels")
+        and data.get("method") in ("isp", "tunnel")
+    ):
         try:
             from core.server import get_db
+
             uid = data.get("_uid")
             if uid:
                 db = get_db()
                 # For ISP method: load proxies directly (no RDP join needed)
                 if data.get("method") == "isp":
-                    rows = db.execute("""
+                    rows = db.execute(
+                        """
                         SELECT label, host, port, usr, pass, type,
                                isp_smtp_host, isp_smtp_port
                         FROM isp_proxies
                         WHERE user_id=? AND isp_smtp_host != ''
-                    """, (uid,)).fetchall()
+                    """,
+                        (uid,),
+                    ).fetchall()
                     if rows:
-                        data["ispTunnels"] = [{
-                            "tunnelType":  "isp",
-                            "label":       r[0] or r[1],
-                            "sshHost":     "",
-                            "socksHost":   r[1],
-                            "socksPort":   int(r[2] or 17521),
-                            "rdpSshPort":  22,
-                            "sshUser":     "",
-                            "sshPass":     "",
-                            "ispSmtpHost": r[6] or "",
-                            "ispSmtpPort": r[7] or "25",
-                            "proxyHost":   r[1] or "",
-                            "proxyPort":   r[2] or "17521",
-                            "proxyUser":   r[3] or "",
-                            "proxyPass":   r[4] or "",
-                            "proxyType":   r[5] or "socks5",
-                        } for r in rows]
-                        logging.getLogger("synthtel").info("[DB] fetched %d ISP proxies for uid=%s", len(rows), uid)
+                        data["ispTunnels"] = [
+                            {
+                                "tunnelType": "isp",
+                                "label": r[0] or r[1],
+                                "sshHost": "",
+                                "socksHost": r[1],
+                                "socksPort": int(r[2] or 17521),
+                                "rdpSshPort": 22,
+                                "sshUser": "",
+                                "sshPass": "",
+                                "ispSmtpHost": r[6] or "",
+                                "ispSmtpPort": r[7] or "25",
+                                "proxyHost": r[1] or "",
+                                "proxyPort": r[2] or "17521",
+                                "proxyUser": r[3] or "",
+                                "proxyPass": r[4] or "",
+                                "proxyType": r[5] or "socks5",
+                            }
+                            for r in rows
+                        ]
+                        logging.getLogger("synthtel").info(
+                            "[DB] fetched %d ISP proxies for uid=%s", len(rows), uid
+                        )
                 else:
                     # Tunnel method: original RDP+proxy join
-                    rows = db.execute("""
+                    rows = db.execute(
+                        """
                         SELECT r.label, r.host, r.ssh_port, r.usr, r.pass,
                                p.isp_smtp_host, p.isp_smtp_port,
                                p.host, p.port, p.usr, p.pass, p.type
@@ -3229,26 +4233,33 @@ def process_campaign(data: dict) -> Generator:
                         JOIN isp_assignments a ON a.rdp_client_id=r.client_id AND a.user_id=r.user_id
                         JOIN isp_proxies p ON p.client_id=a.proxy_client_id AND p.user_id=r.user_id
                         WHERE r.user_id=?
-                    """, (uid,)).fetchall()
+                    """,
+                        (uid,),
+                    ).fetchall()
                     if rows:
-                        data["ispTunnels"] = [{
-                            "tunnelType":  "isp",
-                            "label":       r[0] or r[1],
-                            "sshHost":     r[1],
-                            "socksHost":   r[1],
-                            "socksPort":   1080,
-                            "rdpSshPort":  int(r[2] or 22),
-                            "sshUser":     r[3] or "Administrator",
-                            "sshPass":     r[4] or "",
-                            "ispSmtpHost": r[5] or "",
-                            "ispSmtpPort": r[6] or "25",
-                            "proxyHost":   r[7] or "",
-                            "proxyPort":   r[8] or "17521",
-                            "proxyUser":   r[9] or "",
-                            "proxyPass":   r[10] or "",
-                            "proxyType":   r[11] or "socks5",
-                        } for r in rows]
-                        logging.getLogger("synthtel").info("[DB] fetched %d tunnels for uid=%s", len(rows), uid)
+                        data["ispTunnels"] = [
+                            {
+                                "tunnelType": "isp",
+                                "label": r[0] or r[1],
+                                "sshHost": r[1],
+                                "socksHost": r[1],
+                                "socksPort": 1080,
+                                "rdpSshPort": int(r[2] or 22),
+                                "sshUser": r[3] or "Administrator",
+                                "sshPass": r[4] or "",
+                                "ispSmtpHost": r[5] or "",
+                                "ispSmtpPort": r[6] or "25",
+                                "proxyHost": r[7] or "",
+                                "proxyPort": r[8] or "17521",
+                                "proxyUser": r[9] or "",
+                                "proxyPass": r[10] or "",
+                                "proxyType": r[11] or "socks5",
+                            }
+                            for r in rows
+                        ]
+                        logging.getLogger("synthtel").info(
+                            "[DB] fetched %d tunnels for uid=%s", len(rows), uid
+                        )
         except Exception as e:
             logging.getLogger("synthtel").warning("[DB] tunnel fetch failed: %s", e)
     opts = CampaignOptions.from_dict(data)
@@ -3257,6 +4268,7 @@ def process_campaign(data: dict) -> Generator:
     # delay / batch / pacing changes on resume after pause).
     try:
         from core import server as _server
+
         uid = data.get("_uid")
         if uid is not None:
             with _server.active_campaigns_lock:
@@ -3270,12 +4282,18 @@ def process_campaign(data: dict) -> Generator:
     _display_method = data.get("method", opts.method)
     logging.getLogger("synthtel").info(
         "[campaign] method=%s (internal=%s) tunnels=%d smtps=%d leads=%d",
-        _display_method, opts.method, len(opts.tunnels), len(opts.smtps), len(opts.leads)
+        _display_method,
+        opts.method,
+        len(opts.tunnels),
+        len(opts.smtps),
+        len(opts.leads),
     )
     if opts.tunnels:
         for t in opts.tunnels:
             logging.getLogger("synthtel").info("[tunnel] %s", t)
-    logging.getLogger("synthtel").debug("method=%s tunnels=%d smtps=%d", opts.method, len(opts.tunnels), len(opts.smtps))
+    logging.getLogger("synthtel").debug(
+        "method=%s tunnels=%d smtps=%d", opts.method, len(opts.tunnels), len(opts.smtps)
+    )
     yield from run_campaign(opts)
 
 
@@ -3284,18 +4302,17 @@ def process_campaign(data: dict) -> Generator:
 # ═══════════════════════════════════════════════════════════════
 
 
-
 def send_one_email(
-    method:   str,
-    server:   dict,
-    sender:   dict,
-    lead:     dict,
-    html:     str,
-    plain:    str,
-    subject:  str,
-    dlv:      dict  = None,
-    headers:  list  = None,
-    proxy:    dict  = None,
+    method: str,
+    server: dict,
+    sender: dict,
+    lead: dict,
+    html: str,
+    plain: str,
+    subject: str,
+    dlv: dict = None,
+    headers: list = None,
+    proxy: dict = None,
 ) -> tuple:
     """
     Send a single email immediately (not a campaign generator).
@@ -3306,25 +4323,25 @@ def send_one_email(
         (True,  "", via_label)      on success
         (False, error_msg, via_label) on failure
     """
-    pool   = get_global_pool()
+    pool = get_global_pool()
     mx_ctx = MxSenderContext()
 
-    opts           = CampaignOptions(method=method, dlv=dlv or {}, custom_headers=headers or [])
-    opts.smtps     = [server] if method in ("smtp", "tunnel") else []
-    opts.apis      = [server] if method == "api"  else []
-    opts.owas      = [server] if method == "owa"  else []
-    opts.crms      = [server] if method == "crm"  else []
-    opts.proxy     = proxy or {}
+    opts = CampaignOptions(method=method, dlv=dlv or {}, custom_headers=headers or [])
+    opts.smtps = [server] if method in ("smtp", "tunnel") else []
+    opts.apis = [server] if method == "api" else []
+    opts.owas = [server] if method == "owa" else []
+    opts.crms = [server] if method == "crm" else []
+    opts.proxy = proxy or {}
 
     return _send_one(
-        opts    = opts,
-        i       = 0,
-        lead    = lead,
-        sender  = sender,
-        server  = server,
-        subject = subject,
-        html    = html,
-        plain   = plain,
-        pool    = pool,
-        mx_ctx  = mx_ctx,
+        opts=opts,
+        i=0,
+        lead=lead,
+        sender=sender,
+        server=server,
+        subject=subject,
+        html=html,
+        plain=plain,
+        pool=pool,
+        mx_ctx=mx_ctx,
     )

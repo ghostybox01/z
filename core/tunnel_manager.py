@@ -56,14 +56,13 @@ tunnel_cfg keys:
 """
 
 import os
-import re
 import time
 import socket
 import logging
 import tempfile
 import threading
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -73,65 +72,68 @@ log = logging.getLogger(__name__)
 # CONSTANTS
 # ═══════════════════════════════════════════════════════════════
 
-_DEFAULT_LOCAL_PORT     = 1080
-_DEFAULT_SSH_PORT       = 22
-_DEFAULT_SSH_USER       = "root"
-_READY_POLL_INTERVAL    = 0.1   # seconds between readiness checks
-_READY_MAX_ATTEMPTS     = 60    # up to 6 seconds total
-_HEALTH_CHECK_INTERVAL  = 15    # seconds between health checks
-_RESTART_DELAY          = 3     # seconds before restarting a crashed tunnel
-_MAX_RESTART_ATTEMPTS   = 5     # give up after this many consecutive restarts
-_SOCKS_TEST_HOST        = "8.8.8.8"
-_SOCKS_TEST_PORT        = 53    # DNS — almost never blocked, good connectivity probe
-_PORT25_TEST_HOST       = "gmail-smtp-in.l.google.com"
-_PORT25_TEST_PORT       = 25
+_DEFAULT_LOCAL_PORT = 1080
+_DEFAULT_SSH_PORT = 22
+_DEFAULT_SSH_USER = "root"
+_READY_POLL_INTERVAL = 0.1  # seconds between readiness checks
+_READY_MAX_ATTEMPTS = 60  # up to 6 seconds total
+_HEALTH_CHECK_INTERVAL = 15  # seconds between health checks
+_RESTART_DELAY = 3  # seconds before restarting a crashed tunnel
+_MAX_RESTART_ATTEMPTS = 5  # give up after this many consecutive restarts
+_SOCKS_TEST_HOST = "8.8.8.8"
+_SOCKS_TEST_PORT = 53  # DNS — almost never blocked, good connectivity probe
+_PORT25_TEST_HOST = "gmail-smtp-in.l.google.com"
+_PORT25_TEST_PORT = 25
 
 
 # ═══════════════════════════════════════════════════════════════
 # DATA CLASSES
 # ═══════════════════════════════════════════════════════════════
 
+
 @dataclass
 class TunnelInfo:
     """State for one active tunnel slot."""
-    local_port:      int
-    tunnel_type:     str          # "ssh" | "isp"
-    label:           str
-    cfg:             dict         # original tunnel_cfg (for restart)
+
+    local_port: int
+    tunnel_type: str  # "ssh" | "isp"
+    label: str
+    cfg: dict  # original tunnel_cfg (for restart)
     # SSH-specific
-    proc:            Optional[subprocess.Popen] = None
-    tmp_keyfile:     Optional[str]              = None
+    proc: Optional[subprocess.Popen] = None
+    tmp_keyfile: Optional[str] = None
     # Stats
-    opened_at:       float = 0.0
-    restart_count:   int   = 0
+    opened_at: float = 0.0
+    restart_count: int = 0
     last_restart_at: float = 0.0
-    disabled:        bool  = False
-    disable_reason:  str   = ""
+    disabled: bool = False
+    disable_reason: str = ""
 
     def uptime_seconds(self) -> float:
         return time.time() - self.opened_at if self.opened_at else 0.0
 
     def is_ssh_alive(self) -> bool:
         if self.tunnel_type != "ssh":
-            return True   # ISP proxies are stateless — always "alive"
+            return True  # ISP proxies are stateless — always "alive"
         return self.proc is not None and self.proc.poll() is None
 
     def summary(self) -> dict:
         return {
-            "port":          self.local_port,
-            "type":          self.tunnel_type,
-            "label":         self.label,
-            "uptime_s":      round(self.uptime_seconds()),
-            "restarts":      self.restart_count,
-            "alive":         self.is_ssh_alive(),
-            "disabled":      self.disabled,
-            "disable_reason":self.disable_reason,
+            "port": self.local_port,
+            "type": self.tunnel_type,
+            "label": self.label,
+            "uptime_s": round(self.uptime_seconds()),
+            "restarts": self.restart_count,
+            "alive": self.is_ssh_alive(),
+            "disabled": self.disabled,
+            "disable_reason": self.disable_reason,
         }
 
 
 # ═══════════════════════════════════════════════════════════════
 # HELPERS
 # ═══════════════════════════════════════════════════════════════
+
 
 def _safe_int(val, default: int) -> int:
     try:
@@ -194,14 +196,19 @@ def _wait_for_socks_port(port: int, max_attempts: int = _READY_MAX_ATTEMPTS) -> 
     return False
 
 
-def _test_socks5_connectivity(host: str, port: int, test_host: str = _SOCKS_TEST_HOST,
-                               test_port: int = _SOCKS_TEST_PORT) -> tuple:
+def _test_socks5_connectivity(
+    host: str,
+    port: int,
+    test_host: str = _SOCKS_TEST_HOST,
+    test_port: int = _SOCKS_TEST_PORT,
+) -> tuple:
     """
     Send a test connection through the SOCKS5 proxy at host:port.
     Returns (success: bool, public_ip: str, error: str).
     """
     try:
         import socks as pysocks
+
         sock = pysocks.socksocket()
         sock.set_proxy(pysocks.SOCKS5, host, port)
         sock.settimeout(10)
@@ -227,6 +234,7 @@ def _test_port25(proxy_host: str, proxy_port: int) -> tuple:
     """
     try:
         import socks as pysocks
+
         sock = pysocks.socksocket()
         sock.set_proxy(pysocks.SOCKS5, proxy_host, proxy_port)
         sock.settimeout(15)
@@ -239,7 +247,11 @@ def _test_port25(proxy_host: str, proxy_port: int) -> tuple:
     except Exception as exc:
         err = str(exc)
         if "0x02" in err or "not allowed" in err.lower():
-            return False, "", f"Port 25 BLOCKED by proxy firewall (0x02). Ask provider to allow outbound SMTP, or route through SMTP relay on port 587 instead."
+            return (
+                False,
+                "",
+                "Port 25 BLOCKED by proxy firewall (0x02). Ask provider to allow outbound SMTP, or route through SMTP relay on port 587 instead.",
+            )
         return False, "", err[:200]
 
 
@@ -251,11 +263,14 @@ def _get_public_ip_via_socks(proxy_host: str, proxy_port: int) -> str:
     try:
         import socks as pysocks
         import json as _json
+
         sock = pysocks.socksocket()
         sock.set_proxy(pysocks.SOCKS5, proxy_host, proxy_port)
         sock.settimeout(10)
         sock.connect(("httpbin.org", 80))
-        sock.sendall(b"GET /ip HTTP/1.1\r\nHost: httpbin.org\r\nConnection: close\r\n\r\n")
+        sock.sendall(
+            b"GET /ip HTTP/1.1\r\nHost: httpbin.org\r\nConnection: close\r\n\r\n"
+        )
         resp = b""
         while True:
             chunk = sock.recv(4096)
@@ -273,6 +288,7 @@ def _get_public_ip_via_socks(proxy_host: str, proxy_port: int) -> str:
 # SSH COMMAND BUILDER
 # ═══════════════════════════════════════════════════════════════
 
+
 def _build_ssh_cmd(cfg: dict, local_port: int) -> tuple:
     """
     Build the SSH command list and handle key material.
@@ -283,23 +299,31 @@ def _build_ssh_cmd(cfg: dict, local_port: int) -> tuple:
       - Path to existing file → use directly
       - Anything else → treat as password and prepend sshpass
     """
-    ssh_host  = cfg.get("sshHost", "")
-    ssh_port  = _safe_int(cfg.get("sshPort", 22), 22)
-    ssh_user  = cfg.get("sshUser", "") or _DEFAULT_SSH_USER
-    ssh_key   = cfg.get("sshKey", "") or cfg.get("sshPass", "")
-    ehlo      = cfg.get("ehloDomain", "")
+    ssh_host = cfg.get("sshHost", "")
+    ssh_port = _safe_int(cfg.get("sshPort", 22), 22)
+    ssh_user = cfg.get("sshUser", "") or _DEFAULT_SSH_USER
+    ssh_key = cfg.get("sshKey", "") or cfg.get("sshPass", "")
+    cfg.get("ehloDomain", "")
 
     cmd = [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "ServerAliveInterval=30",
-        "-o", "ServerAliveCountMax=3",
-        "-o", "ExitOnForwardFailure=yes",
-        "-o", "ConnectTimeout=15",
-        "-N",                                   # no remote shell
-        "-D", f"127.0.0.1:{local_port}",        # SOCKS5 listen port
-        "-p", str(ssh_port),
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "ServerAliveInterval=30",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ConnectTimeout=15",
+        "-N",  # no remote shell
+        "-D",
+        f"127.0.0.1:{local_port}",  # SOCKS5 listen port
+        "-p",
+        str(ssh_port),
         f"{ssh_user}@{ssh_host}",
     ]
 
@@ -327,6 +351,7 @@ def _build_ssh_cmd(cfg: dict, local_port: int) -> tuple:
 # TUNNEL MANAGER
 # ═══════════════════════════════════════════════════════════════
 
+
 class TunnelManager:
     """
     Manages SSH SOCKS5 tunnels and ISP SOCKS5 proxies for the campaign.
@@ -337,22 +362,22 @@ class TunnelManager:
 
     def __init__(
         self,
-        auto_restart:      bool = True,
-        max_restarts:      int  = _MAX_RESTART_ATTEMPTS,
-        health_interval:   int  = _HEALTH_CHECK_INTERVAL,
-        preflight_port25:  bool = True,
-        preflight_get_ip:  bool = True,
+        auto_restart: bool = True,
+        max_restarts: int = _MAX_RESTART_ATTEMPTS,
+        health_interval: int = _HEALTH_CHECK_INTERVAL,
+        preflight_port25: bool = True,
+        preflight_get_ip: bool = True,
     ):
-        self._tunnels: dict[int, TunnelInfo] = {}    # local_port → TunnelInfo
-        self._lock          = threading.RLock()
-        self.auto_restart   = auto_restart
-        self.max_restarts   = max_restarts
+        self._tunnels: dict[int, TunnelInfo] = {}  # local_port → TunnelInfo
+        self._lock = threading.RLock()
+        self.auto_restart = auto_restart
+        self.max_restarts = max_restarts
         self.preflight_port25 = preflight_port25
         self.preflight_get_ip = preflight_get_ip
 
         # Health monitor
         self._monitor_thread: Optional[threading.Thread] = None
-        self._stop_event      = threading.Event()
+        self._stop_event = threading.Event()
         if auto_restart:
             self._start_monitor(health_interval)
 
@@ -390,7 +415,9 @@ class TunnelManager:
             info = self._tunnels.pop(local_port, None)
         if info:
             self._teardown(info)
-            log.info("[TunnelManager] closed tunnel port %d (%s)", local_port, info.label)
+            log.info(
+                "[TunnelManager] closed tunnel port %d (%s)", local_port, info.label
+            )
 
     def close_all(self):
         """Close all open tunnels. Always call at end of campaign."""
@@ -427,11 +454,11 @@ class TunnelManager:
         Used when the proxy is an external ISP SOCKS5 (not a local SSH tunnel).
         """
         return {
-            "type":     "socks5",
-            "host":     tunnel_cfg.get("sshHost", ""),
-            "port":     str(_safe_int(tunnel_cfg.get("sshPort", 1080), 1080)),
+            "type": "socks5",
+            "host": tunnel_cfg.get("sshHost", ""),
+            "port": str(_safe_int(tunnel_cfg.get("sshPort", 1080), 1080)),
             "username": tunnel_cfg.get("sshUser") or tunnel_cfg.get("username") or None,
-            "password": tunnel_cfg.get("sshKey")  or tunnel_cfg.get("password") or None,
+            "password": tunnel_cfg.get("sshKey") or tunnel_cfg.get("password") or None,
         }
 
     def is_alive(self, local_port: int) -> bool:
@@ -456,9 +483,11 @@ class TunnelManager:
     # ─────────────────────────────────────────────────────────
 
     def _open_ssh(self, cfg: dict) -> tuple:
-        ssh_host   = cfg.get("sshHost", "")
-        local_port = _safe_int(cfg.get("localPort", _DEFAULT_LOCAL_PORT), _DEFAULT_LOCAL_PORT)
-        label      = cfg.get("label") or f"ssh:{ssh_host}:{local_port}"
+        ssh_host = cfg.get("sshHost", "")
+        local_port = _safe_int(
+            cfg.get("localPort", _DEFAULT_LOCAL_PORT), _DEFAULT_LOCAL_PORT
+        )
+        label = cfg.get("label") or f"ssh:{ssh_host}:{local_port}"
 
         if not ssh_host:
             raise Exception("SSH tunnel: sshHost is required")
@@ -466,12 +495,16 @@ class TunnelManager:
         with self._lock:
             existing = self._tunnels.get(local_port)
             if existing and existing.is_ssh_alive():
-                log.debug("[TunnelManager] reusing existing tunnel on port %d", local_port)
+                log.debug(
+                    "[TunnelManager] reusing existing tunnel on port %d", local_port
+                )
                 preflight = self._run_preflight("127.0.0.1", local_port)
                 return local_port, preflight
 
         cmd, tmp_keyfile, sshpass_pw = _build_ssh_cmd(cfg, local_port)
-        _popen_env = {**os.environ, "SSHPASS": sshpass_pw} if sshpass_pw else os.environ.copy()
+        _popen_env = (
+            {**os.environ, "SSHPASS": sshpass_pw} if sshpass_pw else os.environ.copy()
+        )
 
         try:
             proc = subprocess.Popen(
@@ -509,18 +542,20 @@ class TunnelManager:
             )
 
         info = TunnelInfo(
-            local_port   = local_port,
-            tunnel_type  = "ssh",
-            label        = label,
-            cfg          = cfg,
-            proc         = proc,
-            tmp_keyfile  = tmp_keyfile,
-            opened_at    = time.time(),
+            local_port=local_port,
+            tunnel_type="ssh",
+            label=label,
+            cfg=cfg,
+            proc=proc,
+            tmp_keyfile=tmp_keyfile,
+            opened_at=time.time(),
         )
         with self._lock:
             self._tunnels[local_port] = info
 
-        log.info("[TunnelManager] SSH tunnel open: 127.0.0.1:%d via %s", local_port, ssh_host)
+        log.info(
+            "[TunnelManager] SSH tunnel open: 127.0.0.1:%d via %s", local_port, ssh_host
+        )
         preflight = self._run_preflight("127.0.0.1", local_port)
         return local_port, preflight
 
@@ -533,21 +568,27 @@ class TunnelManager:
         proxy_host = cfg.get("sshHost", "")
         proxy_port = _safe_int(cfg.get("sshPort", 1080), 1080)
         # Use a synthetic local_port key for the registry (based on hash)
-        local_port = _safe_int(cfg.get("localPort", 0), 0) or (hash(f"{proxy_host}:{proxy_port}") % 60000 + 1024)
-        label      = cfg.get("label") or f"isp:{proxy_host}:{proxy_port}"
+        local_port = _safe_int(cfg.get("localPort", 0), 0) or (
+            hash(f"{proxy_host}:{proxy_port}") % 60000 + 1024
+        )
+        label = cfg.get("label") or f"isp:{proxy_host}:{proxy_port}"
 
         info = TunnelInfo(
-            local_port  = local_port,
-            tunnel_type = "isp",
-            label       = label,
-            cfg         = cfg,
-            opened_at   = time.time(),
+            local_port=local_port,
+            tunnel_type="isp",
+            label=label,
+            cfg=cfg,
+            opened_at=time.time(),
         )
         with self._lock:
             self._tunnels[local_port] = info
 
-        log.info("[TunnelManager] ISP proxy registered: %s:%d (key port %d)",
-                 proxy_host, proxy_port, local_port)
+        log.info(
+            "[TunnelManager] ISP proxy registered: %s:%d (key port %d)",
+            proxy_host,
+            proxy_port,
+            local_port,
+        )
         preflight = self._run_preflight(proxy_host, proxy_port)
         return local_port, preflight
 
@@ -558,17 +599,17 @@ class TunnelManager:
     def _run_preflight(self, proxy_host: str, proxy_port: int) -> dict:
         """Run SOCKS5 connectivity + optional port 25 + optional IP discovery."""
         result = {
-            "socks_ok":     False,
-            "port25_ok":    False,
-            "port25_banner":"",
-            "public_ip":    "",
-            "error":        "",
+            "socks_ok": False,
+            "port25_ok": False,
+            "port25_banner": "",
+            "public_ip": "",
+            "error": "",
             "port25_error": "",
         }
 
         socks_ok, _, socks_err = _test_socks5_connectivity(proxy_host, proxy_port)
         result["socks_ok"] = socks_ok
-        result["error"]    = socks_err
+        result["error"] = socks_err
 
         if not socks_ok:
             return result
@@ -578,9 +619,9 @@ class TunnelManager:
 
         if self.preflight_port25:
             p25_ok, banner, p25_err = _test_port25(proxy_host, proxy_port)
-            result["port25_ok"]     = p25_ok
+            result["port25_ok"] = p25_ok
             result["port25_banner"] = banner
-            result["port25_error"]  = p25_err
+            result["port25_error"] = p25_err
 
         return result
 
@@ -601,10 +642,10 @@ class TunnelManager:
     def _start_monitor(self, interval: int):
         self._stop_event.clear()
         self._monitor_thread = threading.Thread(
-            target  = self._monitor_loop,
-            args    = (interval,),
-            daemon  = True,
-            name    = "TunnelHealthMonitor",
+            target=self._monitor_loop,
+            args=(interval,),
+            daemon=True,
+            name="TunnelHealthMonitor",
         )
         self._monitor_thread.start()
 
@@ -625,13 +666,15 @@ class TunnelManager:
         """Called when an SSH tunnel process has exited unexpectedly."""
         if info.restart_count >= self.max_restarts:
             reason = f"crashed {self.max_restarts} times — giving up"
-            log.error("[TunnelManager] port %d (%s): %s", info.local_port, info.label, reason)
+            log.error(
+                "[TunnelManager] port %d (%s): %s", info.local_port, info.label, reason
+            )
             with self._lock:
-                info.disabled       = True
+                info.disabled = True
                 info.disable_reason = reason
             return
 
-        info.restart_count  += 1
+        info.restart_count += 1
         info.last_restart_at = time.time()
 
         # Read exit stderr for log
@@ -642,8 +685,13 @@ class TunnelManager:
             except Exception:
                 pass
         err_text = stderr.decode("utf-8", errors="replace").strip()[:200]
-        log.warning("[TunnelManager] port %d (%s) crashed (restart #%d): %s",
-                    info.local_port, info.label, info.restart_count, err_text or "(no stderr)")
+        log.warning(
+            "[TunnelManager] port %d (%s) crashed (restart #%d): %s",
+            info.local_port,
+            info.label,
+            info.restart_count,
+            err_text or "(no stderr)",
+        )
 
         time.sleep(_RESTART_DELAY)
 
@@ -652,7 +700,11 @@ class TunnelManager:
 
         try:
             cmd, tmp_keyfile, sshpass_pw = _build_ssh_cmd(info.cfg, info.local_port)
-            _popen_env = {**os.environ, "SSHPASS": sshpass_pw} if sshpass_pw else os.environ.copy()
+            _popen_env = (
+                {**os.environ, "SSHPASS": sshpass_pw}
+                if sshpass_pw
+                else os.environ.copy()
+            )
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
@@ -666,18 +718,27 @@ class TunnelManager:
                 raise Exception("SOCKS5 port did not become ready after restart")
 
             with self._lock:
-                info.proc        = proc
+                info.proc = proc
                 info.tmp_keyfile = tmp_keyfile
 
-            log.info("[TunnelManager] port %d (%s) restarted successfully (attempt #%d)",
-                     info.local_port, info.label, info.restart_count)
+            log.info(
+                "[TunnelManager] port %d (%s) restarted successfully (attempt #%d)",
+                info.local_port,
+                info.label,
+                info.restart_count,
+            )
 
         except Exception as exc:
-            log.error("[TunnelManager] port %d (%s) restart #%d failed: %s",
-                      info.local_port, info.label, info.restart_count, exc)
+            log.error(
+                "[TunnelManager] port %d (%s) restart #%d failed: %s",
+                info.local_port,
+                info.label,
+                info.restart_count,
+                exc,
+            )
             if info.restart_count >= self.max_restarts:
                 with self._lock:
-                    info.disabled       = True
+                    info.disabled = True
                     info.disable_reason = f"restart failed: {exc}"
 
 
@@ -686,8 +747,8 @@ class TunnelManager:
 # Match original synthtel_server.py call signatures exactly.
 # ═══════════════════════════════════════════════════════════════
 
-_global_mgr:  Optional[TunnelManager] = None
-_global_lock  = threading.Lock()
+_global_mgr: Optional[TunnelManager] = None
+_global_lock = threading.Lock()
 
 
 def _get_global_mgr() -> TunnelManager:
@@ -718,8 +779,10 @@ def open_ssh_socks(tunnel_cfg: dict) -> int:
     """
     port, preflight = _get_global_mgr().open(tunnel_cfg)
     if not preflight.get("socks_ok"):
-        log.warning("[TunnelManager] preflight SOCKS5 test failed: %s",
-                    preflight.get("error", ""))
+        log.warning(
+            "[TunnelManager] preflight SOCKS5 test failed: %s",
+            preflight.get("error", ""),
+        )
     return port
 
 

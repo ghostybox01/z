@@ -2,36 +2,43 @@
 SynthTel — Telegram Bot Integration
 Handles: 2FA OTPs, login notifications, admin controls, support tickets
 """
-import json, os, secrets, sqlite3, threading, time, logging
+
+import json
+import os
+import secrets
+import sqlite3
+import threading
+import time
+import logging
 from datetime import datetime, timedelta
-from urllib.request import urlopen, Request
-from urllib.parse import urlencode
-from urllib.error import URLError, HTTPError
+from core.urlopen_compat import urlopen, Request
+from urllib.error import HTTPError
 
 log = logging.getLogger("synthtel.telegram")
 
-DB_PATH   = os.environ.get("SYNTHTEL_DB", "/opt/synthtel/synthtel.db")
-db_lock   = threading.Lock()
+DB_PATH = os.environ.get("SYNTHTEL_DB", "/opt/synthtel/synthtel.db")
+db_lock = threading.Lock()
 
-TG_API    = "https://api.telegram.org/bot{token}/{method}"
+TG_API = "https://api.telegram.org/bot{token}/{method}"
 
 # ── In-memory OTP store: {user_id: {code, expires, verified}} ──────────────
-_otp_store  = {}
-_otp_lock   = threading.Lock()
+_otp_store = {}
+_otp_lock = threading.Lock()
 
 # ── In-memory link codes: {link_code: user_id} ─────────────────────────────
-_link_codes  = {}
-_link_lock   = threading.Lock()
+_link_codes = {}
+_link_lock = threading.Lock()
 
 # ── Polling thread ──────────────────────────────────────────────────────────
-_poll_thread  = None
+_poll_thread = None
 _poll_running = False
-_last_update  = 0
+_last_update = 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # DB HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def get_conn():
     c = sqlite3.connect(DB_PATH)
@@ -59,7 +66,9 @@ def get_config(key: str, default="") -> str:
 def set_config(key: str, value: str):
     with db_lock:
         c = get_conn()
-        c.execute("INSERT OR REPLACE INTO tg_config (key,value) VALUES (?,?)", (key, value))
+        c.execute(
+            "INSERT OR REPLACE INTO tg_config (key,value) VALUES (?,?)", (key, value)
+        )
         c.commit()
         c.close()
 
@@ -69,7 +78,7 @@ def get_user_tg(user_id: int) -> dict | None:
         c = get_conn()
         row = c.execute(
             "SELECT tg_chat_id, tg_username, tg_2fa_enabled FROM users WHERE id=?",
-            (user_id,)
+            (user_id,),
         ).fetchone()
         c.close()
     if not row or not row["tg_chat_id"]:
@@ -82,7 +91,7 @@ def get_user_by_chat(chat_id: int) -> dict | None:
         c = get_conn()
         row = c.execute(
             "SELECT id, username, role, tg_2fa_enabled FROM users WHERE tg_chat_id=?",
-            (str(chat_id),)
+            (str(chat_id),),
         ).fetchone()
         c.close()
     return dict(row) if row else None
@@ -92,6 +101,7 @@ def get_user_by_chat(chat_id: int) -> dict | None:
 # TELEGRAM API
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def tg_call(method: str, payload: dict = None) -> dict:
     token = get_bot_token()
     if not token:
@@ -99,7 +109,7 @@ def tg_call(method: str, payload: dict = None) -> dict:
     url = TG_API.format(token=token, method=method)
     try:
         body = json.dumps(payload or {}).encode()
-        req  = Request(url, data=body, headers={"Content-Type": "application/json"})
+        req = Request(url, data=body, headers={"Content-Type": "application/json"})
         # For long-poll calls (getUpdates with timeout=N), the HTTP socket must
         # stay open at least N+10 seconds or the request times out before Telegram responds.
         http_timeout = (payload.get("timeout", 0) if payload else 0) + 10
@@ -121,19 +131,25 @@ def send_message(chat_id: int, text: str, parse_mode="HTML", reply_markup=None) 
     return tg_call("sendMessage", payload)
 
 
-def edit_message_text(chat_id: int, message_id: int, text: str, parse_mode="HTML") -> dict:
+def edit_message_text(
+    chat_id: int, message_id: int, text: str, parse_mode="HTML"
+) -> dict:
     """Edit an existing message (for live-updating campaign stats)."""
-    return tg_call("editMessageText", {
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "text": text,
-        "parse_mode": parse_mode,
-    })
+    return tg_call(
+        "editMessageText",
+        {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": parse_mode,
+        },
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CAMPAIGN LIVE STATS
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def campaign_start_msg(user_id: int, name: str, method: str, total: int) -> int | None:
     """Send initial campaign message. Returns message_id for live editing."""
@@ -155,24 +171,32 @@ def campaign_start_msg(user_id: int, name: str, method: str, total: int) -> int 
     return None
 
 
-def campaign_update_msg(user_id: int, message_id: int, name: str,
-                        sent: int, failed: int, total: int,
-                        method: str, speed: float = 0,
-                        proxy_dead: int = 0, paused: bool = False):
+def campaign_update_msg(
+    user_id: int,
+    message_id: int,
+    name: str,
+    sent: int,
+    failed: int,
+    total: int,
+    method: str,
+    speed: float = 0,
+    proxy_dead: int = 0,
+    paused: bool = False,
+):
     """Edit campaign message with live stats."""
     if not message_id:
         return
     tg = get_user_tg(user_id)
     if not tg:
         return
-    pct  = (sent + failed) / max(total, 1) * 100
-    bar  = _progress_bar(pct)
-    eta  = ""
+    pct = (sent + failed) / max(total, 1) * 100
+    bar = _progress_bar(pct)
+    eta = ""
     if speed > 0 and (total - sent - failed) > 0:
         remaining = total - sent - failed
         mins = remaining / speed / 60
         if mins >= 60:
-            eta = f"⏱ ETA: ~{mins/60:.1f}h"
+            eta = f"⏱ ETA: ~{mins / 60:.1f}h"
         else:
             eta = f"⏱ ETA: ~{mins:.0f}m"
 
@@ -197,16 +221,23 @@ def campaign_update_msg(user_id: int, message_id: int, name: str,
         pass
 
 
-def campaign_done_msg(user_id: int, message_id: int, name: str,
-                      sent: int, failed: int, total: int,
-                      stopped: bool = False, duration_s: float = 0):
+def campaign_done_msg(
+    user_id: int,
+    message_id: int,
+    name: str,
+    sent: int,
+    failed: int,
+    total: int,
+    stopped: bool = False,
+    duration_s: float = 0,
+):
     """Final edit of campaign message with completion stats."""
     tg = get_user_tg(user_id)
     if not tg:
         return
     icon = "🛑" if stopped else "✅"
     label = "Stopped" if stopped else "Completed"
-    bar  = _progress_bar((sent + failed) / max(total, 1) * 100)
+    bar = _progress_bar((sent + failed) / max(total, 1) * 100)
 
     dur = ""
     if duration_s > 0:
@@ -262,13 +293,14 @@ def get_me() -> dict:
 # OTP / 2FA
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def generate_otp(user_id: int) -> str | None:
     """Generate a 6-digit OTP and send it via Telegram. Returns code or None."""
     tg = get_user_tg(user_id)
     if not tg:
         return None
     code = str(secrets.randbelow(900000) + 100000)
-    exp  = datetime.now() + timedelta(minutes=5)
+    exp = datetime.now() + timedelta(minutes=5)
     with _otp_lock:
         _otp_store[user_id] = {"code": code, "expires": exp, "verified": False}
     text = (
@@ -309,9 +341,10 @@ def is_2fa_required(user_id: int) -> bool:
 # LINK CODES (connecting Telegram to account)
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def create_link_code(user_id: int) -> str:
     code = secrets.token_hex(8).upper()
-    exp  = datetime.now() + timedelta(minutes=15)
+    exp = datetime.now() + timedelta(minutes=15)
     with _link_lock:
         # Clear old codes for this user
         to_del = [k for k, v in _link_codes.items() if v["user_id"] == user_id]
@@ -338,6 +371,7 @@ def consume_link_code(code: str) -> int | None:
 # ═══════════════════════════════════════════════════════════════════════════
 # NOTIFICATIONS
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def notify_login(user_id: int, ip: str, ua: str = ""):
     tg = get_user_tg(user_id)
@@ -381,6 +415,7 @@ def notify_admins(text: str, tier: str = None):
 # ═══════════════════════════════════════════════════════════════════════════
 # SUPPORT TICKETS
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def notify_new_ticket(ticket_id: int, username: str, subject: str, body: str):
     """Notify all admins and the support chat of a new support ticket."""
@@ -452,6 +487,7 @@ ADMIN_COMMANDS = """
 # ── Throttle update notifications: track last notified SHA in memory ─────────
 _last_notified_update_sha = ""
 
+
 def notify_update_available(sha: str, branch: str, commit_msg: str):
     """Notify admins (and support chat) that a new version is available.
     Fires at most once per unique SHA so the polling loop won't spam."""
@@ -474,20 +510,23 @@ def notify_update_available(sha: str, branch: str, commit_msg: str):
         except Exception:
             pass
 
+
 def handle_admin_command(chat_id: int, text: str, user_row: dict):
     """Process a command from a verified admin Telegram user."""
     role = user_row.get("role", "")
     is_superadmin = role == "superadmin"
-    is_admin      = role in ("admin", "superadmin")
+    is_admin = role in ("admin", "superadmin")
 
     parts = text.strip().split(None, 2)
-    cmd   = parts[0].lower() if parts else ""
+    cmd = parts[0].lower() if parts else ""
 
     if cmd == "/start":
-        send_message(chat_id,
+        send_message(
+            chat_id,
             f"👋 Welcome back, <b>{user_row['username']}</b>!\n"
             f"Role: <b>{role.title()}</b>\n\n"
-            f"Use /help to see available commands.")
+            f"Use /help to see available commands.",
+        )
 
     elif cmd == "/help":
         send_message(chat_id, ADMIN_COMMANDS)
@@ -495,14 +534,20 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
     elif cmd == "/status":
         with db_lock:
             c = get_conn()
-            total_users    = c.execute("SELECT COUNT(*) FROM users WHERE active=1").fetchone()[0]
-            total_tickets  = c.execute("SELECT COUNT(*) FROM support_tickets WHERE status='open'").fetchone()[0]
+            total_users = c.execute(
+                "SELECT COUNT(*) FROM users WHERE active=1"
+            ).fetchone()[0]
+            total_tickets = c.execute(
+                "SELECT COUNT(*) FROM support_tickets WHERE status='open'"
+            ).fetchone()[0]
             c.close()
-        send_message(chat_id,
+        send_message(
+            chat_id,
             f"📊 <b>SynthTel Status</b>\n\n"
             f"👥 Active users: {total_users}\n"
             f"🎫 Open tickets: {total_tickets}\n"
-            f"🟢 Server: Online")
+            f"🟢 Server: Online",
+        )
 
     elif cmd == "/users" and is_admin:
         with db_lock:
@@ -511,7 +556,10 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
                 "SELECT username, role, active, last_login FROM users ORDER BY id LIMIT 20"
             ).fetchall()
             c.close()
-        lines = [f"{'✅' if r['active'] else '🚫'} <b>{r['username']}</b> [{r['role']}]" for r in rows]
+        lines = [
+            f"{'✅' if r['active'] else '🚫'} <b>{r['username']}</b> [{r['role']}]"
+            for r in rows
+        ]
         send_message(chat_id, "👥 <b>Users</b>\n\n" + "\n".join(lines))
 
     elif cmd == "/kick" and is_admin:
@@ -521,7 +569,9 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
         uname = parts[1].strip().lower()
         with db_lock:
             c = get_conn()
-            row = c.execute("SELECT id, username FROM users WHERE username=?", (uname,)).fetchone()
+            row = c.execute(
+                "SELECT id, username FROM users WHERE username=?", (uname,)
+            ).fetchone()
             if not row:
                 c.close()
                 send_message(chat_id, f"❌ User '{uname}' not found")
@@ -542,7 +592,9 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
         uname = parts[1].strip().lower()
         with db_lock:
             c = get_conn()
-            row = c.execute("SELECT id FROM users WHERE username=?", (uname,)).fetchone()
+            row = c.execute(
+                "SELECT id FROM users WHERE username=?", (uname,)
+            ).fetchone()
             if not row:
                 c.close()
                 send_message(chat_id, f"❌ User '{uname}' not found")
@@ -564,7 +616,10 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
         if not rows:
             send_message(chat_id, "✅ No open tickets")
             return
-        lines = [f"🎫 #{r['id']} <b>{r['username']}</b>: {r['subject'][:40]}\n  <code>/reply {r['id']} ...</code>" for r in rows]
+        lines = [
+            f"🎫 #{r['id']} <b>{r['username']}</b>: {r['subject'][:40]}\n  <code>/reply {r['id']} ...</code>"
+            for r in rows
+        ]
         send_message(chat_id, "🎫 <b>Open Tickets</b>\n\n" + "\n\n".join(lines))
 
     elif cmd == "/reply" and is_admin:
@@ -574,28 +629,36 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
         try:
             tid = int(parts[1])
         except ValueError:
-            send_message(chat_id, "❌ Ticket ID must be a number"); return
+            send_message(chat_id, "❌ Ticket ID must be a number")
+            return
         reply_text = parts[2].strip()
         if not reply_text:
-            send_message(chat_id, "❌ Reply cannot be empty"); return
+            send_message(chat_id, "❌ Reply cannot be empty")
+            return
         admin_name = user_row.get("username", "Admin")
         with db_lock:
             c = get_conn()
             ticket = c.execute(
-                "SELECT id, user_id, status, subject FROM support_tickets WHERE id=?", (tid,)
+                "SELECT id, user_id, status, subject FROM support_tickets WHERE id=?",
+                (tid,),
             ).fetchone()
             if not ticket:
                 c.close()
-                send_message(chat_id, f"❌ Ticket #{tid} not found"); return
+                send_message(chat_id, f"❌ Ticket #{tid} not found")
+                return
             if ticket["status"] == "closed":
                 c.close()
-                send_message(chat_id, f"❌ Ticket #{tid} is closed. Reopen it first."); return
+                send_message(chat_id, f"❌ Ticket #{tid} is closed. Reopen it first.")
+                return
             admin_id = user_row.get("id")
             c.execute(
                 "INSERT INTO ticket_messages (ticket_id,sender_id,sender_name,is_admin,body) VALUES (?,?,?,?,?)",
-                (tid, admin_id, admin_name, 1, reply_text)
+                (tid, admin_id, admin_name, 1, reply_text),
             )
-            c.execute("UPDATE support_tickets SET status='open', updated_at=CURRENT_TIMESTAMP WHERE id=?", (tid,))
+            c.execute(
+                "UPDATE support_tickets SET status='open', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (tid,),
+            )
             owner_id = ticket["user_id"]
             c.commit()
             c.close()
@@ -610,15 +673,22 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
         try:
             tid = int(parts[1])
         except ValueError:
-            send_message(chat_id, "❌ Ticket ID must be a number"); return
+            send_message(chat_id, "❌ Ticket ID must be a number")
+            return
         admin_name = user_row.get("username", "Admin")
         with db_lock:
             c = get_conn()
-            ticket = c.execute("SELECT user_id FROM support_tickets WHERE id=?", (tid,)).fetchone()
+            ticket = c.execute(
+                "SELECT user_id FROM support_tickets WHERE id=?", (tid,)
+            ).fetchone()
             if not ticket:
                 c.close()
-                send_message(chat_id, f"❌ Ticket #{tid} not found"); return
-            c.execute("UPDATE support_tickets SET status='closed', updated_at=CURRENT_TIMESTAMP WHERE id=?", (tid,))
+                send_message(chat_id, f"❌ Ticket #{tid} not found")
+                return
+            c.execute(
+                "UPDATE support_tickets SET status='closed', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (tid,),
+            )
             owner_id = ticket["user_id"]
             c.commit()
             c.close()
@@ -639,8 +709,9 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
         count = 0
         for r in rows:
             try:
-                send_message(int(r["tg_chat_id"]),
-                    f"📢 <b>Broadcast from Admin</b>\n\n{msg}")
+                send_message(
+                    int(r["tg_chat_id"]), f"📢 <b>Broadcast from Admin</b>\n\n{msg}"
+                )
                 count += 1
             except Exception:
                 pass
@@ -648,31 +719,40 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
 
     elif cmd == "/resetpw" and is_superadmin:
         if len(parts) < 3:
-            send_message(chat_id, "Usage: /resetpw &lt;username&gt; &lt;newpassword&gt;")
+            send_message(
+                chat_id, "Usage: /resetpw &lt;username&gt; &lt;newpassword&gt;"
+            )
             return
-        uname  = parts[1].strip().lower()
+        uname = parts[1].strip().lower()
         new_pw = parts[2].strip()
         if len(new_pw) < 6:
             send_message(chat_id, "❌ Password must be at least 6 characters")
             return
         import secrets as sec
+
         try:
             import bcrypt
+
             pw_hash = bcrypt.hashpw(new_pw.encode(), bcrypt.gensalt()).decode()
-            salt    = ""
+            salt = ""
         except ImportError:
             import hashlib
-            salt    = sec.token_hex(16)
+
+            salt = sec.token_hex(16)
             pw_hash = hashlib.sha256((new_pw + salt).encode()).hexdigest()
         with db_lock:
             c = get_conn()
-            row = c.execute("SELECT id FROM users WHERE username=?", (uname,)).fetchone()
+            row = c.execute(
+                "SELECT id FROM users WHERE username=?", (uname,)
+            ).fetchone()
             if not row:
                 c.close()
                 send_message(chat_id, f"❌ User '{uname}' not found")
                 return
-            c.execute("UPDATE users SET password_hash=?, salt=? WHERE id=?",
-                      (pw_hash, salt, row["id"]))
+            c.execute(
+                "UPDATE users SET password_hash=?, salt=? WHERE id=?",
+                (pw_hash, salt, row["id"]),
+            )
             c.commit()
             c.close()
         send_message(chat_id, f"✅ Password reset for <b>{uname}</b>")
@@ -681,81 +761,99 @@ def handle_admin_command(chat_id: int, text: str, user_row: dict):
         if not is_admin:
             send_message(chat_id, "⛔ You don't have admin access to this bot.")
         else:
-            send_message(chat_id, f"❓ Unknown command. Use /help")
+            send_message(chat_id, "❓ Unknown command. Use /help")
 
 
 def handle_user_command(chat_id: int, text: str, user_row: dict):
     """Process a command from a regular user."""
     parts = text.strip().split(None, 2)
-    cmd   = parts[0].lower() if parts else ""
+    cmd = parts[0].lower() if parts else ""
 
     if cmd == "/start":
-        send_message(chat_id,
+        send_message(
+            chat_id,
             f"👋 Hi <b>{user_row['username']}</b>! Your Telegram is connected to SynthTel.\n\n"
             f"You'll receive login alerts and support replies here.\n\n"
-            f"Use /help to see what you can do.")
+            f"Use /help to see what you can do.",
+        )
 
     elif cmd == "/help":
-        send_message(chat_id,
+        send_message(
+            chat_id,
             "📋 <b>SynthTel User Commands</b>\n\n"
             "/status — Your account status\n"
             "/ticket &lt;msg&gt; — Open a support ticket\n"
-            "/help — Show this help")
+            "/help — Show this help",
+        )
 
     elif cmd == "/status":
-        send_message(chat_id,
+        send_message(
+            chat_id,
             f"✅ <b>Account Active</b>\n"
             f"👤 Username: <b>{user_row['username']}</b>\n"
-            f"🔐 2FA: {'✅ Enabled' if user_row.get('tg_2fa_enabled') else '❌ Disabled'}")
+            f"🔐 2FA: {'✅ Enabled' if user_row.get('tg_2fa_enabled') else '❌ Disabled'}",
+        )
 
     else:
-        send_message(chat_id,
+        send_message(
+            chat_id,
             "❓ Unknown command. Use /help\n\n"
-            "To open a support ticket, visit the panel → Account → Support.")
+            "To open a support ticket, visit the panel → Account → Support.",
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # LINK CODE HANDLER (incoming /start <code>)
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def handle_start_with_code(chat_id: int, tg_username: str, code: str):
     user_id = consume_link_code(code)
     if not user_id:
-        send_message(chat_id,
+        send_message(
+            chat_id,
             "❌ <b>Invalid or expired link code.</b>\n\n"
-            "Go back to SynthTel → Account → Telegram and generate a new link code.")
+            "Go back to SynthTel → Account → Telegram and generate a new link code.",
+        )
         return
     with db_lock:
         c = get_conn()
         # Check this chat_id isn't already linked to another account
         existing = c.execute(
             "SELECT id, username FROM users WHERE tg_chat_id=? AND id!=?",
-            (str(chat_id), user_id)
+            (str(chat_id), user_id),
         ).fetchone()
         if existing:
-            c.execute("UPDATE users SET tg_chat_id=NULL, tg_username=NULL WHERE id=?",
-                      (existing["id"],))
+            c.execute(
+                "UPDATE users SET tg_chat_id=NULL, tg_username=NULL WHERE id=?",
+                (existing["id"],),
+            )
         c.execute(
             "UPDATE users SET tg_chat_id=?, tg_username=? WHERE id=?",
-            (str(chat_id), tg_username or "", user_id)
+            (str(chat_id), tg_username or "", user_id),
         )
-        uname = c.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
+        uname = c.execute(
+            "SELECT username FROM users WHERE id=?", (user_id,)
+        ).fetchone()
         c.commit()
         c.close()
     uname_str = uname["username"] if uname else "unknown"
-    send_message(chat_id,
+    send_message(
+        chat_id,
         f"✅ <b>Telegram Connected!</b>\n\n"
         f"Account <b>{uname_str}</b> is now linked to this chat.\n\n"
         f"You'll receive:\n"
         f"• 🔐 2FA codes (if enabled)\n"
         f"• 🔔 Login notifications\n"
         f"• 💬 Support ticket replies\n\n"
-        f"Enable 2FA in the SynthTel panel under Account → Security.")
+        f"Enable 2FA in the SynthTel panel under Account → Security.",
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # POLLING LOOP
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def _poll_loop():
     global _poll_running, _last_update
@@ -766,11 +864,14 @@ def _poll_loop():
             if not token:
                 time.sleep(5)
                 continue
-            result = tg_call("getUpdates", {
-                "offset": _last_update + 1,
-                "timeout": 20,
-                "allowed_updates": ["message"]
-            })
+            result = tg_call(
+                "getUpdates",
+                {
+                    "offset": _last_update + 1,
+                    "timeout": 20,
+                    "allowed_updates": ["message"],
+                },
+            )
             if not result.get("ok"):
                 time.sleep(5)
                 continue
@@ -779,9 +880,9 @@ def _poll_loop():
                 msg = update.get("message", {})
                 if not msg:
                     continue
-                chat_id    = msg.get("chat", {}).get("id")
-                text       = msg.get("text", "")
-                tg_uname   = msg.get("from", {}).get("username", "")
+                chat_id = msg.get("chat", {}).get("id")
+                text = msg.get("text", "")
+                tg_uname = msg.get("from", {}).get("username", "")
                 if not chat_id or not text:
                     continue
                 # Check if it's /start <code>
@@ -794,13 +895,17 @@ def _poll_loop():
                 user_row = get_user_by_chat(chat_id)
                 if not user_row:
                     if text.startswith("/start"):
-                        send_message(chat_id,
+                        send_message(
+                            chat_id,
                             "👋 Welcome to SynthTel!\n\n"
                             "To link your account, go to the SynthTel panel → "
-                            "Account → Telegram and follow the instructions.")
+                            "Account → Telegram and follow the instructions.",
+                        )
                     else:
-                        send_message(chat_id,
-                            "❓ Account not linked. Go to SynthTel → Account → Telegram to connect.")
+                        send_message(
+                            chat_id,
+                            "❓ Account not linked. Go to SynthTel → Account → Telegram to connect.",
+                        )
                     continue
                 role = user_row.get("role", "user")
                 if role in ("admin", "superadmin", "moderator"):
@@ -817,7 +922,7 @@ def start_polling():
     if _poll_thread and _poll_thread.is_alive():
         return
     _poll_running = True
-    _poll_thread  = threading.Thread(target=_poll_loop, daemon=True, name="tg-poll")
+    _poll_thread = threading.Thread(target=_poll_loop, daemon=True, name="tg-poll")
     _poll_thread.start()
 
 
