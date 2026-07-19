@@ -285,6 +285,13 @@ def _safe_redirect_url(
     return default
 
 
+def _quote_imap_string(value: str) -> str:
+    """Escape backslash and double-quote characters for an IMAP quoted string."""
+    if not isinstance(value, str):
+        value = str(value)
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 # GitHub repo to check for updates.  Owner/repo + branch can be overridden
 # via env vars or by writing to the kv_settings table at runtime via the
 # /api/update/config endpoint (admin only).
@@ -4225,7 +4232,8 @@ if(code && window.opener){{
                                     continue
                                 try:
                                     typ2, msg_nums = M.search(
-                                        None, f'HEADER Message-ID "{clean}"'
+                                        None,
+                                        f"HEADER Message-ID {_quote_imap_string(clean)}",
                                     )
                                     if typ2 != "OK" or not msg_nums or not msg_nums[0]:
                                         continue
@@ -9859,7 +9867,13 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
             email = (data.get("email") or "").strip().lower()
             password = data.get("password", "")
             imap_host = (data.get("imapHost") or "").strip()
-            imap_port = int(data.get("imapPort", 993))
+            try:
+                imap_port = int(data.get("imapPort", 993))
+                if not (1 <= imap_port <= 65535):
+                    raise ValueError("port out of range")
+            except (ValueError, TypeError):
+                self._json(400, {"error": "imapPort must be an integer between 1 and 65535"})
+                return
             provider = (data.get("provider") or "auto").strip()
             if not email:
                 self._json(400, {"error": "email is required"})
@@ -9932,7 +9946,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                                 if status != "OK":
                                     continue
                                 status, msgs = imap.search(
-                                    None, "SUBJECT", f'"{subject}"'
+                                    None, "SUBJECT", _quote_imap_string(subject)
                                 )
                                 if status == "OK" and msgs[0]:
                                     folder = target_label
