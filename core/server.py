@@ -31,10 +31,14 @@ import logging
 import os
 import queue
 import re
+import sys
+
+# Make `core.*` imports work when this file is run directly from
+# /opt/synthtel/core/server.py (the parent directory is not on sys.path yet).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import secrets
 import sqlite3
 import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -108,9 +112,6 @@ def dbg(tag: str, msg: str, data=None):
 
 
 # ─── core module imports ───────────────────────────────────────────────────
-# Add parent dir to path so `python3 core/server.py` works from /opt/synthtel
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 try:
     from core.campaign import process_campaign
 
