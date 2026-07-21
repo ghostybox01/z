@@ -3550,6 +3550,7 @@ if(code && window.opener){{
                         "ok": True,
                         **UPDATE_STATE["last_result"],
                         "in_progress": UPDATE_STATE.get("in_progress", False),
+                        "last_apply": UPDATE_STATE.get("last_apply"),
                         "cached": True,
                     },
                 )
@@ -3573,6 +3574,7 @@ if(code && window.opener){{
                         "ok": True,
                         **info,
                         "in_progress": UPDATE_STATE.get("in_progress", False),
+                        "last_apply": UPDATE_STATE.get("last_apply"),
                     },
                 )
             except HTTPError as he:
@@ -8234,35 +8236,41 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
         elif p == "/api/update/apply":
             if not (sess := self._admin()):
                 return
-            # Optional: trigger a service restart after a successful update.
             try:
                 req_data = self._read_body() if self._body_bytes else {}
             except Exception:
                 req_data = {}
             do_restart = bool(req_data.get("restart", False))
-            try:
-                result = _apply_update()
-            except RuntimeError as _re_err:
-                # NB: do NOT name this 're' — Python makes 're' local to
-                # the whole function and shadows the module-level import.
-                self._json(409, {"ok": False, "error": str(_re_err)})
-                return
-            except HTTPError as he:
-                self._json(
-                    200, {"ok": False, "error": f"GitHub {he.code}: {he.reason}"}
-                )
-                return
-            except Exception as e:
-                self._json(200, {"ok": False, "error": str(e)[:300]})
+
+            # If an update is already running, report it immediately.
+            if UPDATE_LOCK.locked():
+                self._json(200, {"ok": True, "in_progress": True})
                 return
 
-            # If restart requested AND we updated any .py file, schedule a
-            # systemctl restart in the background (after the response is
-            # written) so the client gets a clean response first.
-            if do_restart and result.get("restart_required"):
-                _schedule_service_restart_after_update()
-                result["restart_scheduled"] = True
-            self._json(200, result)
+            # Run the update in a background thread so we can return a
+            # response immediately — the synchronous path downloads every
+            # tracked file from GitHub and can easily exceed nginx's
+            # proxy_read_timeout (default 60 s), causing a 502.
+            def _bg_apply():
+                _result = None
+                try:
+                    _result = _apply_update()
+                    if do_restart and _result.get("restart_required"):
+                        _schedule_service_restart_after_update()
+                        _result["restart_scheduled"] = True
+                except Exception as _bg_err:
+                    _result = {"ok": False, "error": str(_bg_err)[:300]}
+                finally:
+                    # Always record the result so /api/update/check can
+                    # surface it; done in finally so it runs even if
+                    # _apply_update() raised before setting last_apply.
+                    UPDATE_STATE["last_apply"] = {
+                        "ts": int(time.time()),
+                        "result": _result or {},
+                    }
+
+            Thread(target=_bg_apply, daemon=True).start()
+            self._json(200, {"ok": True, "started": True, "in_progress": True})
 
         # ── GitHub update: save repo / branch settings (admin) ─────
         elif p == "/api/update/config":
