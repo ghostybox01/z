@@ -1887,8 +1887,6 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 dlv["oneClickUnsub"] = True
         else:
             dlv["oneClickUnsub"] = False
-        if opts.skip_preflight_dns:
-            opts.skip_preflight_dns = False
 
     # ── Parse timing config (LIVE-mutable) ───────────────────
     # `sending` is a dict held by reference inside opts; the
