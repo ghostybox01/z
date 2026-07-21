@@ -1453,8 +1453,13 @@ function apiCall(path, opts={}) {
     headers: {"Content-Type":"application/json", ...(tk?{"Authorization":"Bearer "+tk}:{}), ...(opts.headers||{})},
     ...opts
   }).then(r => {
+    // Patch .json() so non-JSON responses (nginx 502/503 HTML pages) never
+    // throw — callers get {ok:false, error:"HTTP N"} instead of a cryptic
+    // "Unexpected token '<'" JS parse error.
+    const _origJson = r.json.bind(r);
+    r.json = () => _origJson().catch(() => ({ok: false, error: `HTTP ${r.status}`}));
     if (r.status === 503) {
-      return r.json().catch(()=>({})).then(d => {
+      return r.json().then(d => {
         if (d && d.error === "restarting") { _showRestartBanner(); }
         return r;
       });
@@ -12557,6 +12562,7 @@ function App() {
     }
     setUpdateApplying(true);
     addLog("🔄 Applying update from GitHub…","inf");
+    let polling = false;
     try {
       const r = await apiCall("/api/update/apply", {
         method:"POST", body: JSON.stringify({restart: true})
@@ -12566,6 +12572,60 @@ function App() {
         addLog(`✗ Update failed: ${d && d.error || `HTTP ${r.status}`}`,"err");
         return;
       }
+      // Background update started — poll /api/update/check for completion.
+      // The server returns {started:true, in_progress:true} immediately to avoid
+      // nginx proxy timeouts while the files are downloaded from GitHub.
+      if(d.started || d.in_progress) {
+        polling = true;
+        addLog("⏳ Downloading update from GitHub…","inf");
+        const requestTs = Date.now();  // client-side timestamp when we sent the request
+        const deadline = requestTs + 300000;  // 5-minute hard timeout
+        const poll = async () => {
+          if(Date.now() > deadline) {
+            addLog("✗ Update timed out waiting for server","err");
+            setUpdateApplying(false);
+            return;
+          }
+          try {
+            const cr = await apiCall("/api/update/check");
+            const cd = await cr.json();
+            if(!cd.in_progress) {
+              const la = cd.last_apply;
+              // Only use last_apply if it was written after our request was sent
+              // (allow 30s clock skew between client and server).
+              if(la && la.ts * 1000 > requestTs - 30000) {
+                const res = la.result || {};
+                if(res.ok === false) {
+                  addLog(`✗ Update failed: ${res.error || "Unknown error"}`,"err");
+                  setUpdateApplying(false);
+                  return;
+                }
+                if(res.up_to_date) {
+                  addLog("Already on the latest version.","inf");
+                  setUpdateApplying(false);
+                  return;
+                }
+                const cnt = (res.applied||[]).length;
+                const failCnt = (res.failed||[]).length;
+                addLog(`✅ Updated ${cnt} file${cnt===1?"":"s"} → ${(res.new_sha||cd.latest_sha||"").slice(0,7)}`
+                      +(failCnt?` (${failCnt} failed)`:""),"inf");
+                if(res.restart_required || res.restart_scheduled) {
+                  addLog("♻ Server restarting — page will reconnect shortly","inf");
+                  setTimeout(()=>window.location.reload(), 4000);
+                } else {
+                  setTimeout(()=>window.location.reload(), 1500);
+                }
+                setUpdateApplying(false);
+                return;
+              }
+            }
+          } catch(_) { /* server may be mid-restart — keep polling */ }
+          setTimeout(poll, 3000);
+        };
+        setTimeout(poll, 3000);
+        return;
+      }
+      // Synchronous result (old server behaviour or already up-to-date).
       if(d.up_to_date) {
         addLog("Already on the latest version.","inf");
         setUpdateInfo(prev => prev ? {...prev, behind:false, current_sha: (d.new_sha||prev.current_sha||"")} : prev);
@@ -12579,14 +12639,13 @@ function App() {
         addLog("♻ Server restarting — page will reconnect shortly","inf");
         setTimeout(()=>{ window.location.reload(); }, 4000);
       } else {
-        // No restart needed (only HTML changed).  Reload to see new UI.
         setTimeout(()=>{ window.location.reload(); }, 1500);
       }
       setUpdateInfo(prev => prev ? {...prev, behind:false, current_sha: d.new_sha} : prev);
     } catch(e) {
       addLog(`✗ Update error: ${e.message}`,"err");
     } finally {
-      setUpdateApplying(false);
+      if(!polling) setUpdateApplying(false);
     }
   }
 
