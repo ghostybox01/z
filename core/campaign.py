@@ -296,9 +296,7 @@ def _preflight_sender_auth(senders: list, method: str, servers: list = None) -> 
             issues.append("DMARC p=reject — receivers will reject unauthenticated mail")
             level = "error"
         elif pol == "quarantine":
-            issues.append("DMARC p=quarantine — unauthenticated mail goes to spam")
-            if level == "ok":
-                level = "warn"
+            pass  # quarantine = junk-at-worst; not actionable for ESP sends
 
         if method in ("smtp", "tunnel", "isp") and spf and servers:
             srv_hosts = {
@@ -1871,7 +1869,6 @@ def run_campaign(opts: CampaignOptions) -> Generator:
 
     # Inbox profile: enforce conservative defaults that favor placement over tricks.
     if inbox_profile:
-        dlv["autoPlain"] = True
         dlv["domainThrottle"] = True
         dlv["rateLimitPause"] = True
         dlv["priority"] = "normal"
