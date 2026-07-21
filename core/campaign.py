@@ -1884,9 +1884,6 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 dlv["oneClickUnsub"] = True
         else:
             dlv["oneClickUnsub"] = False
-        if opts.skip_preflight_dns:
-            opts.skip_preflight_dns = False
-
     # ── Parse timing config (LIVE-mutable) ───────────────────
     # `sending` is a dict held by reference inside opts; the
     # /api/campaign/control update endpoint writes new values into
@@ -1958,7 +1955,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     if inbox_profile:
         yield {
             "type": "info",
-            "msg": "🛡 Inbox profile enabled — enforcing safe headers, plain-text MIME, and conservative pacing",
+            "msg": "🛡 Inbox profile enabled — enforcing safe headers and conservative pacing",
         }
         if len(opts.leads) >= 500 and not (
             dlv.get("unsubUrl") or dlv.get("unsubEmail")
