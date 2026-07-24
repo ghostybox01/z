@@ -4495,7 +4495,8 @@ function TabMethod({
                                 port:parseInt(j.port||587),
                                 username:j.username||j.user||"",
                                 password:j.password||j.pass||"",
-                                ssl:!!j.ssl}; }
+                                ssl:!!j.ssl,
+                                fromEmail:j.fromEmail||j.from_email||j.from||""}; }
       catch(e){ return null; }
     }
 
@@ -4545,7 +4546,7 @@ function TabMethod({
       }
     }
 
-    // host:port:user:pass[:ssl]  |  host|port|user|pass  |  host,port,...
+    // host:port:user:pass[:ssl|fromEmail][:fromEmail]  |  host|port|user|pass  |  host,port,...
     const sep = line.includes("|") ? "|" : line.includes(",") ? "," : ":";
     const parts = line.split(sep).map(p=>p.trim());
     if (parts.length < 2) return null;
@@ -4553,9 +4554,19 @@ function TabMethod({
     const port = parseInt(parts[1]) || 587;
     const username = parts[2] || "";
     const password = parts[3] || "";
+    const _isEmail = s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(s||"");
     const sslPart  = (parts[4]||"").toLowerCase();
-    const ssl = sslPart === "ssl" || sslPart === "true" || sslPart === "1" || port === 465;
-    return {host, port, username, password, ssl};
+    // parts[4] can be ssl flag OR a fromEmail; parts[5] is fromEmail if parts[4] was ssl
+    let ssl, fromEmail;
+    if (_isEmail(parts[4])) {
+      // 5-field format: host|port|user|pass|from@email.com
+      ssl = port === 465;
+      fromEmail = parts[4];
+    } else {
+      ssl = sslPart === "ssl" || sslPart === "true" || sslPart === "1" || port === 465;
+      fromEmail = _isEmail(parts[5]) ? parts[5] : "";
+    }
+    return {host, port, username, password, ssl, fromEmail};
   }
 
   // 'replace' mode wipes smtpList and adopts the imported (in-order) list
@@ -4731,6 +4742,11 @@ function TabMethod({
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(t)) return "";
     return t;
   }
+  // Returns the effective from-email for an SMTP entry: explicit fromEmail field first,
+  // then falls back to username if it looks like an email.
+  function smtpEffectiveFrom(w) {
+    return (w.fromEmail||"").trim() || smtpLoginLooksLikeFromEmail(w.username);
+  }
 
   function addWorkingToList(onlyOk) {
     // CRITICAL: sort by _idx so winners always go in the input order
@@ -4758,16 +4774,16 @@ function TabMethod({
     if (bulkReplaceList) {
       const out = winners.map((w,i) => ({
         host:w.host, port:w.port, username:w.username,
-        password:w.password, ssl:!!w.ssl, id:Date.now()+i,
+        password:w.password, ssl:!!w.ssl, fromEmail:w.fromEmail||"", id:Date.now()+i,
       }));
       setSmtpList(out);
       if (bulkSyncSendersFromSmtp) {
-        const fe = winners.map(w => smtpLoginLooksLikeFromEmail(w.username)).filter(Boolean);
+        const fe = winners.map(w => smtpEffectiveFrom(w)).filter(Boolean);
         if (fe.length) setSendersRaw(fe.join("\n"));
       }
       setBulkAddedMsg(`✓ Replaced list with ${out.length} SMTP${out.length===1?"":"s"} in input order`
-        + (bulkSyncSendersFromSmtp && winners.some(w => smtpLoginLooksLikeFromEmail(w.username))
-          ? " — Senders list matched to SMTP logins where possible" : ""));
+        + (bulkSyncSendersFromSmtp && winners.some(w => smtpEffectiveFrom(w))
+          ? " — Senders list matched to SMTP from-emails in order" : ""));
       showToast("ok","Replaced", `Configured Servers list now has ${out.length} entries in your paste order`);
       return;
     }
@@ -4786,17 +4802,17 @@ function TabMethod({
       const out = [...prev];
       toAdd.forEach((w, i) => {
         out.push({host:w.host, port:w.port, username:w.username,
-                  password:w.password, ssl:!!w.ssl, id:Date.now()+i});
+                  password:w.password, ssl:!!w.ssl, fromEmail:w.fromEmail||"", id:Date.now()+i});
       });
       return out;
     });
     if (bulkSyncSendersFromSmtp && toAdd.length) {
-      syncEmails(toAdd.map(w => w.username));
+      syncEmails(toAdd.map(w => smtpEffectiveFrom(w)));
     }
     setBulkAddedMsg(
       `✓ Appended ${added} SMTP${added===1?"":"s"} in input order`
       + (skipped ? ` (${skipped} duplicate${skipped===1?"":"s"} skipped)` : "")
-      + (bulkSyncSendersFromSmtp && toAdd.some(w => smtpLoginLooksLikeFromEmail(w.username))
+      + (bulkSyncSendersFromSmtp && toAdd.some(w => smtpEffectiveFrom(w))
         ? " · From emails appended for new rows" : "")
     );
     showToast("ok","Added", `${added} SMTP${added===1?"":"s"} added to your list (in paste order)`);
@@ -4917,16 +4933,14 @@ function TabMethod({
               <code style={{margin:"0 4px"}}>smtp://</code> ·
               <code style={{margin:"0 4px"}}>smtps://</code>
               <code style={{margin:"0 4px"}}>user:pass@host:port</code> ·
-              <code style={{margin:"0 4px"}}>email@domain:pass@host:port</code> ·
               <code style={{margin:"0 4px"}}>host:port:user:pass</code> ·
               <code style={{margin:"0 4px"}}>host|port|user|pass</code> ·
-              <code style={{margin:"0 4px"}}>{`{"host":...,"port":...}`}</code>
+              <code style={{margin:"0 4px"}}>host|port|user|pass|from@email.com</code> ·
+              <code style={{margin:"0 4px"}}>{`{"host":...,"fromEmail":"..."}`}</code>
               · or a <code>.txt</code> file (drop / pick).
               <br/>
-              <span style={{color:"var(--ok)"}}>✓</span> Working SMTPs are imported in the
-              <strong> exact order you pasted them</strong> (each row keeps its
-              <code style={{margin:"0 4px"}}>#N</code> position) — pair with rotation mode
-              <strong>Sequential</strong> on the Senders tab. Enable <strong>Sync From emails</strong> when bulk-importing so mailbox logins are added as From lines in the same order.
+              <span style={{color:"var(--ok)"}}>✓</span> Add an optional <strong>From email</strong> column (5th field) to each row — or edit it inline in the table below. Working SMTPs import in
+              <strong> exact paste order</strong>. Enable <strong>Sync From emails</strong> to add each row's From email to Senders in the same order.
             </div>
             <textarea value={bulkRaw} onChange={e=>setBulkRaw(e.target.value)}
               placeholder={"smtps://user@corp.com:secret@mail.example.com:465\nsmtp.gmail.com:587:user@gmail.com:apppassword"}
@@ -5021,7 +5035,16 @@ function TabMethod({
                       <span style={{fontFamily:"var(--font-mono)",fontSize:11,minWidth:200,color: p._keep?"var(--tx)":"var(--t3)"}}>
                         {p.host}:{p.port}
                       </span>
-                      <span className="dim2 xs" style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.username||"—"}</span>
+                      <span className="dim2 xs" style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.username||"—"}</span>
+                      <input
+                        type="text"
+                        value={p.fromEmail||""}
+                        onChange={e=>setBulkParsed(prev=>prev.map((x,j)=>j===i?{...x,fromEmail:e.target.value.trim()}:x))}
+                        placeholder={smtpLoginLooksLikeFromEmail(p.username)||"from@email.com"}
+                        title="From email for this SMTP — leave blank to use login if it's an email"
+                        style={{flex:1,minWidth:100,maxWidth:180,fontSize:10,padding:"1px 4px",
+                                fontFamily:"var(--font-mono)",background:"var(--bg2)",
+                                border:"1px solid var(--border)",borderRadius:3,color:"var(--tx)"}}/>
                       {p._latency != null && <span className="xs dim2">{p._latency}ms</span>}
                       <span style={{fontSize:11,color,minWidth:60,textAlign:"right"}}>
                         {p._status==="ok" ? "✓ OK"
