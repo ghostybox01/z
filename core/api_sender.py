@@ -259,8 +259,24 @@ _API_URLS = {
     "sparkpost": "https://api.sparkpost.com/api/v1/transmissions",
     "ses": "https://email.{region}.amazonaws.com/v2/email/outbound-emails",
     "mandrill": "https://mandrillapp.com/api/1.0/messages/send.json",
+    "mailjet": "https://api.mailjet.com/v3.1/send",
     # mailgun: endpoint built dynamically from domain field
 }
+
+# Mailjet Send v3.1 rejects these headers inside the generic "Headers"
+# collection (error send-0011). Each must be set via its dedicated
+# top-level property, or omitted so Mailjet can stamp its own.
+_MAILJET_RESERVED_HEADERS = frozenset({
+    "from", "sender", "to", "cc", "bcc", "subject", "reply-to",
+    "message-id", "return-path", "date",
+    "content-type", "mime-version", "content-transfer-encoding",
+    "x-mj-customid", "x-mj-eventpayload",
+    "x-mj-templateid", "x-mj-templatelanguage",
+    "x-mj-templateerrordeliver", "x-mj-templateerrorreporting",
+    "x-mj-vars",
+    "x-mailjet-prio", "x-mailjet-trackopen", "x-mailjet-trackclick",
+    "x-mailjet-campaign", "x-mailjet-deduplicatecampaign",
+})
 
 SUPPORTED_PROVIDERS = frozenset(_API_URLS.keys()) | {"mailgun"}
 
@@ -1112,6 +1128,82 @@ def _send_mandrill(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts
     )
 
 
+def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
+    # Mailjet Send v3.1 — HTTP Basic auth with API Key : Private Key.
+    public_key = api_cfg.get("apiKey", "")
+    private_key = (
+        api_cfg.get("apiSecret")
+        or api_cfg.get("secret")
+        or api_cfg.get("secretKey")
+        or ""
+    )
+    if not private_key:
+        raise Exception(
+            "API mailjet: no secret key configured. "
+            "Mailjet needs both an API Key (public) and a Private Key (secret) — "
+            "fill in the 'Secret Key' field for this provider."
+        )
+
+    from_name = sender.get("fromName", "")
+    from_email = sender.get("fromEmail", "")
+    reply_to = sender.get("replyTo", "")
+    lead_email = (lead.get("email") or "").strip()
+    lead_name = lead.get("name", "") or ""
+
+    message = {
+        "From": {"Email": from_email, "Name": from_name} if from_name else {"Email": from_email},
+        "To": [
+            {"Email": lead_email, "Name": lead_name}
+            if lead_name
+            else {"Email": lead_email}
+        ],
+        "Subject": subject,
+        "HTMLPart": html,
+    }
+    if plain:
+        message["TextPart"] = plain
+    if reply_to:
+        message["ReplyTo"] = {"Email": reply_to}
+
+    # Strip reserved headers before handing extra_hdrs to Mailjet — send-0011
+    # rejects anything Mailjet controls itself (Reply-To, Message-ID, MIME, etc).
+    if extra_hdrs:
+        filtered = {
+            k: v
+            for k, v in extra_hdrs.items()
+            if k.lower() not in _MAILJET_RESERVED_HEADERS
+        }
+        if filtered:
+            message["Headers"] = filtered
+
+    if atts:
+        message["Attachments"] = [
+            {
+                "ContentType": a["content_type"],
+                "Filename": a["filename"],
+                "Base64Content": a["content_b64"],
+            }
+            for a in atts
+        ]
+
+    payload = {"Messages": [message]}
+
+    # HTTP Basic auth header — Mailjet does not accept the credentials in the body.
+    basic = base64.b64encode(f"{public_key}:{private_key}".encode("utf-8")).decode("ascii")
+
+    return _api_request(
+        _API_URLS["mailjet"],
+        payload,
+        {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Basic {basic}",
+        },
+        "mailjet",
+        uid=api_cfg.get("_uid"),
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
 # MAIN SEND FUNCTION
 # ═══════════════════════════════════════════════════════════════
@@ -1228,6 +1320,7 @@ def send_api(
         "sparkpost": _send_sparkpost,
         "ses": _send_ses,
         "mandrill": _send_mandrill,
+        "mailjet": _send_mailjet,
     }
 
     fn = dispatch.get(provider)

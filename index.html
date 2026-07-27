@@ -5323,11 +5323,11 @@ function TabMethod({
             )}
 
             {/* AWS SES — secret + region */}
-            {apiDraft.provider==="ses-api" && (
+            {(apiDraft.provider==="ses-api" || apiDraft.provider==="mailjet") && (
               <div style={{gridColumn:"1/-1"}}>
-                <label className="lbl">AWS Secret Access Key</label>
+                <label className="lbl">{apiDraft.provider==="mailjet" ? "Mailjet Private Key (Secret)" : "AWS Secret Access Key"}</label>
                 <input type="password" value={apiDraft.secret||""} onChange={e=>setApiDraft({...apiDraft,secret:e.target.value})}
-                  placeholder="Your IAM secret key" style={{fontSize:14,padding:"10px 12px"}}/>
+                  placeholder={apiDraft.provider==="mailjet" ? "Private key from Mailjet API keys page" : "Your IAM secret key"} style={{fontSize:14,padding:"10px 12px"}}/>
               </div>
             )}
             {apiDraft.provider==="ses-api" && (
@@ -5381,6 +5381,10 @@ function TabMethod({
               if(!apiDraft.key) return;
               if(apiDraft.provider==="ses-api" && !apiDraft.secret){
                 showPopup({title:"Secret Key Required",msg:"AWS SES requires both an Access Key ID and a Secret Access Key.",ico:"⚠️",type:"alert"});
+                return;
+              }
+              if(apiDraft.provider==="mailjet" && !apiDraft.secret){
+                showPopup({title:"Secret Key Required",msg:"Mailjet requires both an API Key (public) and a Private Key (secret).",ico:"⚠️",type:"alert"});
                 return;
               }
               // Mailgun domain is now optional — auto-derived from FROM email at send time
