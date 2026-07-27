@@ -1610,6 +1610,7 @@ const _LEAD_PROVIDER_LABELS = {
   postmark:            {label:"Postmark",          color:"#ffde00"},
   brevo:               {label:"Brevo",             color:"#0b996e"},
   mailgun:             {label:"Mailgun",           color:"#f06b66"},
+  mailjet:             {label:"Mailjet",           color:"#9b59b6"},
   mailerlite:          {label:"MailerLite",        color:"#09c269"},
   mailersend:          {label:"MailerSend",        color:"#5b9aff"},
   godaddy:             {label:"GoDaddy",           color:"#1bdbdb"},
@@ -5339,6 +5340,7 @@ function TabMethod({
                 <optgroup label="── Transactional ESP ──">
                   <option value="sendgrid">SendGrid</option>
                   <option value="mailgun">Mailgun</option>
+                  <option value="mailjet">Mailjet</option>
                   <option value="postmark">Postmark</option>
                   <option value="sparkpost">SparkPost</option>
                   <option value="brevo">Brevo (Sendinblue)</option>
@@ -5436,6 +5438,15 @@ function TabMethod({
               </div>
             )}
 
+            {/* Mailjet — secret key */}
+            {apiDraft.provider==="mailjet" && (
+              <div style={{gridColumn:"1/-1"}}>
+                <label className="lbl">Mailjet Secret Key</label>
+                <input type="password" value={apiDraft.secret||""} onChange={e=>setApiDraft({...apiDraft,secret:e.target.value})}
+                  placeholder="Your Mailjet Secret Key (32 hex chars)" style={{fontSize:14,padding:"10px 12px"}}/>
+              </div>
+            )}
+
             {/* SparkPost region */}
             {apiDraft.provider==="sparkpost" && (
               <div style={{gridColumn:"1/-1"}}>
@@ -5452,6 +5463,10 @@ function TabMethod({
               if(!apiDraft.key) return;
               if(apiDraft.provider==="ses-api" && !apiDraft.secret){
                 showPopup({title:"Secret Key Required",msg:"AWS SES requires both an Access Key ID and a Secret Access Key.",ico:"⚠️",type:"alert"});
+                return;
+              }
+              if(apiDraft.provider==="mailjet" && !apiDraft.secret){
+                showPopup({title:"Secret Key Required",msg:"Mailjet requires both an API Key and a Secret Key.",ico:"⚠️",type:"alert"});
                 return;
               }
               // Mailgun domain is now optional — auto-derived from FROM email at send time
