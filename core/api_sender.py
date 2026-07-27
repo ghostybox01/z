@@ -1129,44 +1129,44 @@ def _send_mandrill(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts
 
 
 def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
-    # Mailjet Send v3.1 — HTTP Basic auth with API Key : Private Key.
-    public_key = api_cfg.get("apiKey", "")
-    private_key = (
-        api_cfg.get("apiSecret")
-        or api_cfg.get("secret")
+    """
+    Mailjet v3.1 Send API — HTTP Basic Auth (API Key + Secret Key).
+    Requires api_cfg['secret'] (or 'secretKey' / 'apiSecret') alongside apiKey.
+    """
+    api_key = api_cfg.get("apiKey", "")
+    api_secret = (
+        api_cfg.get("secret")
         or api_cfg.get("secretKey")
+        or api_cfg.get("apiSecret")
         or ""
-    )
-    if not private_key:
+    ).strip()
+    if not api_secret:
         raise Exception(
-            "API mailjet: no secret key configured. "
-            "Mailjet needs both an API Key (public) and a Private Key (secret) — "
-            "fill in the 'Secret Key' field for this provider."
+            "Mailjet: Secret Key is required. Enter your Mailjet Secret Key in the 'Secret Key' field."
         )
 
-    from_name = sender.get("fromName", "")
-    from_email = sender.get("fromEmail", "")
-    reply_to = sender.get("replyTo", "")
-    lead_email = (lead.get("email") or "").strip()
-    lead_name = lead.get("name", "") or ""
+    b64 = base64.b64encode(f"{api_key}:{api_secret}".encode()).decode()
 
-    message = {
-        "From": {"Email": from_email, "Name": from_name} if from_name else {"Email": from_email},
-        "To": [
-            {"Email": lead_email, "Name": lead_name}
-            if lead_name
-            else {"Email": lead_email}
-        ],
+    from_email = sender.get("fromEmail", "")
+    from_name = sender.get("fromName", "")
+    reply_to = sender.get("replyTo", "")
+    lead_email = lead.get("email", "")
+    lead_name = (lead.get("name") or "").strip() or lead_email.split("@")[0]
+
+    msg = {
+        "From": {"Email": from_email, "Name": from_name},
+        "To": [{"Email": lead_email, "Name": lead_name}],
         "Subject": subject,
         "HTMLPart": html,
+        "TextPart": plain,
     }
-    if plain:
-        message["TextPart"] = plain
     if reply_to:
-        message["ReplyTo"] = {"Email": reply_to}
+        msg["ReplyTo"] = {"Email": reply_to}
 
     # Strip reserved headers before handing extra_hdrs to Mailjet — send-0011
-    # rejects anything Mailjet controls itself (Reply-To, Message-ID, MIME, etc).
+    # rejects anything Mailjet controls itself (Reply-To, Message-ID, MIME,
+    # X-MJ-*, X-Mailjet-*). Dedicated properties are set above; the rest go
+    # through unchanged.
     if extra_hdrs:
         filtered = {
             k: v
@@ -1174,10 +1174,10 @@ def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
             if k.lower() not in _MAILJET_RESERVED_HEADERS
         }
         if filtered:
-            message["Headers"] = filtered
+            msg["Headers"] = filtered
 
     if atts:
-        message["Attachments"] = [
+        msg["Attachments"] = [
             {
                 "ContentType": a["content_type"],
                 "Filename": a["filename"],
@@ -1186,19 +1186,10 @@ def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
             for a in atts
         ]
 
-    payload = {"Messages": [message]}
-
-    # HTTP Basic auth header — Mailjet does not accept the credentials in the body.
-    basic = base64.b64encode(f"{public_key}:{private_key}".encode("utf-8")).decode("ascii")
-
     return _api_request(
         _API_URLS["mailjet"],
-        payload,
-        {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "Authorization": f"Basic {basic}",
-        },
+        {"Messages": [msg]},
+        {"Authorization": f"Basic {b64}", "Content-Type": "application/json"},
         "mailjet",
         uid=api_cfg.get("_uid"),
     )
@@ -1279,6 +1270,8 @@ def send_api(
             provider = "mandrill"
         elif _re.match(r"^[a-f0-9]{36,50}$", key):
             provider = "sparkpost"
+        elif _re.match(r"^[a-f0-9]{32}$", key.lower()) and api_cfg.get("secret"):
+            provider = "mailjet"
         else:
             provider = "brevo"
 

@@ -1610,6 +1610,7 @@ const _LEAD_PROVIDER_LABELS = {
   postmark:            {label:"Postmark",          color:"#ffde00"},
   brevo:               {label:"Brevo",             color:"#0b996e"},
   mailgun:             {label:"Mailgun",           color:"#f06b66"},
+  mailjet:             {label:"Mailjet",           color:"#9b59b6"},
   mailerlite:          {label:"MailerLite",        color:"#09c269"},
   mailersend:          {label:"MailerSend",        color:"#5b9aff"},
   godaddy:             {label:"GoDaddy",           color:"#1bdbdb"},
@@ -4488,16 +4489,29 @@ function TabMethod({
       try { return decodeURIComponent(s); } catch (e) { return s; }
     }
 
-    // Form (JSON): {"host":"...","port":587,...}
+    // Form (JSON): {"host":"...","port":587,...} or {"key":"smtps://user:pass@host:port",...}
     if (line.startsWith("{") && line.endsWith("}")) {
-      try { const j = JSON.parse(line);
-            if (j.host) return {host:String(j.host).trim(),
-                                port:parseInt(j.port||587),
-                                username:j.username||j.user||"",
-                                password:j.password||j.pass||"",
-                                ssl:!!j.ssl,
-                                fromEmail:j.fromEmail||j.from_email||j.from||""}; }
-      catch(e){ return null; }
+      try {
+        const j = JSON.parse(line);
+        if (j.host) return {host:String(j.host).trim(),
+                            port:parseInt(j.port||587),
+                            username:j.username||j.user||"",
+                            password:j.password||j.pass||"",
+                            ssl:!!j.ssl,
+                            fromEmail:j.fromEmail||j.from_email||j.from||""};
+        // Check common fields that may hold an SMTP URI
+        const _uriFlds = ["key","smtp","smtpUri","smtp_uri","uri","connection","credentials","value"];
+        for (const f of _uriFlds) {
+          if (typeof j[f]==="string" && /^smtps?:\/\//i.test(j[f])) {
+            const r = parseBulkLine(j[f]);
+            if (r && r.host) {
+              r.fromEmail = r.fromEmail || j.fromEmail||j.from_email||j.from||"";
+              return r;
+            }
+          }
+        }
+      } catch(e) { return null; }
+      return null;
     }
 
     let sslFromScheme = false;
@@ -4576,28 +4590,86 @@ function TabMethod({
   const [bulkSyncSendersFromSmtp, setBulkSyncSendersFromSmtp] = useState(true);
 
   function parseBulkSmtps() {
-    const lines = (bulkRaw||"").split(/\r?\n/);
+    const raw = (bulkRaw||"").trim();
     const seen = new Set();
     const out = [];
     let idx = 0;
-    for (const line of lines) {
-      const p = parseBulkLine(line);
-      if (!p || !p.host) continue;
-      const key = `${p.host}:${p.port}:${p.username}`.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
+
+    const addEntry = (p) => {
+      if (!p || !p.host) return;
       // _idx is the canonical position from the input.  Every later step
       // (validation, import) sorts by _idx so the imported list is
       // guaranteed to match the order the user pasted, regardless of
       // the order the parallel SMTP probes finished in.
+      const k = `${p.host}:${p.port}:${p.username}`.toLowerCase();
+      if (seen.has(k)) return;
+      seen.add(k);
       out.push({...p, _idx: idx++, _keep:true, _status:null, _msg:"", _latency:null});
+    };
+
+    const finish = () => {
+      setBulkParsed(out);
+      setBulkProgress({done:0, total:out.length, ok:0, fail:0});
+      setBulkAddedMsg("");
+      if (bulkAutoValidateAfterParse && out.length) setTimeout(() => { validateBulk(); }, 0);
+    };
+
+    // JSON array / object — try parsing the whole input first
+    if (raw.startsWith("[") || raw.startsWith("{")) {
+      try {
+        let arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) arr = [arr];
+        const _uriFlds = ["key","smtp","smtpUri","smtp_uri","uri","connection","credentials","value"];
+        for (const item of arr) {
+          if (typeof item === "string") { addEntry(parseBulkLine(item)); continue; }
+          if (!item || typeof item !== "object") continue;
+          if (item.host) { addEntry(parseBulkLine(JSON.stringify(item))); continue; }
+          for (const f of _uriFlds) {
+            if (typeof item[f]==="string" && /^smtps?:\/\//i.test(item[f])) {
+              const r = parseBulkLine(item[f]);
+              if (r && r.host) {
+                r.fromEmail = r.fromEmail || item.fromEmail||item.from_email||item.from||"";
+                addEntry(r); break;
+              }
+            }
+          }
+        }
+        if (out.length) { finish(); return; }
+      } catch(e) { /* not valid JSON — fall through to line-by-line */ }
     }
-    setBulkParsed(out);
-    setBulkProgress({done:0, total:out.length, ok:0, fail:0});
-    setBulkAddedMsg("");
-    if (bulkAutoValidateAfterParse && out.length) {
-      setTimeout(() => { validateBulk(); }, 0);
+
+    // Line-by-line: auto-detect CSV header row or plain/URI formats
+    const lines = raw.split(/\r?\n/);
+    const csvHeaderRx = /\b(host|server|smtp|email|username|user|password|pass|port)\b/i;
+    let csvHeaders = null;
+    let startLine = 0;
+    const firstNonEmpty = lines.find(l => l.trim());
+    if (firstNonEmpty && firstNonEmpty.includes(",") && csvHeaderRx.test(firstNonEmpty)) {
+      csvHeaders = firstNonEmpty.toLowerCase().split(",").map(h=>h.trim().replace(/^["']+|["']+$/g,""));
+      startLine = lines.indexOf(firstNonEmpty) + 1;
     }
+
+    for (let i = startLine; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith("#")) continue;
+      if (csvHeaders) {
+        const vals = line.split(",").map(v=>(v||"").trim().replace(/^["']+|["']+$/g,""));
+        const o = {};
+        csvHeaders.forEach((h,ci) => { o[h] = vals[ci]||""; });
+        const port = parseInt(o.port)||587;
+        addEntry({
+          host:     o.host||o.server||o.smtp||"",
+          port,
+          username: o.username||o.user||o.email||"",
+          password: o.password||o.pass||"",
+          ssl:      ["ssl","true","1","yes"].includes((o.ssl||"").toLowerCase()) || port===465,
+          fromEmail:o.from||o.from_email||o.fromEmail||o.fromemail||"",
+        });
+      } else {
+        addEntry(parseBulkLine(line));
+      }
+    }
+    finish();
   }
 
   function removeFailedBulkRows() {
@@ -4949,14 +5021,14 @@ function TabMethod({
               <button className="btn btn-g btn-sm" onClick={parseBulkSmtps} disabled={!bulkRaw.trim()}>
                 🔍 Parse {bulkRaw.split(/\r?\n/).filter(l=>l.trim()).length || ""} lines
               </button>
-              <input type="file" accept=".txt,.csv,.list" id="bulk-smtp-file" style={{display:"none"}}
+              <input type="file" accept=".txt,.csv,.list,.json" id="bulk-smtp-file" style={{display:"none"}}
                 onChange={async e=>{
                   const f = e.target.files[0]; if(!f) return;
                   const txt = await f.text();
                   setBulkRaw(prev => prev ? (prev.replace(/\s+$/,"") + "\n" + txt) : txt);
                 }}/>
               <button className="btn btn-g btn-sm" onClick={()=>document.getElementById("bulk-smtp-file").click()}>
-                📎 Upload .txt
+                📎 Upload file
               </button>
               {bulkParsed.length>0 && (
                 <>
@@ -5268,6 +5340,7 @@ function TabMethod({
                 <optgroup label="── Transactional ESP ──">
                   <option value="sendgrid">SendGrid</option>
                   <option value="mailgun">Mailgun</option>
+                  <option value="mailjet">Mailjet</option>
                   <option value="postmark">Postmark</option>
                   <option value="sparkpost">SparkPost</option>
                   <option value="brevo">Brevo (Sendinblue)</option>
@@ -5323,11 +5396,11 @@ function TabMethod({
             )}
 
             {/* AWS SES — secret + region */}
-            {(apiDraft.provider==="ses-api" || apiDraft.provider==="mailjet") && (
+            {apiDraft.provider==="ses-api" && (
               <div style={{gridColumn:"1/-1"}}>
-                <label className="lbl">{apiDraft.provider==="mailjet" ? "Mailjet Private Key (Secret)" : "AWS Secret Access Key"}</label>
+                <label className="lbl">AWS Secret Access Key</label>
                 <input type="password" value={apiDraft.secret||""} onChange={e=>setApiDraft({...apiDraft,secret:e.target.value})}
-                  placeholder={apiDraft.provider==="mailjet" ? "Private key from Mailjet API keys page" : "Your IAM secret key"} style={{fontSize:14,padding:"10px 12px"}}/>
+                  placeholder="Your IAM secret key" style={{fontSize:14,padding:"10px 12px"}}/>
               </div>
             )}
             {apiDraft.provider==="ses-api" && (
@@ -5365,6 +5438,15 @@ function TabMethod({
               </div>
             )}
 
+            {/* Mailjet — secret key */}
+            {apiDraft.provider==="mailjet" && (
+              <div style={{gridColumn:"1/-1"}}>
+                <label className="lbl">Mailjet Secret Key</label>
+                <input type="password" value={apiDraft.secret||""} onChange={e=>setApiDraft({...apiDraft,secret:e.target.value})}
+                  placeholder="Your Mailjet Secret Key (32 hex chars)" style={{fontSize:14,padding:"10px 12px"}}/>
+              </div>
+            )}
+
             {/* SparkPost region */}
             {apiDraft.provider==="sparkpost" && (
               <div style={{gridColumn:"1/-1"}}>
@@ -5384,7 +5466,7 @@ function TabMethod({
                 return;
               }
               if(apiDraft.provider==="mailjet" && !apiDraft.secret){
-                showPopup({title:"Secret Key Required",msg:"Mailjet requires both an API Key (public) and a Private Key (secret).",ico:"⚠️",type:"alert"});
+                showPopup({title:"Secret Key Required",msg:"Mailjet requires both an API Key and a Secret Key.",ico:"⚠️",type:"alert"});
                 return;
               }
               // Mailgun domain is now optional — auto-derived from FROM email at send time
