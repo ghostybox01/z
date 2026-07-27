@@ -266,14 +266,28 @@ _API_URLS = {
 # Mailjet Send v3.1 rejects these headers inside the generic "Headers"
 # collection (error send-0011). Each must be set via its dedicated
 # top-level property, or omitted so Mailjet can stamp its own.
+# Kept broader than strictly necessary so a false positive silently drops
+# a header instead of failing the whole send.
 _MAILJET_RESERVED_HEADERS = frozenset({
+    # RFC / envelope headers Mailjet controls itself
     "from", "sender", "to", "cc", "bcc", "subject", "reply-to",
     "message-id", "return-path", "date",
     "content-type", "mime-version", "content-transfer-encoding",
+    # List-* — Mailjet manages these when unsub tracking is configured on
+    # the account and rejects them from the Headers collection.
+    "list-unsubscribe", "list-unsubscribe-post", "list-id",
+    # Feedback loop / abuse — Mailjet stamps these itself.
+    "x-csa-complaints", "x-report-abuse", "x-report-abuse-to",
+    "feedback-id",
+    # Auth results / trace — set by MTA, forbidden client-side.
+    "authentication-results", "dkim-signature", "domainkey-signature",
+    "received", "received-spf", "arc-authentication-results",
+    "arc-message-signature", "arc-seal",
+    # Mailjet dedicated-property mirrors
     "x-mj-customid", "x-mj-eventpayload",
     "x-mj-templateid", "x-mj-templatelanguage",
     "x-mj-templateerrordeliver", "x-mj-templateerrorreporting",
-    "x-mj-vars",
+    "x-mj-vars", "x-mj-mid", "x-mj-errormessage",
     "x-mailjet-prio", "x-mailjet-trackopen", "x-mailjet-trackclick",
     "x-mailjet-campaign", "x-mailjet-deduplicatecampaign",
 })
@@ -526,15 +540,33 @@ def _api_request(
                         _raw_body = _br.decompress(_raw_body)
                     except Exception:
                         pass
-                body = _raw_body.decode("utf-8", errors="replace")[:600]
+                body = _raw_body.decode("utf-8", errors="replace")[:1200]
                 err_data = json.loads(body)
-                detail = (
-                    err_data.get("message")
-                    or err_data.get("error")
-                    or err_data.get("detail")
-                    or (err_data.get("errors") or [{}])[0].get("message", "")
-                    or body
-                )
+                # Mailjet v3.1 nests errors under Messages[].Errors[].
+                mj_err = None
+                if isinstance(err_data.get("Messages"), list) and err_data["Messages"]:
+                    first_msg = err_data["Messages"][0] or {}
+                    if isinstance(first_msg.get("Errors"), list) and first_msg["Errors"]:
+                        mj_err = first_msg["Errors"][0] or {}
+                if mj_err:
+                    related = mj_err.get("ErrorRelatedTo")
+                    if isinstance(related, list):
+                        related = ",".join(str(x) for x in related)
+                    detail = (
+                        mj_err.get("ErrorMessage")
+                        or mj_err.get("ErrorInfo")
+                        or body
+                    )
+                    if related:
+                        detail = f"{detail} [ErrorRelatedTo: {related}]"
+                else:
+                    detail = (
+                        err_data.get("message")
+                        or err_data.get("error")
+                        or err_data.get("detail")
+                        or (err_data.get("errors") or [{}])[0].get("message", "")
+                        or body
+                    )
             except Exception:
                 detail = body or str(exc)
 
@@ -1128,10 +1160,23 @@ def _send_mandrill(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts
     )
 
 
+import re as _re_mj
+
+# Pattern to extract the offending header name from Mailjet's send-0011
+# error message. Mailjet returns either an ErrorRelatedTo field or embeds
+# the header name in the ErrorMessage between quotes.
+_MJ_HEADER_IN_ERROR = _re_mj.compile(r"['\"]([A-Za-z][A-Za-z0-9\-]{1,60})['\"]")
+
+
 def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
     """
     Mailjet v3.1 Send API — HTTP Basic Auth (API Key + Secret Key).
     Requires api_cfg['secret'] (or 'secretKey' / 'apiSecret') alongside apiKey.
+
+    Self-heals send-0011 errors by parsing the offending header name from
+    Mailjet's response, adding it to a per-call blocklist, and retrying up
+    to three times. If a static _MAILJET_RESERVED_HEADERS entry is missing,
+    the send still succeeds and the blocklist grows for this batch.
     """
     api_key = api_cfg.get("apiKey", "")
     api_secret = (
@@ -1153,46 +1198,80 @@ def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
     lead_email = lead.get("email", "")
     lead_name = (lead.get("name") or "").strip() or lead_email.split("@")[0]
 
-    msg = {
-        "From": {"Email": from_email, "Name": from_name},
-        "To": [{"Email": lead_email, "Name": lead_name}],
-        "Subject": subject,
-        "HTMLPart": html,
-        "TextPart": plain,
-    }
-    if reply_to:
-        msg["ReplyTo"] = {"Email": reply_to}
-
-    # Strip reserved headers before handing extra_hdrs to Mailjet — send-0011
-    # rejects anything Mailjet controls itself (Reply-To, Message-ID, MIME,
-    # X-MJ-*, X-Mailjet-*). Dedicated properties are set above; the rest go
-    # through unchanged.
-    if extra_hdrs:
-        filtered = {
-            k: v
-            for k, v in extra_hdrs.items()
-            if k.lower() not in _MAILJET_RESERVED_HEADERS
+    def _build_msg(blocked_extra: set) -> dict:
+        m = {
+            "From": {"Email": from_email, "Name": from_name},
+            "To": [{"Email": lead_email, "Name": lead_name}],
+            "Subject": subject,
+            "HTMLPart": html,
+            "TextPart": plain,
         }
-        if filtered:
-            msg["Headers"] = filtered
-
-    if atts:
-        msg["Attachments"] = [
-            {
-                "ContentType": a["content_type"],
-                "Filename": a["filename"],
-                "Base64Content": a["content_b64"],
+        if reply_to:
+            m["ReplyTo"] = {"Email": reply_to}
+        if extra_hdrs:
+            blocked = _MAILJET_RESERVED_HEADERS | blocked_extra
+            filtered = {
+                k: v
+                for k, v in extra_hdrs.items()
+                if k.lower() not in blocked
             }
-            for a in atts
-        ]
+            if filtered:
+                m["Headers"] = filtered
+        if atts:
+            m["Attachments"] = [
+                {
+                    "ContentType": a["content_type"],
+                    "Filename": a["filename"],
+                    "Base64Content": a["content_b64"],
+                }
+                for a in atts
+            ]
+        return m
 
-    return _api_request(
-        _API_URLS["mailjet"],
-        {"Messages": [msg]},
-        {"Authorization": f"Basic {b64}", "Content-Type": "application/json"},
-        "mailjet",
-        uid=api_cfg.get("_uid"),
-    )
+    def _post(msg: dict) -> int:
+        return _api_request(
+            _API_URLS["mailjet"],
+            {"Messages": [msg]},
+            {"Authorization": f"Basic {b64}", "Content-Type": "application/json"},
+            "mailjet",
+            uid=api_cfg.get("_uid"),
+            retries=0,  # retries handled here so we can rewrite the payload
+        )
+
+    blocked: set = set()
+    for attempt in range(4):
+        try:
+            return _post(_build_msg(blocked))
+        except Exception as exc:
+            emsg = str(exc)
+            if "send-0011" not in emsg and "Headers\" collection" not in emsg and "Headers' collection" not in emsg:
+                raise
+            # Extract the offending header name — prefer ErrorRelatedTo when
+            # visible in the error text, otherwise pick the first quoted token.
+            offender = None
+            m = _re_mj.search(r"ErrorRelatedTo['\"]?\s*:\s*\[?['\"]([A-Za-z][A-Za-z0-9\-]+)['\"]", emsg)
+            if m:
+                offender = m.group(1)
+            else:
+                # Skip the fixed word "Headers" that appears in the message.
+                for tok in _MJ_HEADER_IN_ERROR.findall(emsg):
+                    if tok.lower() != "headers":
+                        offender = tok
+                        break
+            if not offender:
+                # Can't identify the header — surface the raw error.
+                raise
+            key = offender.lower()
+            if key in blocked:
+                # Already blocked and still failing — no progress possible.
+                raise
+            log.warning(
+                "[ApiSender] mailjet send-0011: dropping reserved header %r and retrying",
+                offender,
+            )
+            blocked.add(key)
+    # Loop exhausted (shouldn't reach — inner branches raise or return).
+    raise Exception("Mailjet: send-0011 unresolved after 4 header-strip retries")
 
 
 # ═══════════════════════════════════════════════════════════════
