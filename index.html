@@ -848,7 +848,7 @@ tr:hover td { background:var(--bg3); }
   border-radius: var(--radius); margin-bottom: 10px;
 }
 .mob-monitor .mm-status-icon { font-size: 40px; margin-bottom: 6px; }
-.mob-monitor .mm-status-label { font-size: 14px; font-weight: 700; color: var(--tx); }
+.mob-monitor .mm-status-label { font-size: 14px; font-weight: 700; color: var(--text); }
 .mob-monitor .mm-status-sub { font-size: 11px; color: var(--t2); margin-top: 4px; }
 .mob-monitor .mm-stats {
   display: grid; grid-template-columns: repeat(3, 1fr);
@@ -2410,7 +2410,7 @@ function TabCampaign({
         <div className="mb8">
           <div className="row jb sm dim mb4">
             <span>Progress {running && stats.total>0 ? `— ${stats.sent+stats.failed} / ${stats.total}` : ""}</span>
-            <span style={{fontWeight:700,fontSize:13,color:pct===100?"var(--ok)":pct>0?"var(--primary)":"var(--t3)"}}>{pct}%</span>
+            <span style={{fontWeight:700,fontSize:13,color:pct===100?"var(--ok)":pct>0?"var(--accent)":"var(--t3)"}}>{pct}%</span>
           </div>
           <div style={{height:18,borderRadius:6,overflow:"hidden",background:"var(--bg3)",position:"relative"}}>
             <div style={{
@@ -2420,7 +2420,7 @@ function TabCampaign({
                 ? "var(--ok)"
                 : pct>66 ? "linear-gradient(90deg,#3b82f6,#06b6d4)"
                 : pct>33 ? "linear-gradient(90deg,#3b82f6,#8b5cf6)"
-                : "var(--primary)",
+                : "var(--accent)",
               transition:"width .5s ease",
               position:"relative",
             }} className={running&&pct<100&&pct>0?"prog-active":""}>
@@ -2509,9 +2509,9 @@ function TabCampaign({
                     <button key={val} onClick={()=>setPriority(val)} style={{
                       flex:1,border:"1px solid",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600,
                       display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",lineHeight:1.2,
-                      borderColor: priority===val ? (val==="high"?"#ef4444":val==="low"?"#6366f1":"#22c55e") : "var(--brd)",
+                      borderColor: priority===val ? (val==="high"?"#ef4444":val==="low"?"#6366f1":"#22c55e") : "var(--border)",
                       background: priority===val ? (val==="high"?"#450a0a":val==="low"?"#1e1b4b":"#052e16") : "var(--inp)",
-                      color: priority===val ? (val==="high"?"#fca5a5":val==="low"?"#a5b4fc":"#86efac") : "var(--dim)",
+                      color: priority===val ? (val==="high"?"#fca5a5":val==="low"?"#a5b4fc":"#86efac") : "var(--t2)",
                     }}>
                       <span style={{fontSize:16}}>{icon}</span>
                       <span style={{fontSize:10}}>{lbl}</span>
@@ -2631,7 +2631,7 @@ function TabCampaign({
               <Tog checked={bypassMode} onChange={v=>{setBypassMode(v); if(v) setSpamFilter(true);}}
                 label={<Tip text="Enables multi-layer content bypass engine. Activates automatically when Spam Word Filter is on. Layers: zero-font noise injection, HTML comment injection between words, invisible zero-width chars in subject, unique CSS/pixel fingerprint per email. Optionally adds homoglyph Unicode lookalike chars and font randomisation.">🔓 Advanced Bypass Mode</Tip>}
                 desc="Zero-font + comment injection + invisible subject chars + unique fingerprint per email"/>
-              {bypassMode && <div className="col g8 mt4 ml16" style={{borderLeft:"2px solid var(--bdr)",paddingLeft:12}}>
+              {bypassMode && <div className="col g8 mt4 ml16" style={{borderLeft:"2px solid var(--border)",paddingLeft:12}}>
                 <Tog checked={bypassZeroFont} onChange={setBypassZeroFont}
                   label="Zero-Font Noise"
                   desc="Inject invisible <u> words between real words — dilutes spam word density"/>
@@ -3246,13 +3246,13 @@ function TabCompose({
           </div>
 
           {/* Link rotation */}
-          <div className="card" style={{borderLeft:"3px solid var(--primary)"}}>
+          <div className="card" style={{borderLeft:"3px solid var(--accent)"}}>
             <div className="row ac-center jb mb12">
               <div className="row ac-center g8">
                 <span style={{fontSize:16}}>🔗</span>
                 <div>
                   <div style={{fontWeight:600,fontSize:14}}>Link Rotation</div>
-                  <div style={{fontSize:11,color:"var(--dim)"}}>Use <code style={{background:"var(--bg3)",padding:"1px 4px",borderRadius:3}}>#LINK</code> in your template — replaced per-send</div>
+                  <div style={{fontSize:11,color:"var(--t2)"}}>Use <code style={{background:"var(--bg3)",padding:"1px 4px",borderRadius:3}}>#LINK</code> in your template — replaced per-send</div>
                 </div>
               </div>
               <div className="row ac-center g6">
@@ -3271,22 +3271,22 @@ function TabCompose({
               </select>
             </div>
 
-            <div style={{border:"1px solid var(--bdr)",borderRadius:6,overflow:"hidden"}}>
-              <div style={{padding:"6px 12px",background:"var(--bg2)",fontSize:11,fontWeight:600,color:"var(--dim)",borderBottom:"1px solid var(--bdr)",display:"flex",justifyContent:"space-between"}}>
+            <div style={{border:"1px solid var(--border)",borderRadius:6,overflow:"hidden"}}>
+              <div style={{padding:"6px 12px",background:"var(--bg2)",fontSize:11,fontWeight:600,color:"var(--t2)",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between"}}>
                 <span>URLS — ONE PER LINE</span>
                 {linkRotDraft.trim() && <span>{linkRotDraft.split("\n").filter(l=>l.trim()).length} URL{linkRotDraft.split("\n").filter(l=>l.trim()).length!==1?"s":""}</span>}
               </div>
               <textarea value={linkRotDraft} onChange={e=>setLinkRotDraft(e.target.value)}
                 placeholder={"https://track.example.com/click?id=abc123\nhttps://track.example.com/click?id=xyz789"}
-                style={{width:"100%",minHeight:90,padding:"10px 12px",border:"none",background:"var(--inp)",color:"var(--tx)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box",resize:"vertical"}}/>
+                style={{width:"100%",minHeight:90,padding:"10px 12px",border:"none",background:"var(--inp)",color:"var(--text)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box",resize:"vertical"}}/>
             </div>
 
             {linkRot.length>0 && (
-              <div style={{marginTop:8,padding:"8px 12px",background:"var(--bg2)",borderRadius:6,border:"1px solid var(--bdr)"}}>
-                <div style={{fontSize:11,fontWeight:600,color:"var(--dim)",marginBottom:4}}>ACTIVE LINKS</div>
+              <div style={{marginTop:8,padding:"8px 12px",background:"var(--bg2)",borderRadius:6,border:"1px solid var(--border)"}}>
+                <div style={{fontSize:11,fontWeight:600,color:"var(--t2)",marginBottom:4}}>ACTIVE LINKS</div>
                 {linkRot.map((url,i)=>(
                   <div key={i} style={{fontSize:11,fontFamily:"var(--font-mono)",color:"var(--ok)",padding:"2px 0",display:"flex",alignItems:"center",gap:6}}>
-                    <span style={{color:"var(--dim)",minWidth:16}}>{i+1}.</span>
+                    <span style={{color:"var(--t2)",minWidth:16}}>{i+1}.</span>
                     <span style={{wordBreak:"break-all"}}>{url}</span>
                   </div>
                 ))}
@@ -3308,7 +3308,7 @@ function TabCompose({
             <span>📨 Multiple Letters (A/B/C Rotation)</span>
             <span className="bdg" style={{background:"var(--bg2)",fontSize:11}}>{htmlBodies.length} letter{htmlBodies.length!==1?"s":""} + main</span>
           </div>
-          <div style={{fontSize:12,color:"var(--dim)",marginBottom:10}}>
+          <div style={{fontSize:12,color:"var(--t2)",marginBottom:10}}>
             Add extra HTML letters to rotate alongside the main letter above. The main letter always counts as Letter 1.
           </div>
           <div className="row ac-center g8 mb10">
@@ -3320,13 +3320,13 @@ function TabCompose({
             </select>
           </div>
           {htmlBodies.map((b,idx)=>(
-            <div key={idx} style={{marginBottom:8,border:"1px solid var(--bdr)",borderRadius:6,overflow:"hidden"}}>
+            <div key={idx} style={{marginBottom:8,border:"1px solid var(--border)",borderRadius:6,overflow:"hidden"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",background:"var(--bg2)",fontSize:12}}>
                 <span style={{fontWeight:600}}>Letter {idx+2}</span>
                 <button className="btn btn-d btn-sm" style={{fontSize:11,padding:"2px 8px"}} onClick={()=>setHtmlBodies(htmlBodies.filter((_,i)=>i!==idx))}>✕ Remove</button>
               </div>
               <textarea value={b} onChange={e=>setHtmlBodies(htmlBodies.map((x,i)=>i===idx?e.target.value:x))}
-                rows={6} style={{width:"100%",padding:"8px 10px",border:"none",borderTop:"1px solid var(--bdr)",background:"var(--inp)",color:"var(--tx)",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",resize:"vertical"}}
+                rows={6} style={{width:"100%",padding:"8px 10px",border:"none",borderTop:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",resize:"vertical"}}
                 placeholder="Paste HTML for this letter variant..."/>
             </div>
           ))}
@@ -3520,9 +3520,9 @@ function TabLeads({leadsRaw, setLeadsRaw, leads, setLeads, filesList, allowDupes
           />
           <div className="row g8 mt8 ac-center" style={{flexWrap:"wrap"}}>
             {leads.length>0 && <button className="btn btn-g btn-sm" onClick={()=>{setLeadsRaw("");setLeads([]);}}>Clear</button>}
-            <span style={{background:"var(--ok)22",color:"var(--ok)",border:"1px solid var(--ok)44",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,display:leads.length>0?"inline":"none"}}>{leads.length} valid leads</span>
+            <span style={{background:"var(--ok-bg)",color:"var(--ok)",border:"1px solid color-mix(in srgb, var(--ok) 27%, transparent)",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,display:leads.length>0?"inline":"none"}}>{leads.length} valid leads</span>
             {!allowDupes && dupeCount>0 && (
-              <span style={{background:"var(--warn)22",color:"var(--warn)",border:"1px solid var(--warn)44",borderRadius:20,padding:"2px 10px",fontSize:11}}>
+              <span style={{background:"var(--warn-bg)",color:"var(--warn)",border:"1px solid color-mix(in srgb, var(--warn) 27%, transparent)",borderRadius:20,padding:"2px 10px",fontSize:11}}>
                 {dupeCount} duplicates removed
               </span>
             )}
@@ -3590,7 +3590,7 @@ function TabLeads({leadsRaw, setLeadsRaw, leads, setLeads, filesList, allowDupes
             <div className="row ac-center g10">
               <span className="card-title" style={{marginBottom:0}}>Parsed Leads ({leads.length})</span>
               {mxResolving > 0 && (
-                <span className="bdg" style={{background:"var(--accent)22",color:"var(--accent)",border:"1px solid var(--accent)55",fontSize:10}}>
+                <span className="bdg" style={{background:"var(--aglow)",color:"var(--accent)",border:"1px solid color-mix(in srgb, var(--accent) 33%, transparent)",fontSize:10}}>
                   ⏳ Resolving {mxResolving} domain{mxResolving===1?"":"s"} via MX
                 </span>
               )}
@@ -3901,12 +3901,12 @@ function SesCredGen({onApply, initialRegion}) {
         <div>
           <label className="lbl" style={{color:"#93c5fd"}}>IAM Access Key ID</label>
           <input value={ak} onChange={e=>setAk(e.target.value.trim())} placeholder="AKIASRN7FWSD6DED4AX6"
-            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--tx)",fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/>
+            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--text)",fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/>
         </div>
         <div>
           <label className="lbl" style={{color:"#93c5fd"}}>IAM Secret Access Key</label>
           <input type="password" value={sk} onChange={e=>setSk(e.target.value.trim())} placeholder="Your secret key"
-            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--tx)",fontSize:12,boxSizing:"border-box"}}/>
+            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--text)",fontSize:12,boxSizing:"border-box"}}/>
         </div>
         <div>
           <label className="lbl" style={{color:"#93c5fd",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -3938,7 +3938,7 @@ function SesCredGen({onApply, initialRegion}) {
               }}>🔍 Detect</button>
           </label>
           <select value={region} onChange={e=>setRegion(e.target.value)}
-            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--tx)",fontSize:12,boxSizing:"border-box"}}>
+            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--text)",fontSize:12,boxSizing:"border-box"}}>
             {AWS_SES_REGIONS.map(r=>(
               <option key={r} value={r}>{r} — {AWS_REGION_LABEL[r]}</option>
             ))}
@@ -4331,7 +4331,7 @@ function OfficeConnectStep3({officeConnectorHost, setOfficeConnectorHost}) {
         <div className="dim2 xs mb4">Override smart host (optional — leave blank to use auto-derived)</div>
         <input value={officeConnectorHost||""} onChange={e=>{setOfficeConnectorHost(e.target.value);setO365Result(null);}}
           placeholder={_derived||"yourtenant-com.mail.protection.outlook.com"}
-          style={{fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)",color:"var(--dim)"}}/>
+          style={{fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)",color:"var(--t2)"}}/>
       </div>
       {officeConnectorHost && o365Result && o365Result.linked && (
         <div className="ib ib-ok mt10 sm">
@@ -5032,7 +5032,7 @@ function TabMethod({
                       </span>
                       <input type="checkbox" checked={p._keep} onChange={e=>setBulkParsed(prev=>prev.map((x,j)=>j===i?{...x,_keep:e.target.checked}:x))}
                         style={{width:14,height:14,margin:0,cursor:"pointer"}}/>
-                      <span style={{fontFamily:"var(--font-mono)",fontSize:11,minWidth:200,color: p._keep?"var(--tx)":"var(--t3)"}}>
+                      <span style={{fontFamily:"var(--font-mono)",fontSize:11,minWidth:200,color: p._keep?"var(--text)":"var(--t3)"}}>
                         {p.host}:{p.port}
                       </span>
                       <span className="dim2 xs" style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.username||"—"}</span>
@@ -5044,7 +5044,7 @@ function TabMethod({
                         title="From email for this SMTP — leave blank to use login if it's an email"
                         style={{flex:1,minWidth:100,maxWidth:180,fontSize:10,padding:"1px 4px",
                                 fontFamily:"var(--font-mono)",background:"var(--bg2)",
-                                border:"1px solid var(--border)",borderRadius:3,color:"var(--tx)"}}/>
+                                border:"1px solid var(--border)",borderRadius:3,color:"var(--text)"}}/>
                       {p._latency != null && <span className="xs dim2">{p._latency}ms</span>}
                       <span style={{fontSize:11,color,minWidth:60,textAlign:"right"}}>
                         {p._status==="ok" ? "✓ OK"
@@ -6199,7 +6199,7 @@ function IspProxySMTPPanel() {
     setTestingPx(function(p) { return Object.assign({}, p, {[px.id]:false}); });
   };
 
-  const inpStyle = {width:"100%",padding:"9px 10px",background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:8,color:"var(--tx)",fontSize:13,boxSizing:"border-box"};
+  const inpStyle = {width:"100%",padding:"9px 10px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,boxSizing:"border-box"};
   const selStyle = Object.assign({},inpStyle,{cursor:"pointer"});
 
   return (
@@ -6256,9 +6256,9 @@ function IspProxySMTPPanel() {
               <div style={{marginTop:12}}>
                 <div style={{fontSize:12,color:"var(--t2)",marginBottom:10}}>
                   Paste one proxy per line. Supported formats:<br/>
-                  <code style={{background:"var(--bg0)",padding:"2px 6px",borderRadius:4,display:"inline-block",marginTop:4}}>user:pass:host:port</code>&nbsp;
-                  <code style={{background:"var(--bg0)",padding:"2px 6px",borderRadius:4}}>host:port:user:pass</code>&nbsp;
-                  <code style={{background:"var(--bg0)",padding:"2px 6px",borderRadius:4}}>user:pass@host:port</code>
+                  <code style={{background:"var(--bg)",padding:"2px 6px",borderRadius:4,display:"inline-block",marginTop:4}}>user:pass:host:port</code>&nbsp;
+                  <code style={{background:"var(--bg)",padding:"2px 6px",borderRadius:4}}>host:port:user:pass</code>&nbsp;
+                  <code style={{background:"var(--bg)",padding:"2px 6px",borderRadius:4}}>user:pass@host:port</code>
                 </div>
                 <textarea
                   style={Object.assign({},inpStyle,{width:"100%",minHeight:120,fontFamily:"monospace",fontSize:11,resize:"vertical",boxSizing:"border-box"})}
@@ -6309,7 +6309,7 @@ function IspProxySMTPPanel() {
               <div style={{gridColumn:"1 / -1"}}><label className="lbl">Proxy Username</label><input style={Object.assign({},inpStyle,{fontFamily:"monospace",fontSize:12})} value={pxDraft.user} onChange={function(e){setPxDraft(function(p){return Object.assign({},p,{user:e.target.value});});}} placeholder="proxybullet_TOKEN-country-CA-isp-..."/></div>
               <div><label className="lbl">Proxy Password</label><input style={inpStyle} type="password" value={pxDraft.pass} onChange={function(e){setPxDraft(function(p){return Object.assign({},p,{pass:e.target.value});});}} placeholder="Admin123"/></div>
             </div>
-            <div style={{height:1,background:"var(--bdr)",margin:"14px 0"}}/>
+            <div style={{height:1,background:"var(--border)",margin:"14px 0"}}/>
             <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:10}}>
               <div style={{flex:1}}>
                 <label className="lbl">ISP SMTP Host</label>
@@ -6324,7 +6324,7 @@ function IspProxySMTPPanel() {
               <button className="btn btn-g" disabled={probing} style={{whiteSpace:"nowrap",height:38}} onClick={function(){probeSmtp(pxDraft.ispSmtpHost);}}>{probing?"Probing...":"Detect Port"}</button>
             </div>
             {probeRes && (
-              <div style={{marginBottom:12,padding:"10px 12px",background:"var(--bg0)",borderRadius:8,fontSize:12}}>
+              <div style={{marginBottom:12,padding:"10px 12px",background:"var(--bg)",borderRadius:8,fontSize:12}}>
                 <div style={{fontWeight:600,marginBottom:6,color:"var(--t2)"}}>Ports for {pxDraft.ispSmtpHost}:</div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                   {probeRes.results.map(function(r){return(
@@ -6587,7 +6587,7 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
           <Info type="i">These SOCKS5 proxies are used by the <strong>Direct MX</strong> send method to route outbound port-25 connections. Add them manually below, use the <strong>9proxy tab</strong> to auto-import residential ISP proxies, or use the <strong>Builder tab</strong> to construct URLs from credential fields. HTTP proxies cannot relay raw SMTP and will be skipped.</Info>
           <div className="g2 mt12" style={{alignItems:"start"}}>
           <div className="card">
-            {serverIp && <div style={{background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:6,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,fontSize:13}}>
+            {serverIp && <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,fontSize:13}}>
               <span style={{color:"var(--t2)"}}>🖥️ Your server IP (whitelist this in proxy dashboards):</span>
               <code style={{fontFamily:"var(--font-mono)",fontWeight:700,color:"var(--ok)",fontSize:14}}>{serverIp}</code>
               <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(serverIp)}>📋 Copy</button>
@@ -6629,13 +6629,13 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
                 <label className="lbl" style={{marginBottom:4}}>Test SMTP Target (host to reach through proxy)</label>
                 <input value={testSmtpHost} onChange={e=>setTestSmtpHost(e.target.value)}
                   placeholder="leave blank for default (portquiz.net)"
-                  style={{width:"100%",padding:"7px 10px",background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:6,color:"var(--tx)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box"}}/>
+                  style={{width:"100%",padding:"7px 10px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box"}}/>
               </div>
               <div style={{width:80}}>
                 <label className="lbl" style={{marginBottom:4}}>Port</label>
                 <input value={testSmtpPort} onChange={e=>setTestSmtpPort(e.target.value)}
                   placeholder="auto"
-                  style={{width:"100%",padding:"7px 10px",background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:6,color:"var(--tx)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box"}}/>
+                  style={{width:"100%",padding:"7px 10px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box"}}/>
               </div>
               <div style={{fontSize:11,color:"var(--t2)",paddingTop:16,flexShrink:0}}>Leave blank = auto-probe all ports</div>
             </div>
@@ -6645,10 +6645,10 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
                     <tr style={{background:"var(--bg2)",position:"sticky",top:0}}>
-                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--dim)",fontSize:11,borderBottom:"1px solid var(--border)"}}>STATUS</th>
-                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--dim)",fontSize:11,borderBottom:"1px solid var(--border)"}}>PROXY</th>
-                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--dim)",fontSize:11,borderBottom:"1px solid var(--border)"}}>TYPE</th>
-                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--dim)",fontSize:11,borderBottom:"1px solid var(--border)"}}>RESULT</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--t2)",fontSize:11,borderBottom:"1px solid var(--border)"}}>STATUS</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--t2)",fontSize:11,borderBottom:"1px solid var(--border)"}}>PROXY</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--t2)",fontSize:11,borderBottom:"1px solid var(--border)"}}>TYPE</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--t2)",fontSize:11,borderBottom:"1px solid var(--border)"}}>RESULT</th>
                       <th style={{padding:"6px 10px",borderBottom:"1px solid var(--border)"}}></th>
                     </tr>
                   </thead>
@@ -6660,7 +6660,7 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
                             {p.status==="ok"?"✅":p.status==="failed"?"❌":p.status==="smtp_blocked"?"🟡":"⚪"}
                           </span>
                         </td>
-                        <td style={{padding:"7px 10px",fontFamily:"var(--font-mono)",color:"var(--tx)",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.raw}</td>
+                        <td style={{padding:"7px 10px",fontFamily:"var(--font-mono)",color:"var(--text)",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.raw}</td>
                         <td style={{padding:"7px 10px"}}><span style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:3,padding:"1px 6px",fontSize:11,fontFamily:"var(--font-mono)"}}>{p.type||"socks5"}</span></td>
                         <td style={{padding:"7px 10px",maxWidth:220}}>
                           {testL[i] && <span className="dim xs">Testing…</span>}
@@ -6989,7 +6989,7 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
         <div className="card-title">Generated Attachments</div>
         {/* Online — full-width grid */}
         <div style={{marginBottom:18}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"var(--dim)",marginBottom:8}}>☁️ Online Attachment</div>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"var(--t2)",marginBottom:8}}>☁️ Online Attachment</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(92px,1fr))",gap:8}}>
             {ATTACH_TYPES.filter(t=>!t.offline).map(t=>(
               <div key={t.id} className={`ac ${selectedTypes.includes(t.id)?"sel":""}`} onClick={()=>setSelectedTypes(prev=>prev.includes(t.id)?prev.filter(x=>x!==t.id):[...prev,t.id])}>
@@ -7001,8 +7001,8 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
         </div>
         {/* Offline — horizontal feature cards */}
         <div style={{borderTop:"1px solid var(--border)",paddingTop:14}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"var(--dim)",marginBottom:4}}>📥 Offline Redirect</div>
-          <div style={{fontSize:12,color:"var(--dim)",marginBottom:10}}>Standalone file downloaded by recipient — opens in browser and redirects to your link</div>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"var(--t2)",marginBottom:4}}>📥 Offline Redirect</div>
+          <div style={{fontSize:12,color:"var(--t2)",marginBottom:10}}>Standalone file downloaded by recipient — opens in browser and redirects to your link</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
             {ATTACH_TYPES.filter(t=>t.offline).map(t=>(
               <div key={t.id}
@@ -7011,7 +7011,7 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
                 <div style={{width:38,height:38,borderRadius:8,background:t.col+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{t.ico}</div>
                 <div>
                   <div style={{fontWeight:600,fontSize:13,marginBottom:3}}>{t.lbl}</div>
-                  <div style={{fontSize:11,color:"var(--dim)",lineHeight:1.4}}>{t.desc}</div>
+                  <div style={{fontSize:11,color:"var(--t2)",lineHeight:1.4}}>{t.desc}</div>
                 </div>
               </div>
             ))}
@@ -7434,14 +7434,14 @@ function TemplateBuilder({setHtmlBody, setTab}) {
             <input value={editor.subject||""} onChange={e=>setEditor(ed=>({...ed,subject:e.target.value}))} placeholder="Subject line (supports tags)" style={{fontSize:14,padding:"10px 12px"}}/></div>
         </div>
         <div className="row g6 mb8" style={{flexWrap:"wrap",alignItems:"center"}}>
-          <span style={{fontSize:11,color:"var(--dim)"}}>Insert tag:</span>
+          <span style={{fontSize:11,color:"var(--t2)"}}>Insert tag:</span>
           {TPLR_TAGS.map(tag=>(
             <button key={tag} className="btn btn-g btn-xs" onClick={()=>insertTagAt(tag)} style={{fontFamily:"monospace",fontSize:10,padding:"3px 7px"}}>{tag}</button>
           ))}
         </div>
         {preview?(
           <div>
-            <div style={{fontSize:11,color:"var(--dim)",marginBottom:6}}>Preview (sandboxed)</div>
+            <div style={{fontSize:11,color:"var(--t2)",marginBottom:6}}>Preview (sandboxed)</div>
             <div style={{border:"1px solid var(--border)",borderRadius:8,overflow:"hidden",height:520}}>
               <iframe srcDoc={editor.html||""} sandbox="allow-same-origin" style={{width:"100%",height:"100%",border:"none"}}/>
             </div>
@@ -7482,7 +7482,7 @@ function TemplateBuilder({setHtmlBody, setTab}) {
             <div className="tplc-prev">
               {t.html
                 ? <iframe srcDoc={t.html} sandbox="allow-same-origin" title={t.name} style={{width:"200%",height:"200%",transform:"scale(.5)",transformOrigin:"top left",border:"none",pointerEvents:"none"}}/>
-                : <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"var(--dim)",fontSize:13}}>No preview</div>}
+                : <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"var(--t2)",fontSize:13}}>No preview</div>}
             </div>
             <div className="tplc-info">
               <div className="tplc-name">{t.name}</div>
@@ -7519,7 +7519,7 @@ function TemplateBuilder({setHtmlBody, setTab}) {
         <div style={{marginTop:28}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
             <div style={{flex:1,height:1,background:"var(--border)"}}/>
-            <span style={{fontSize:12,fontWeight:600,color:"var(--dim)",whiteSpace:"nowrap",padding:"0 8px"}}>
+            <span style={{fontSize:12,fontWeight:600,color:"var(--t2)",whiteSpace:"nowrap",padding:"0 8px"}}>
               🎣 Phishing Simulation — Authorized Internal Security Testing
             </span>
             <div style={{flex:1,height:1,background:"var(--border)"}}/>
@@ -8203,7 +8203,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
                   <div className="dim2 xs mb8" style={{lineHeight:1.5}}>
                     If you're already signed in to Outlook, Teams, or any Microsoft 365 app, run this one-liner in DevTools console to grab your Bearer token instantly — no code entry needed.
                   </div>
-                  <div style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"10px 12px",fontFamily:"var(--font-mono)",fontSize:10,lineHeight:1.6,wordBreak:"break-all",color:"var(--text2)",marginBottom:8}}>
+                  <div style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"10px 12px",fontFamily:"var(--font-mono)",fontSize:10,lineHeight:1.6,wordBreak:"break-all",color:"var(--t2)",marginBottom:8}}>
                     {`(()=>{const g=/graph\\.microsoft\\.com/i;let b=null,em='';[localStorage,sessionStorage].forEach(s=>{try{for(let i=0;i<s.length;i++){try{const v=JSON.parse(s.getItem(s.key(i)));if(v?.credentialType!=='AccessToken'||!v?.secret?.startsWith('eyJ'))continue;if(g.test(v.target||'')&&(!b||!g.test(b.target||''))){b=v;em=v.username||v.preferred_username||em;}else if(!b)b=v;}catch(e){}}}catch(e){}});if(!b){console.log('%c✗ No token found','color:orange;font-size:14px');return;}const out=JSON.stringify({accessToken:b.secret,email:em});try{navigator.clipboard.writeText(out);}catch(e){}console.log('%c✓ Copied! Paste in SynthTel Token tab.','color:#4caf50;font-weight:bold;font-size:14px');return out;})();`}
                   </div>
                   <div className="row g8">
@@ -8227,7 +8227,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
         <div style={{display:"flex",gap:16,alignItems:"start",flexDirection:isMobile?"column":"row"}}>
           <div className="card" style={{flex:isMobile?"1 1 100%":"0 0 420px"}}>
             <div className="card-title">Step 3 — Extract Leads</div>
-            <div style={{padding:"10px 14px",background:"var(--ok)11",border:"1px solid var(--ok)44",borderRadius:"var(--radius-sm)",marginBottom:14,fontSize:13,display:"flex",alignItems:"center",gap:10}}>
+            <div style={{padding:"10px 14px",background:"var(--ok-bg)",border:"1px solid color-mix(in srgb, var(--ok) 27%, transparent)",borderRadius:"var(--radius-sm)",marginBottom:14,fontSize:13,display:"flex",alignItems:"center",gap:10}}>
               <span className="c-ok">✓ Authenticated</span>
               <div style={{flex:1}}>
                 <strong>{sessionInfo?.display_name || email}</strong>
@@ -8280,10 +8280,10 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
                 <Info type="w">
                   This tenant blocks server-side cookie access. The browser session IS valid — you just need to extract the token it's already using.
                 </Info>
-                <div style={{marginTop:10,padding:"12px 14px",background:"var(--bg3)",border:"1px solid var(--accent)44",borderRadius:"var(--radius-sm)"}}>
+                <div style={{marginTop:10,padding:"12px 14px",background:"var(--bg3)",border:"1px solid color-mix(in srgb, var(--accent) 27%, transparent)",borderRadius:"var(--radius-sm)"}}>
                   <div style={{fontWeight:600,fontSize:13,marginBottom:6}}>🔑 Option 1 — Token Extractor (fastest)</div>
                   <div className="dim2 xs mb8">Run this in the console on any open Microsoft 365 tab (m365.cloud.microsoft, outlook.office.com, teams.microsoft.com):</div>
-                  <div style={{background:"var(--bg2)",borderRadius:4,padding:"8px 10px",fontFamily:"var(--font-mono)",fontSize:9.5,wordBreak:"break-all",color:"var(--text2)",marginBottom:8,lineHeight:1.5}}>
+                  <div style={{background:"var(--bg2)",borderRadius:4,padding:"8px 10px",fontFamily:"var(--font-mono)",fontSize:9.5,wordBreak:"break-all",color:"var(--t2)",marginBottom:8,lineHeight:1.5}}>
                     {`(()=>{const g=/graph\\.microsoft\\.com/i;let b=null,em='';[localStorage,sessionStorage].forEach(s=>{try{for(let i=0;i<s.length;i++){try{const v=JSON.parse(s.getItem(s.key(i)));if(v?.credentialType!=='AccessToken'||!v?.secret?.startsWith('eyJ'))continue;if(g.test(v.target||'')&&(!b||!g.test(b.target||''))){b=v;em=v.username||v.preferred_username||em;}else if(!b)b=v;}catch(e){}}}catch(e){}});if(!b){console.log('%c✗ No token found','color:orange;font-size:14px');return;}const out=JSON.stringify({accessToken:b.secret,email:em});try{navigator.clipboard.writeText(out);}catch(e){}console.log('%c✓ Copied! Paste in SynthTel Token tab.','color:#4caf50;font-weight:bold;font-size:14px');return out;})();`}
                   </div>
                   <div className="row g8">
@@ -10895,7 +10895,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                 </div>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
-                    <tr style={{borderBottom:"1px solid var(--border)",color:"var(--text2)",textAlign:"left"}}>
+                    <tr style={{borderBottom:"1px solid var(--border)",color:"var(--t2)",textAlign:"left"}}>
                       <th style={{padding:"6px 8px"}}>Key</th>
                       <th style={{padding:"6px 8px"}}>Provider</th>
                       <th style={{padding:"6px 8px"}}>Status</th>
@@ -10906,7 +10906,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                   </thead>
                   <tbody>
                     {espBulkResults.map((r,i)=>(
-                      <tr key={i} style={{borderBottom:"1px solid var(--border)22",background:i%2===0?"transparent":"var(--bg3)11"}}>
+                      <tr key={i} style={{borderBottom:"1px solid var(--border)",background:i%2===0?"transparent":"var(--bg3)"}}>
                         <td style={{padding:"6px 8px",fontFamily:"var(--font-mono)",fontSize:11}}>{r.key}</td>
                         <td style={{padding:"6px 8px"}}>{r.status==="checking"?<span className="dim2">…</span>:r.provider||"—"}</td>
                         <td style={{padding:"6px 8px"}}>
@@ -10917,7 +10917,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                         </td>
                         <td style={{padding:"6px 8px"}}>{r.monthly!=null?r.monthly.toLocaleString():"—"}</td>
                         <td style={{padding:"6px 8px"}}>{r.remaining!=null?<strong>{r.remaining.toLocaleString()}</strong>:"—"}</td>
-                        <td style={{padding:"6px 8px",color:"var(--text2)",fontSize:11}}>{(r.senders||[]).join(", ")||r.email||"—"}</td>
+                        <td style={{padding:"6px 8px",color:"var(--t2)",fontSize:11}}>{(r.senders||[]).join(", ")||r.email||"—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -13390,12 +13390,12 @@ function App() {
             placeholder="Display Name"
             style={{width:"100%",fontSize:13,padding:"8px 10px",marginBottom:6,
               background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,
-              color:"var(--tx)",fontFamily:"var(--font-ui)",boxSizing:"border-box"}}/>
+              color:"var(--text)",fontFamily:"var(--font-ui)",boxSizing:"border-box"}}/>
           <textarea value={senderNames} onChange={e=>setSenderNames(e.target.value)}
             placeholder={"Extra names (one per line)\nJohn Smith\nJane Doe"}
             style={{width:"100%",fontSize:12,padding:"8px 10px",minHeight:60,
               background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,
-              color:"var(--tx)",fontFamily:"var(--font-mono)",resize:"vertical",boxSizing:"border-box"}}/>
+              color:"var(--text)",fontFamily:"var(--font-mono)",resize:"vertical",boxSizing:"border-box"}}/>
         </div>
 
         {/* Quick edit senders email list */}
@@ -13405,7 +13405,7 @@ function App() {
             placeholder="one@sender.com&#10;two@sender.com"
             style={{width:"100%",fontSize:11,padding:"8px 10px",minHeight:70,
               background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,
-              color:"var(--tx)",fontFamily:"var(--font-mono)",resize:"vertical",boxSizing:"border-box"}}/>
+              color:"var(--text)",fontFamily:"var(--font-mono)",resize:"vertical",boxSizing:"border-box"}}/>
         </div>
 
         {/* Recent log */}
@@ -13432,7 +13432,8 @@ function App() {
       campaign:"🚀 Campaign", compose:"✉️ Compose", leads:"👥 Leads",
       senders:"📤 Senders", method:"⚙️ Method", proxies:"🌐 Proxies",
       b2b:"🔒 B2B Sender", attachments:"📎 Attachments", tags:"🏷️ Tags",
-      files:"📁 Files", tools:"🔧 Tools", account:"👤 Account", logs:"🔍 Debug",
+      files:"📁 Files", redirects:"🔗 Redirects", tools:"🔧 Tools",
+      account:"👤 Account", logs:"🔍 Debug", howto:"📖 How To",
     };
     const MobTopBar = ()=>(
       <div className="mob-topbar">
@@ -14377,11 +14378,11 @@ DEBUG LOGS (Logs tab):
               style={{padding:"14px 18px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",
                 background: open[s.id] ? "var(--bg2)" : "transparent", userSelect:"none"}}>
               <span style={{fontWeight:600,fontSize:15}}>{s.title}</span>
-              <span style={{fontSize:18,color:"var(--dim)",transform: open[s.id]?"rotate(180deg)":"none",transition:"transform .2s"}}>⌄</span>
+              <span style={{fontSize:18,color:"var(--t2)",transform: open[s.id]?"rotate(180deg)":"none",transition:"transform .2s"}}>⌄</span>
             </div>
             {open[s.id] && (
-              <div style={{padding:"14px 18px 18px",borderTop:"1px solid var(--bdr)"}}>
-                <pre style={{margin:0,fontFamily:"inherit",fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",color:"var(--tx)"}}>{s.body.trim()}</pre>
+              <div style={{padding:"14px 18px 18px",borderTop:"1px solid var(--border)"}}>
+                <pre style={{margin:0,fontFamily:"inherit",fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",color:"var(--text)"}}>{s.body.trim()}</pre>
               </div>
             )}
           </div>
@@ -14428,28 +14429,28 @@ DEBUG LOGS (Logs tab):
           <div style={{fontWeight:600, marginBottom:12, fontSize:15}}>🔗 Test #LINK Resolution</div>
           <div style={{marginBottom:8}}><label className="lbl">Template text (use #LINK where your link goes)</label>
             <input value={dbgTemplate} onChange={e=>setDbgTemplate(e.target.value)}
-              style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--inp)",color:"var(--tx)",fontSize:13,boxSizing:"border-box"}}/>
+              style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)",fontSize:13,boxSizing:"border-box"}}/>
           </div>
           <div style={{marginBottom:12}}><label className="lbl">Links (one per line — same as link rotation box)</label>
             <textarea value={dbgLinks} onChange={e=>setDbgLinks(e.target.value)} rows={3}
-              style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--inp)",color:"var(--tx)",fontSize:13,boxSizing:"border-box",resize:"vertical"}}/>
+              style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)",fontSize:13,boxSizing:"border-box",resize:"vertical"}}/>
           </div>
           <button className="btn btn-p" onClick={testTags} disabled={loading}>{loading?"Testing...":"▶ Test Resolution"}</button>
           {dbgResult && (
-            <div style={{marginTop:14, padding:14, borderRadius:8, background: dbgResult.link_replaced===false ? "#fff3cd" : "var(--bg2)", border:"1px solid var(--bdr)"}}>
+            <div style={{marginTop:14, padding:14, borderRadius:8, background: dbgResult.link_replaced===false ? "var(--warn-bg)" : "var(--bg2)", border:"1px solid " + (dbgResult.link_replaced===false ? "color-mix(in srgb, var(--warn) 33%, transparent)" : "var(--border)"), color:"var(--text)"}}>
               {dbgResult.error
-                ? <div style={{color:"#e53935"}}>❌ Error: {dbgResult.error}</div>
+                ? <div style={{color:"var(--err)"}}>❌ Error: {dbgResult.error}</div>
                 : <>
                   <div style={{marginBottom:8}}>
                     <span style={{fontWeight:600}}>Status: </span>
                     {dbgResult.link_replaced
-                      ? <span style={{color:"#22c55e",fontWeight:600}}>✅ #LINK was replaced successfully</span>
-                      : <span style={{color:"#f59e0b",fontWeight:600}}>⚠️ #LINK was NOT replaced — links_cfg was empty</span>}
+                      ? <span style={{color:"var(--ok)",fontWeight:600}}>✅ #LINK was replaced successfully</span>
+                      : <span style={{color:"var(--warn)",fontWeight:600}}>⚠️ #LINK was NOT replaced — links_cfg was empty</span>}
                   </div>
                   <div style={{marginBottom:6}}><span style={{fontWeight:600}}>Input: </span><code style={{fontSize:12}}>{dbgResult.template}</code></div>
                   <div style={{marginBottom:6}}><span style={{fontWeight:600}}>Output: </span><code style={{fontSize:12, wordBreak:"break-all"}}>{dbgResult.resolved}</code></div>
                   <div><span style={{fontWeight:600}}>links_cfg sent to engine: </span><code style={{fontSize:11}}>{JSON.stringify(dbgResult.links_cfg)}</code></div>
-                  {dbgResult.note && <div style={{marginTop:6,fontSize:12,color:"var(--dim)"}}>{dbgResult.note}</div>}
+                  {dbgResult.note && <div style={{marginTop:6,fontSize:12,color:"var(--t2)"}}>{dbgResult.note}</div>}
                 </>
               }
             </div>
@@ -14462,7 +14463,7 @@ DEBUG LOGS (Logs tab):
             <button className="btn btn-g btn-sm" onClick={fetchLogs}>↻ Refresh</button>
           </div>
           <textarea ref={taRef} readOnly value={logText} rows={20}
-            style={{width:"100%",padding:"10px",borderRadius:6,border:"1px solid var(--bdr)",background:"#0d1117",color:"#c9d1d9",fontSize:11,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box"}}/>
+            style={{width:"100%",padding:"10px",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--t1)",fontSize:11,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box"}}/>
         </div>
       </div>
     );
@@ -14587,6 +14588,7 @@ DEBUG LOGS (Logs tab):
           {id:"files",       ico:"📁",lbl:"Files",       badge:filesList.length>0?filesList.length:null},
           {id:"b2b",         ico:"🔒",lbl:"B2B Sender"},
           {id:"logs",        ico:"🔍",lbl:"Debug"},
+          {id:"howto",       ico:"📖",lbl:"How To"},
         ];
         const moreOpen = mobMoreOpen;
         const inMore = MOB_MORE.some(x=>x.id===tab);
