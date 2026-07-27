@@ -259,6 +259,7 @@ _API_URLS = {
     "sparkpost": "https://api.sparkpost.com/api/v1/transmissions",
     "ses": "https://email.{region}.amazonaws.com/v2/email/outbound-emails",
     "mandrill": "https://mandrillapp.com/api/1.0/messages/send.json",
+    "mailjet": "https://api.mailjet.com/v3.1/send",
     # mailgun: endpoint built dynamically from domain field
 }
 
@@ -1112,6 +1113,60 @@ def _send_mandrill(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts
     )
 
 
+def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
+    """
+    Mailjet v3.1 Send API — uses Basic Auth (API key + Secret key).
+    Requires api_cfg['secret'] or api_cfg['secretKey'] alongside apiKey.
+    """
+    import base64
+
+    api_key = api_cfg.get("apiKey", "")
+    api_secret = (
+        api_cfg.get("secret") or api_cfg.get("secretKey") or api_cfg.get("apiSecret") or ""
+    ).strip()
+    if not api_secret:
+        raise Exception(
+            "Mailjet: Secret Key is required. Enter your Mailjet Secret Key in the 'Secret Key' field."
+        )
+
+    b64 = base64.b64encode(f"{api_key}:{api_secret}".encode()).decode()
+
+    from_email = sender.get("fromEmail", "")
+    from_name = sender.get("fromName", "")
+    reply_to = sender.get("replyTo", "")
+    lead_email = lead.get("email", "")
+    lead_name = (lead.get("name") or "").strip() or lead_email.split("@")[0]
+
+    msg = {
+        "From": {"Email": from_email, "Name": from_name},
+        "To": [{"Email": lead_email, "Name": lead_name}],
+        "Subject": subject,
+        "HTMLPart": html,
+        "TextPart": plain,
+    }
+    if reply_to:
+        msg["ReplyTo"] = {"Email": reply_to}
+    if extra_hdrs:
+        msg["Headers"] = extra_hdrs
+    if atts:
+        msg["Attachments"] = [
+            {
+                "ContentType": a["content_type"],
+                "Filename": a["filename"],
+                "Base64Content": a["content_b64"],
+            }
+            for a in atts
+        ]
+
+    return _api_request(
+        _API_URLS["mailjet"],
+        {"Messages": [msg]},
+        {"Authorization": f"Basic {b64}", "Content-Type": "application/json"},
+        "mailjet",
+        uid=api_cfg.get("_uid"),
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
 # MAIN SEND FUNCTION
 # ═══════════════════════════════════════════════════════════════
@@ -1187,6 +1242,8 @@ def send_api(
             provider = "mandrill"
         elif _re.match(r"^[a-f0-9]{36,50}$", key):
             provider = "sparkpost"
+        elif _re.match(r"^[a-f0-9]{32}$", key.lower()) and api_cfg.get("secret"):
+            provider = "mailjet"
         else:
             provider = "brevo"
 
@@ -1228,6 +1285,7 @@ def send_api(
         "sparkpost": _send_sparkpost,
         "ses": _send_ses,
         "mandrill": _send_mandrill,
+        "mailjet": _send_mailjet,
     }
 
     fn = dispatch.get(provider)
