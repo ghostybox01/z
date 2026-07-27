@@ -5020,14 +5020,14 @@ function TabMethod({
               <button className="btn btn-g btn-sm" onClick={parseBulkSmtps} disabled={!bulkRaw.trim()}>
                 🔍 Parse {bulkRaw.split(/\r?\n/).filter(l=>l.trim()).length || ""} lines
               </button>
-              <input type="file" accept=".txt,.csv,.list" id="bulk-smtp-file" style={{display:"none"}}
+              <input type="file" accept=".txt,.csv,.list,.json" id="bulk-smtp-file" style={{display:"none"}}
                 onChange={async e=>{
                   const f = e.target.files[0]; if(!f) return;
                   const txt = await f.text();
                   setBulkRaw(prev => prev ? (prev.replace(/\s+$/,"") + "\n" + txt) : txt);
                 }}/>
               <button className="btn btn-g btn-sm" onClick={()=>document.getElementById("bulk-smtp-file").click()}>
-                📎 Upload .txt
+                📎 Upload file
               </button>
               {bulkParsed.length>0 && (
                 <>
