@@ -263,6 +263,21 @@ _API_URLS = {
     # mailgun: endpoint built dynamically from domain field
 }
 
+# Mailjet Send v3.1 rejects these headers inside the generic "Headers"
+# collection (error send-0011). Each must be set via its dedicated
+# top-level property, or omitted so Mailjet can stamp its own.
+_MAILJET_RESERVED_HEADERS = frozenset({
+    "from", "sender", "to", "cc", "bcc", "subject", "reply-to",
+    "message-id", "return-path", "date",
+    "content-type", "mime-version", "content-transfer-encoding",
+    "x-mj-customid", "x-mj-eventpayload",
+    "x-mj-templateid", "x-mj-templatelanguage",
+    "x-mj-templateerrordeliver", "x-mj-templateerrorreporting",
+    "x-mj-vars",
+    "x-mailjet-prio", "x-mailjet-trackopen", "x-mailjet-trackclick",
+    "x-mailjet-campaign", "x-mailjet-deduplicatecampaign",
+})
+
 SUPPORTED_PROVIDERS = frozenset(_API_URLS.keys()) | {"mailgun"}
 
 # HTTP status codes that are retryable
@@ -1115,14 +1130,15 @@ def _send_mandrill(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts
 
 def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
     """
-    Mailjet v3.1 Send API — uses Basic Auth (API key + Secret key).
-    Requires api_cfg['secret'] or api_cfg['secretKey'] alongside apiKey.
+    Mailjet v3.1 Send API — HTTP Basic Auth (API Key + Secret Key).
+    Requires api_cfg['secret'] (or 'secretKey' / 'apiSecret') alongside apiKey.
     """
-    import base64
-
     api_key = api_cfg.get("apiKey", "")
     api_secret = (
-        api_cfg.get("secret") or api_cfg.get("secretKey") or api_cfg.get("apiSecret") or ""
+        api_cfg.get("secret")
+        or api_cfg.get("secretKey")
+        or api_cfg.get("apiSecret")
+        or ""
     ).strip()
     if not api_secret:
         raise Exception(
@@ -1146,8 +1162,20 @@ def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
     }
     if reply_to:
         msg["ReplyTo"] = {"Email": reply_to}
+
+    # Strip reserved headers before handing extra_hdrs to Mailjet — send-0011
+    # rejects anything Mailjet controls itself (Reply-To, Message-ID, MIME,
+    # X-MJ-*, X-Mailjet-*). Dedicated properties are set above; the rest go
+    # through unchanged.
     if extra_hdrs:
-        msg["Headers"] = extra_hdrs
+        filtered = {
+            k: v
+            for k, v in extra_hdrs.items()
+            if k.lower() not in _MAILJET_RESERVED_HEADERS
+        }
+        if filtered:
+            msg["Headers"] = filtered
+
     if atts:
         msg["Attachments"] = [
             {
