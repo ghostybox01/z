@@ -4125,7 +4125,7 @@ function BoxDetectCard() {
   }
 
   const kindText = {
-    windows_rdp: { label:"Windows RDP box", color:"#38bdf8", ico:"🪟", hint:"RDP (3389) open — this is a Windows box. To use it as a relay, enable its SSH server (OpenSSH) — see the RDP guide above." },
+    windows_rdp: { label:"Windows RDP box", color:"#38bdf8", ico:"🪟", hint:"RDP (3389) open — this is a Windows box. It does not accept SSH yet. Follow the setup steps below to enable its OpenSSH server so it can act as a relay." },
     linux_vps:   { label:"Linux VPS (SSH)",   color:"#22c55e", ico:"🐧", hint:"SSH (22) open — this is a Linux VPS. You can SSH in and it can act as a relay." },
     unknown:     { label:"No management port detected", color:"#f59e0b", ico:"❓", hint:"No RDP (3389), SSH (22), or VNC (5900) is reachable from this server — check the IP or that its firewall allows inbound on those ports." },
   }[res ? res.kind : "unknown"];
@@ -4159,6 +4159,17 @@ function BoxDetectCard() {
             <div className="dim2 xs mt4">{kindText.hint}</div>
             {res.banner && <div className="mono xs mt4 dim2">SSH banner: <code>{res.banner}</code></div>}
             {res.reason && <div className="dim2 xs mt4">{res.reason}</div>}
+            {res.kind === "windows_rdp" && (
+              <div className="card card-sm mt10" style={{border:"1px solid #1f3a5f",background:"#0f1b2d"}}>
+                <div className="card-title" style={{fontSize:12,marginBottom:6}}>Enable SSH on this Windows box (run once, as Administrator)</div>
+                <div className="dim2 xs mb6">This turns on OpenSSH so the relay can connect over SSH. RDP itself cannot be used to relay mail.</div>
+                <pre className="code" style={{fontSize:10,whiteSpace:"pre-wrap",padding:"8px 10px",overflow:"auto"}}>{`Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Start-Service sshd
+Set-Service -Name sshd -StartupType Automatic
+New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22`}</pre>
+                <div className="dim2 xs mt6">Then in the Relay VPS card below, use port <strong>22</strong>, username = the <strong>Windows account</strong> (e.g. <code>Administrator</code>) — not <code>root</code>. Allow inbound 22 in the host firewall too (e.g. Hetzner).</div>
+              </div>
+            )}
           </div>
         </div>
       )}
