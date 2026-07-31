@@ -572,6 +572,18 @@ def _parse_smtp_error(error: Exception, lead_email: str = "") -> str:
     ]):
         return "CONNECTION FAILED — could not reach mail server. Check host/port/firewall"
 
+    # SMTP-code-based auth/rejection check — MUST run before the substring
+    # fallbacks below.  The connection label in some pools contains ":SSL:"
+    # (e.g. smtpout.secureserver.net:465:user@dom.com:SSL:hash), so a real
+    # auth failure or account restriction on an SSL connection would
+    # otherwise be mislabeled as an SSL/TLS error.  Checking the parsed
+    # SMTP code first makes 535/534 win over the "ssl" substring.
+    if smtp_code in ("535", "534") or any(x in err for x in
+            ["has been restricted", "restricted account", "account restricted", "user restricted"]):
+        if smtp_code == "535" or "restricted" in err:
+            return f"ACCOUNT RESTRICTED — SMTP rejected the account ({smtp_code or '535'}). Fix or replace the sender account."
+        return f"AUTH FAILED — wrong credentials for SMTP server ({smtp_code or 'auth error'})"
+
     if any(x in err for x in ["ssl", "tls", "certificate", "handshake"]):
         return f"SSL/TLS ERROR — {str(error)[:120]}"
 
