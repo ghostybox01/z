@@ -2575,6 +2575,13 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             if result:
                 fut, rsen, rhtml, rplain = result
                 _pending_futures[fut] = (i, lead, rsen, rhtml, rplain)
+            else:
+                # No live sender available — count the lead as a skip so the
+                # accounting (success+fail+skip) always equals total_cap.
+                skip += 1
+                yield {"type":"skip","index":i+1,"total":total_cap,
+                       "email": (lead.get("email","") if isinstance(lead,dict) else str(lead)),
+                       "msg":"No live sender available — skipped"}
 
         # Process completions and submit more work
         import concurrent.futures as _cf
@@ -2927,6 +2934,16 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     _still_live = [s for s in opts.senders if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _dead_senders]
                 if not _still_live and opts.senders:
                     yield {"type":"warn","msg":"⚠ All senders removed — campaign stopping"}
+                    # Mark as stopped so the done event reports it accurately
+                    # (not "complete"), and account for the remaining queued
+                    # leads so success+fail+skip == total_cap.
+                    stopped = True
+                    while _qi < len(_work_queue):
+                        _iq, _lq = _work_queue[_qi]; _qi += 1
+                        skip += 1
+                        yield {"type":"skip","index":_iq+1,"total":total_cap,
+                               "email": (_lq.get("email","") if isinstance(_lq,dict) else str(_lq)),
+                               "msg":"No live sender — campaign stopped"}
                     break
 
                 # Submit next work item to keep pool full
@@ -2936,6 +2953,13 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                     if result_n:
                         fut_n, rsen_n, rhtml_n, rplain_n = result_n
                         _pending_futures[fut_n] = (i_n, lead_n, rsen_n, rhtml_n, rplain_n)
+                    else:
+                        # No live sender available — count as a skip so the
+                        # accounting (success+fail+skip) stays equal to total_cap.
+                        skip += 1
+                        yield {"type":"skip","index":i_n+1,"total":total_cap,
+                               "email": (lead_n.get("email","") if isinstance(lead_n,dict) else str(lead_n)),
+                               "msg":"No live sender available — skipped"}
 
         # On stop: shutdown without waiting + cancel pending futures
         # (cancel_futures was added in 3.9; safe to use as we require 3.10+).
