@@ -4785,34 +4785,47 @@ function TabMethod({
     const reqList = candidates.map(({_idx,_keep,_status,_msg,_latency,...rest})=>rest);
     const reqIdxToBulkIdx = candidates.map(c => c._idx);
 
+    const BATCH = 500; // backend caps /api/test-smtp/bulk at 500 per request
+    const totalReq = reqList.length;
+    let gDone=0, gOk=0, gFail=0, gTotal=0;
     try {
-      const r = await apiCall("/api/test-smtp/bulk",{
-        method:"POST",
-        body: JSON.stringify({servers: reqList}),
-      });
-      if (!r.ok) { showToast("err","Failed","HTTP "+r.status); setBulkValidating(false); return; }
-      const reader = r.body.getReader(), dec = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value,{stream:true});
-        const lines = buf.split("\n"); buf = lines.pop();
-        for (const ln of lines) {
-          if (!ln.trim()) continue;
-          let ev; try { ev = JSON.parse(ln); } catch(e){ continue; }
-          if (ev.type === "result") {
-            // Map server's request_idx → our bulkParsed _idx via the sidecar.
-            const targetBulkIdx = reqIdxToBulkIdx[ev.idx];
-            setBulkParsed(prev => prev.map(p =>
-              p._idx === targetBulkIdx
-                ? {...p, _status: ev.ok ? "ok":"fail", _msg: ev.message, _latency: ev.latency_ms}
-                : p));
-            setBulkProgress({done:ev.done, total:ev.total,
-                             ok:ev.ok_count||0, fail:ev.fail_count||0});
-          }
-          if (ev.type === "done") {
-            setBulkProgress(p => ({...p, done:ev.total, ok:ev.ok, fail:ev.failed}));
+      for (let base=0; base<totalReq; base+=BATCH) {
+        const chunk = reqList.slice(base, base+BATCH);
+        const chunkIdxToBulk = reqIdxToBulkIdx.slice(base, base+BATCH);
+        gTotal += chunk.length;
+        const r = await apiCall("/api/test-smtp/bulk",{
+          method:"POST",
+          body: JSON.stringify({servers: chunk}),
+        });
+        if (!r.ok) { showToast("err","Failed","HTTP "+r.status); break; }
+        const reader = r.body.getReader(), dec = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value,{stream:true});
+          const lines = buf.split("\n"); buf = lines.pop();
+          for (const ln of lines) {
+            if (!ln.trim()) continue;
+            let ev; try { ev = JSON.parse(ln); } catch(e){ continue; }
+            if (ev.type === "result") {
+              // Map server's request_idx (within this chunk) → our bulkParsed _idx.
+              const targetBulkIdx = chunkIdxToBulk[ev.idx];
+              setBulkParsed(prev => prev.map(p =>
+                p._idx === targetBulkIdx
+                  ? {...p, _status: ev.ok ? "ok":"fail", _msg: ev.message, _latency: ev.latency_ms}
+                  : p));
+              gDone = base + ev.done;
+              gOk   = base + (ev.ok_count||0);
+              gFail = base + (ev.fail_count||0);
+              setBulkProgress({done:gDone, total:totalReq, ok:gOk, fail:gFail});
+            }
+            if (ev.type === "done") {
+              gDone = base + ev.total;
+              gOk   = base + ev.ok;
+              gFail = base + ev.failed;
+              setBulkProgress({done:gDone, total:totalReq, ok:gOk, fail:gFail});
+            }
           }
         }
       }
@@ -4835,39 +4848,44 @@ function TabMethod({
       host:s.host, port:s.port, username:s.username, password:s.password, ssl:!!s.ssl,
     }));
     const reqIdxToId = snapshot.map(s => s.id);
+    const BATCH = 500; // backend caps /api/test-smtp/bulk at 500 per request
+    const totalReq = reqList.length;
+    let gDone=0, gOk=0, gFail=0;
     try {
-      const r = await apiCall("/api/test-smtp/bulk",{
-        method:"POST",
-        body: JSON.stringify({servers: reqList}),
-      });
-      if (!r.ok) { showToast("err","Failed","HTTP "+r.status); return; }
-      const reader = r.body.getReader(), dec = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value,{stream:true});
-        const lines = buf.split("\n"); buf = lines.pop();
-        for (const ln of lines) {
-          if (!ln.trim()) continue;
-          let ev; try { ev = JSON.parse(ln); } catch(e){ continue; }
-          if (ev.type === "result") {
-            const sid = reqIdxToId[ev.idx];
-            if (!ev.ok) {
-              configuredFailedIdsRef.current.add(sid);
-              setConfiguredDeadCount(configuredFailedIdsRef.current.size);
+      for (let base=0; base<totalReq; base+=BATCH) {
+        const chunk = reqList.slice(base, base+BATCH);
+        const chunkIdxToId = reqIdxToId.slice(base, base+BATCH);
+        const r = await apiCall("/api/test-smtp/bulk",{
+          method:"POST",
+          body: JSON.stringify({servers: chunk}),
+        });
+        if (!r.ok) { showToast("err","Failed","HTTP "+r.status); break; }
+        const reader = r.body.getReader(), dec = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value,{stream:true});
+          const lines = buf.split("\n"); buf = lines.pop();
+          for (const ln of lines) {
+            if (!ln.trim()) continue;
+            let ev; try { ev = JSON.parse(ln); } catch(e){ continue; }
+            if (ev.type === "result") {
+              const sid = chunkIdxToId[ev.idx];
+              if (!ev.ok) {
+                configuredFailedIdsRef.current.add(sid);
+                setConfiguredDeadCount(configuredFailedIdsRef.current.size);
+              }
+              setConfiguredProbeById(prev => ({
+                ...prev, [sid]: { ok:ev.ok, message:ev.message, latency_ms:ev.latency_ms },
+              }));
+              gDone = base + ev.done; gOk = base + (ev.ok_count||0); gFail = base + (ev.fail_count||0);
+              setConfiguredListProgress({done:gDone, total:totalReq, ok:gOk, fail:gFail});
             }
-            setConfiguredProbeById(prev => ({
-              ...prev, [sid]: { ok:ev.ok, message:ev.message, latency_ms:ev.latency_ms },
-            }));
-            setConfiguredListProgress({
-              done:ev.done, total:ev.total,
-              ok:ev.ok_count||0, fail:ev.fail_count||0,
-            });
-          }
-          if (ev.type === "done") {
-            setConfiguredListProgress(p => ({...p, done:ev.total, ok:ev.ok, fail:ev.failed}));
-            setConfiguredDeadCount(ev.failed||0);
+            if (ev.type === "done") {
+              gDone = base + ev.total; gOk = base + ev.ok; gFail = base + ev.failed;
+              setConfiguredListProgress({done:gDone, total:totalReq, ok:gOk, fail:gFail});
+            }
           }
         }
       }
