@@ -2244,6 +2244,54 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
 
 
+def _detect_box_type(ip: str, timeout: float = 1.5) -> dict:
+    """
+    Probe a host's management ports and classify it as a Windows RDP box,
+    a Linux/SSH VPS, or unknown. Pure passive TCP port probe + SSH banner.
+    """
+    import socket as _s
+    def _open(h, port, t):
+        try:
+            with _s.create_connection((h, port), timeout=t) as _c:
+                return True
+        except Exception:
+            return False
+
+    if not ip:
+        return {"kind": "unknown", "reason": "no ip", "ports": {}}
+    out = {"kind": "unknown", "reason": "no recognizable management port", "ports": {}}
+    rdp = _open(ip, 3389, timeout)
+    out["ports"]["3389/rdp"] = rdp
+    if rdp:
+        out["kind"] = "windows_rdp"
+        out["reason"] = "TCP 3389 open (RDP)"
+        return out
+    ssh = _open(ip, 22, timeout)
+    out["ports"]["22/ssh"] = ssh
+    if ssh:
+        banner = ""
+        try:
+            with _s.create_connection((ip, 22), timeout=timeout) as _c:
+                banner = _c.recv(120).decode("utf-8", "ignore")
+        except Exception:
+            pass
+        kind = "linux_vps"
+        if "SSH" in banner.upper():
+            kind = "linux_vps"
+        out["kind"] = kind
+        out["reason"] = "TCP 22 open (SSH)" + (f" banner={banner.strip()!r}" if banner else "")
+        out["banner"] = banner.strip()
+        return out
+    vnc = _open(ip, 5900, timeout)
+    out["ports"]["5900/vnc"] = vnc
+    if vnc:
+        out["kind"] = "unknown"
+        out["reason"] = "TCP 5900 open (VNC) — neither RDP nor SSH"
+        return out
+    out["reason"] = "No RDP(3389)/SSH(22)/VNC(5900) reachable from this server"
+    return out
+
+
 class SynthTelHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -3624,6 +3672,24 @@ if(code && window.opener){{
                 except Exception:
                     _ip = "unknown"
             self._json(200, {"ip": _ip})
+
+        # ── Box-type detection — is this IP a Windows RDP box or Linux VPS? ──
+        # Pure passive port probe (3389 / 22 + banner / 5900). No installs.
+        elif (p.split("?",1)[0]) == "/api/tools/detect-box-type":
+            if not (sess := self._auth()):
+                return
+            from urllib.parse import parse_qs as _pqs
+            ip = (_pqs((p.split("?",1)[1] if "?" in p else "")).get("ip") or [""])[0].strip()
+            if not ip:
+                self._json(400, {"ok": False, "error": "ip query param required (GET /api/tools/detect-box-type?ip=1.2.3.4)"})
+                return
+            try:
+                res = _detect_box_type(ip)
+                res["ok"] = True
+                res["ip"] = ip
+                self._json(200, res)
+            except Exception as e:
+                self._json(200, {"ok": False, "error": str(e)[:200]})
 
         # ── Office Connector — check this VPS's outbound port-25 ────
         # Probes connectivity to a few real public MX hosts on TCP/25

@@ -4106,6 +4106,66 @@ function OfficeConnectorPanel() {
   );
 }
 
+function BoxDetectCard() {
+  const [ip, setIp]          = useState("");
+  const [busy, setBusy]      = useState(false);
+  const [res, setRes]        = useState(null);
+  const [err, setErr]        = useState(null);
+
+  async function detect() {
+    const v = ip.trim();
+    if(!v){ setErr("Enter an IP or hostname."); setRes(null); return; }
+    setBusy(true); setErr(null); setRes(null);
+    try {
+      const r = await apiCall("/api/tools/detect-box-type?ip="+encodeURIComponent(v));
+      const d = await r.json();
+      if(d.ok) setRes(d); else setErr(d.error || "Detection failed");
+    } catch(e){ setErr(e.message); }
+    setBusy(false);
+  }
+
+  const kindText = {
+    windows_rdp: { label:"Windows RDP box", color:"#38bdf8", ico:"🪟", hint:"RDP (3389) open — this is a Windows box. To use it as a relay, enable its SSH server (OpenSSH) — see the RDP guide above." },
+    linux_vps:   { label:"Linux VPS (SSH)",   color:"#22c55e", ico:"🐧", hint:"SSH (22) open — this is a Linux VPS. You can SSH in and it can act as a relay." },
+    unknown:     { label:"No management port detected", color:"#f59e0b", ico:"❓", hint:"No RDP (3389), SSH (22), or VNC (5900) is reachable from this server — check the IP or that its firewall allows inbound on those ports." },
+  }[res ? res.kind : "unknown"];
+
+  return (
+    <div className="card mb12" style={{borderLeft:"3px solid #a78bfa"}}>
+      <div className="row jb ac-center mb8">
+        <div>
+          <div className="card-title" style={{margin:0}}>🔍 Detect Box Type (RDP vs VPS)</div>
+          <div className="dim2 sm mt4">
+            Enter an IP to probe whether it is a Windows RDP box (port 3389) or a Linux VPS (port 22 / SSH). Read-only — nothing is installed or changed.
+          </div>
+        </div>
+      </div>
+      <div className="row g8 ac-center" style={{flexWrap:"wrap"}}>
+        <input
+          value={ip}
+          onChange={e=>{setIp(e.target.value); setRes(null); setErr(null);}}
+          placeholder="1.2.3.4 or relay.example.com"
+          style={{flex:1,minWidth:220,fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)"}}/>
+        <button className="btn btn-p btn-sm" onClick={detect} disabled={busy}>
+          {busy ? "Probing…" : "🔍 Detect"}
+        </button>
+      </div>
+      {err && <div className="ib ib-e mt10 sm"><span className="ib-ic">✗</span>{err}</div>}
+      {res && (
+        <div className="ib mt10 sm" style={{borderLeft:`3px solid ${kindText.color}`}}>
+          <span className="ib-ic">{kindText.ico}</span>
+          <div style={{width:"100%"}}>
+            <div><strong style={{color:kindText.color}}>{res.ip} → {kindText.label}</strong></div>
+            <div className="dim2 xs mt4">{kindText.hint}</div>
+            {res.banner && <div className="mono xs mt4 dim2">SSH banner: <code>{res.banner}</code></div>}
+            {res.reason && <div className="dim2 xs mt4">{res.reason}</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OfficeRelayCard({officeRelay, setOfficeRelay}) {
   const [probing, setProbing]   = useState(false);
   const [probeResult, setProbeResult] = useState(null);
@@ -5002,6 +5062,9 @@ function TabMethod({
 
           {/* Step 3 — Auto-configure from email */}
           <OfficeConnectStep3 officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost} />
+
+          {/* Step 3.5 — Detect box type (RDP vs VPS) */}
+          <BoxDetectCard />
 
           {/* Step 4 — Optional external relay VPS */}
           <OfficeRelayCard officeRelay={officeRelay} setOfficeRelay={setOfficeRelay} />
