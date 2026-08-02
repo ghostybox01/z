@@ -739,17 +739,54 @@ PROVIDERS = [
 ]
 
 
-def detect_provider(key: str, secret: Optional[str] = None) -> Optional[type]:
-    """Auto-detect the email provider from the API key format."""
+def _provider_by_hint(hint: Optional[str]) -> Optional[type]:
+    """Map a provider hint string (e.g. 'mailjet') to its class, if known."""
+    if not hint:
+        return None
+    h = str(hint).strip().lower().replace("_", "").replace("-", "")
+    for provider_class in PROVIDERS:
+        cls_name = provider_class.__name__.lower().replace("provider", "")
+        if cls_name == h or cls_name == h:
+            return provider_class
+    # aliases
+    aliases = {
+        "aws": "awsses", "aws-ses": "awsses", "ses": "awsses",
+        "sendinblue": "brevo", "mailchimp": "mailchimp", "mandrill": "mandrill",
+        "resend": "resend", "sparkpost": "sparkpost", "postmark": "postmark",
+    }
+    mapped = aliases.get(hint.strip().lower())
+    if mapped:
+        for provider_class in PROVIDERS:
+            if provider_class.__name__.lower().replace("provider", "") == mapped:
+                return provider_class
+    return None
+
+
+def detect_provider(key: str, secret: Optional[str] = None, hint: Optional[str] = None) -> Optional[type]:
+    """Auto-detect the email provider from the API key format.
+
+    An explicit ``hint`` (e.g. 'mailjet') is honored first: if the hinted
+    provider's own ``detect()`` accepts the key, it wins.  Otherwise we fall
+    back to the first auto-detected provider.  This resolves ambiguous keys
+    (Mailgun and Mailjet both accept 32-char hex keys) where auto-detection
+    alone picks the wrong one.
+    """
+    hinted = _provider_by_hint(hint)
+    if hinted is not None:
+        try:
+            if hinted.detect(key, secret):
+                return hinted
+        except Exception:
+            pass
     for provider_class in PROVIDERS:
         if provider_class.detect(key, secret):
             return provider_class
     return None
 
 
-def create_provider(key: str, secret: Optional[str] = None, region: Optional[str] = None, domain: Optional[str] = None) -> Optional[EmailProvider]:
+def create_provider(key: str, secret: Optional[str] = None, region: Optional[str] = None, domain: Optional[str] = None, hint: Optional[str] = None) -> Optional[EmailProvider]:
     """Create a provider instance based on the key."""
-    provider_class = detect_provider(key, secret)
+    provider_class = detect_provider(key, secret, hint=hint)
     if provider_class is None:
         return None
     

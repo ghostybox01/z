@@ -9854,9 +9854,9 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 # auto-detects the provider from the key and only accepts
                 # (key, secret, region, domain). Passing the hint positionally
                 # caused a TypeError; drop it here.
-                provider = create_provider(api_key, secret, region, domain)
+                provider = create_provider(api_key, secret, region, domain, hint=provider_hint)
                 if not provider:
-                    pc = detect_provider(api_key, secret)
+                    pc = detect_provider(api_key, secret, hint=provider_hint)
                     if pc is None:
                         self._json(
                             200,
