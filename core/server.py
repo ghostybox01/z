@@ -9850,9 +9850,11 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                     _il.reload(_sys.modules["email_checker"])
                 from email_checker import create_provider, detect_provider
 
-                provider = create_provider(
-                    api_key, secret, region, domain, provider_hint
-                )
+                # provider_hint is sent by the frontend, but create_provider()
+                # auto-detects the provider from the key and only accepts
+                # (key, secret, region, domain). Passing the hint positionally
+                # caused a TypeError; drop it here.
+                provider = create_provider(api_key, secret, region, domain)
                 if not provider:
                     pc = detect_provider(api_key, secret)
                     if pc is None:
