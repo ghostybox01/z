@@ -193,6 +193,7 @@ _API_URLS = {
     "postmark":   "https://api.postmarkapp.com/email",
     "sparkpost":  "https://api.sparkpost.com/api/v1/transmissions",
     "ses":        "https://email.{region}.amazonaws.com/v2/email/outbound-emails",
+    "mailjet":    "https://api.mailjet.com/v3.1/send",
     # mailgun: endpoint built dynamically from domain field
 }
 
@@ -887,6 +888,64 @@ def _send_ses(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None
         raise Exception(f"Amazon SES HTTP {exc.code} — {detail}")
 
 
+
+def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
+    """
+    Mailjet v3.1 Send API — Basic auth (apiKey + secretKey), JSON Messages array.
+    Endpoint: https://api.mailjet.com/v3.1/send
+
+    Mailjet requires both a public API key and a secret key for Basic auth.
+    apiKey = public key, secret = private key (api_cfg['secret'] / ['secretKey']).
+    """
+    from urllib.request import Request
+
+    pub  = api_cfg.get("apiKey", "") or ""
+    sec  = (api_cfg.get("secret") or api_cfg.get("secretKey") or "").strip()
+    if not pub or not sec:
+        raise Exception(
+            "Mailjet: both API key and Secret key are required (Basic auth). "
+            "Set API Key = public key and Secret Key = private key."
+        )
+
+    from_name  = sender.get("fromName", "") or ""
+    from_email = sender.get("fromEmail", "") or ""
+    reply_to   = sender.get("replyTo", "") or ""
+    lead_email = (lead.get("email") or "").strip()
+    lead_name  = (lead.get("name") or "").strip() or None
+
+    message = {
+        "From":     {"Email": from_email, "Name": from_name or None},
+        "To":       [{"Email": lead_email, "Name": lead_name}],
+        "Subject":  subject,
+        "HTMLPart": html,
+        "TextPart": plain or None,
+    }
+    if reply_to:
+        message["ReplyTo"] = {"Email": reply_to}
+    if extra_hdrs:
+        message["Headers"] = extra_hdrs
+    if atts:
+        message["Attachments"] = [
+            {
+                "ContentType": a["content_type"],
+                "Filename":    a["filename"],
+                "Base64Content": a["content_b64"],
+            }
+            for a in atts
+        ]
+
+    payload = {"Messages": [message]}
+    cred = base64.b64encode(f"{pub}:{sec}".encode()).decode()
+    hdrs = {
+        "Authorization": f"Basic {cred}",
+        "Content-Type":  "application/json",
+    }
+
+    return _api_request(
+        _API_URLS["mailjet"], payload, hdrs, "mailjet", uid=api_cfg.get("_uid")
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
 # MAIN SEND FUNCTION
 # ═══════════════════════════════════════════════════════════════
@@ -964,6 +1023,7 @@ def send_api(
         "postmark":  _send_postmark,
         "sparkpost": _send_sparkpost,
         "ses":       _send_ses,
+        "mailjet":   _send_mailjet,
     }
 
     fn = dispatch.get(provider)
