@@ -923,7 +923,29 @@ def _send_mailjet(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
     if reply_to:
         message["ReplyTo"] = {"Email": reply_to}
     if extra_hdrs:
-        message["Headers"] = extra_hdrs
+        # Mailjet rejects certain standard headers inside the "Headers"
+        # collection (error send-0011) because they must use a dedicated
+        # property.  Route the well-known ones to their dedicated Mailjet
+        # headers and drop the rest that Mailjet reserves.
+        _RESERVED = {
+            "from","to","cc","bcc","subject","reply-to","date","message-id",
+            "mime-version","content-type","content-transfer-encoding",
+            "return-path","sender",
+        }
+        mj_hdrs = {}
+        for _k, _v in extra_hdrs.items():
+            _lk = (_k or "").strip().lower()
+            if _lk in _RESERVED:
+                continue  # dedicated property handles it (or it's set elsewhere)
+            if _lk == "list-unsubscribe":
+                # Mailjet dedicated header for unsub links
+                mj_hdrs["Mj-List-Unsubscribe"] = _v
+            elif _lk == "list-unsubscribe-post":
+                mj_hdrs["Mj-OneClick-Unsubscribe"] = _v
+            else:
+                mj_hdrs[_k] = _v
+        if mj_hdrs:
+            message["Headers"] = mj_hdrs
     if atts:
         message["Attachments"] = [
             {
