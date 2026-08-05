@@ -4239,6 +4239,10 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
           </div>
           <details style={{marginTop:10,background:"#0f1b2d",border:"1px solid #1f3a5f",borderRadius:6,padding:"8px 10px"}}>
             <summary style={{cursor:"pointer",fontSize:12,fontWeight:600,color:"#7fb7ff"}}>🖥 Using a Windows RDP box as the relay? Read this</summary>
+            <div className="row g8 ac-center mt8" style={{flexWrap:"wrap"}}>
+              <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(_PS_SSH_SETUP)}>📋 Copy all commands</button>
+              <span className="dim2 xs">Run as Administrator, one line at a time.</span>
+            </div>
             <div className="dim2 sm mt8" style={{lineHeight:1.5}}>
               The relay connects over <strong>SSH</strong> (port 22 by default). A Windows RDP server does
               <strong> not</strong> accept SSH out of the box — RDP uses port 3389 for screen sharing and cannot be used as the relay. To turn a Windows box into a working relay:
