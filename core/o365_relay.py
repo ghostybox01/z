@@ -277,58 +277,189 @@ def send_via_o365_relay(
 
 def probe_relay_ssh(relay_ssh: dict, timeout: int = 20) -> dict:
     """
-    SSH into relay_ssh VPS, discover its public IP and check port 25.
-    Returns {"ok": bool, "publicIp": str, "port25": bool, "latency_ms": int, "error": str}
+    SSH into relay_ssh (Linux VPS or Windows OpenSSH), discover its public IP
+    and check outbound port 25.
+
+    Returns {"ok": bool, "publicIp": str, "port25": bool, "latency_ms": int,
+             "error": str, "os": "windows"|"linux"|""}
     """
-    from core.ssh_helper import create_ssh_client
+    try:
+        from core.ssh_helper import create_ssh_client
+    except ImportError:
+        try:
+            from ssh_helper import create_ssh_client
+        except ImportError:
+            import paramiko
+
+            def create_ssh_client():
+                c = paramiko.SSHClient()
+                c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                return c
+
+    host = (relay_ssh.get("host") or "").strip()
+    user = (relay_ssh.get("user") or "root").strip()
+    port = int(relay_ssh.get("port") or 22)
+    password = relay_ssh.get("pass") or None
+    key = relay_ssh.get("key") or None
+
+    if not host:
+        return {"ok": False, "error": "SSH host is required", "publicIp": "", "port25": False}
+    if not password and not key:
+        return {
+            "ok": False,
+            "error": "SSH password is required",
+            "publicIp": "",
+            "port25": False,
+        }
+
+    def _run(ssh, cmd, cmd_timeout=10):
+        _, stdout, stderr = ssh.exec_command(cmd, timeout=cmd_timeout)
+        out = stdout.read().decode("utf-8", errors="replace").strip()
+        err = stderr.read().decode("utf-8", errors="replace").strip()
+        return out, err
+
+    def _looks_like_ip(s: str) -> bool:
+        if not s or len(s) > 45 or " " in s or "\n" in s:
+            return False
+        # IPv4
+        parts = s.split(".")
+        if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+            return True
+        # crude IPv6
+        return ":" in s and all(c in "0123456789abcdefABCDEF:" for c in s)
 
     t0 = time.time()
     ssh = create_ssh_client()
     try:
-        ssh.connect(
-            relay_ssh["host"],
-            port=int(relay_ssh.get("port", 22)),
-            username=relay_ssh.get("user", "root"),
-            password=relay_ssh.get("pass") or None,
-            key_filename=relay_ssh.get("key") or None,
-            timeout=timeout,
-            allow_agent=False,
-            look_for_keys=False,
-        )
-        # Try multiple commands to get public IP
+        try:
+            ssh.connect(
+                host,
+                port=port,
+                username=user,
+                password=password,
+                key_filename=key,
+                timeout=timeout,
+                banner_timeout=timeout,
+                auth_timeout=timeout,
+                allow_agent=False,
+                look_for_keys=False,
+            )
+        except Exception as e:
+            err = str(e).strip() or e.__class__.__name__
+            low = err.lower()
+            hint = ""
+            if "authentication" in low or "auth" in low:
+                hint = (
+                    " Check username/password. On Windows OpenSSH, Administrator "
+                    "password login often needs PasswordAuthentication enabled "
+                    "(re-run the Copy PowerShell script)."
+                )
+            elif "timed out" in low or "timeout" in low:
+                hint = (
+                    f" Cannot reach {host}:{port}. Confirm sshd is Running, "
+                    "Windows firewall allows 22, and the cloud/security group allows 22."
+                )
+            elif "refused" in low:
+                hint = (
+                    f" Nothing listening on {host}:{port}. Start OpenSSH "
+                    "(Start-Service sshd) or check the port."
+                )
+            elif "no route" in low or "unreachable" in low:
+                hint = f" Network unreachable to {host}."
+            return {
+                "ok": False,
+                "error": (err + hint)[:400],
+                "publicIp": "",
+                "port25": False,
+                "os": "",
+            }
+
+        # Detect OS (uname works on Linux; PowerShell marker on Windows)
+        os_kind = "linux"
+        uname_out, _ = _run(ssh, "uname -s 2>/dev/null", 5)
+        ulow = uname_out.lower()
+        if "linux" in ulow or "darwin" in ulow:
+            os_kind = "linux"
+        else:
+            ps_mark, _ = _run(
+                ssh, 'powershell -NoProfile -Command "Write-Output WINDOWS"', 8
+            )
+            if "WINDOWS" in ps_mark or not uname_out:
+                os_kind = "windows"
+
+        # Public IP — Linux then Windows commands
         public_ip = ""
-        for cmd in [
+        linux_ip_cmds = [
             "curl -4 -s --max-time 5 ifconfig.me 2>/dev/null",
             "curl -4 -s --max-time 5 icanhazip.com 2>/dev/null",
+            "curl -4 -s --max-time 5 api.ipify.org 2>/dev/null",
             "wget -qO- --timeout=5 ifconfig.me 2>/dev/null",
-        ]:
-            _, stdout, _ = ssh.exec_command(cmd, timeout=8)
-            out = stdout.read().decode().strip()
-            if out and "." in out and len(out) < 20:
-                public_ip = out
-                break
+        ]
+        win_ip_cmds = [
+            'powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; (Invoke-RestMethod -Uri https://api.ipify.org -TimeoutSec 8)"',
+            'powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; (Invoke-WebRequest -Uri https://ifconfig.me/ip -UseBasicParsing -TimeoutSec 8).Content.Trim()"',
+            'powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; (Invoke-RestMethod -Uri https://icanhazip.com -TimeoutSec 8).Trim()"',
+        ]
+        cmds = win_ip_cmds + linux_ip_cmds if os_kind == "windows" else linux_ip_cmds + win_ip_cmds
+        for cmd in cmds:
+            try:
+                out, _ = _run(ssh, cmd, 12)
+                # Take first line only
+                candidate = (out.splitlines()[0] if out else "").strip().strip('"').strip("'")
+                if _looks_like_ip(candidate):
+                    public_ip = candidate
+                    break
+            except Exception:
+                continue
 
-        # Check port 25 outbound from the relay VPS
+        # Port 25 outbound check
         port25 = False
         try:
-            _, stdout25, _ = ssh.exec_command(
-                "timeout 5 bash -c 'echo QUIT | nc -w3 gmail-smtp-in.l.google.com 25 2>/dev/null' && echo ok || echo fail",
-                timeout=8,
-            )
-            p25out = stdout25.read().decode().strip()
-            port25 = "220" in p25out or p25out == "ok"
+            if os_kind == "windows":
+                p25_cmd = (
+                    'powershell -NoProfile -Command '
+                    '"try { $c = New-Object Net.Sockets.TcpClient; '
+                    '$c.ReceiveTimeout=4000; $c.SendTimeout=4000; '
+                    "$c.Connect('gmail-smtp-in.l.google.com',25); $c.Close(); 'ok' } "
+                    "catch { 'fail' }\""
+                )
+            else:
+                p25_cmd = (
+                    "timeout 5 bash -c 'echo QUIT | nc -w3 gmail-smtp-in.l.google.com 25 "
+                    "2>/dev/null' && echo ok || "
+                    "timeout 5 bash -c 'exec 3<>/dev/tcp/gmail-smtp-in.l.google.com/25 "
+                    "&& echo ok || echo fail' 2>/dev/null || echo fail"
+                )
+            p25out, _ = _run(ssh, p25_cmd, 12)
+            port25 = "ok" in p25out.lower() or "220" in p25out
         except Exception:
             pass
 
         latency = round((time.time() - t0) * 1000)
+        if not public_ip:
+            return {
+                "ok": False,
+                "error": (
+                    f"SSH login to {user}@{host}:{port} worked ({os_kind}), "
+                    "but could not detect the relay public IP "
+                    "(curl/Invoke-WebRequest failed). Check outbound HTTPS on the relay."
+                ),
+                "publicIp": "",
+                "port25": port25,
+                "latency_ms": latency,
+                "os": os_kind,
+            }
+
         return {
-            "ok": bool(public_ip),
+            "ok": True,
             "publicIp": public_ip,
             "port25": port25,
             "latency_ms": latency,
+            "os": os_kind,
         }
     except Exception as e:
-        return {"ok": False, "error": str(e)[:200], "publicIp": "", "port25": False}
+        err = str(e).strip() or e.__class__.__name__
+        return {"ok": False, "error": err[:300], "publicIp": "", "port25": False, "os": ""}
     finally:
         try:
             ssh.close()

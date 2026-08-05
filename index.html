@@ -4214,6 +4214,32 @@ if (-not (Wait-Sshd 90)) {
 Start-Service sshd -ErrorAction Stop
 Set-Service -Name sshd -StartupType Automatic
 
+# Allow password login for Administrator (Windows OpenSSH defaults block it via Match Group)
+$cfg = Join-Path $env:ProgramData 'ssh\sshd_config'
+if (-not (Test-Path $cfg)) { $cfg = 'C:\\ProgramData\\ssh\\sshd_config' }
+if (Test-Path $cfg) {
+  Write-Host "Enabling PasswordAuthentication in $cfg ..." -ForegroundColor Cyan
+  $lines = Get-Content $cfg
+  $out = New-Object System.Collections.Generic.List[string]
+  $inAdminMatch = $false
+  foreach ($line in $lines) {
+    if ($line -match '^\s*Match\s+Group\s+administrators') { $inAdminMatch = $true; $out.Add('# '+$line.TrimEnd()+'  # disabled so Administrator can use password'); continue }
+    if ($inAdminMatch) {
+      if ($line -match '^\s*Match\s+') { $inAdminMatch = $false }
+      elseif ($line -match '^\s*\S' -and $line -notmatch '^\s*#') { $out.Add('# '+$line.TrimEnd()); continue }
+    }
+    if ($line -match '^\s*#?\s*PasswordAuthentication\s+') { $out.Add('PasswordAuthentication yes'); continue }
+    if ($line -match '^\s*#?\s*PubkeyAuthentication\s+') { $out.Add('PubkeyAuthentication yes'); continue }
+    $out.Add($line)
+  }
+  if (-not ($out | Where-Object { $_ -match '^\s*PasswordAuthentication\s+yes' })) { $out.Add('PasswordAuthentication yes') }
+  Set-Content -Path $cfg -Value $out -Encoding ASCII
+  Restart-Service sshd -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 2
+  Start-Service sshd -ErrorAction SilentlyContinue
+  Write-Host 'PasswordAuthentication enabled for Administrator' -ForegroundColor Green
+}
+
 # Firewall — idempotent (skip if rule already exists)
 $fw = Get-NetFirewallRule -Name 'sshd' -ErrorAction SilentlyContinue
 if (-not $fw) {
@@ -4228,7 +4254,8 @@ netsh advfirewall firewall add rule name='SSH-In' dir=in action=allow protocol=t
 
 Write-Host 'OpenSSH is running:' -ForegroundColor Green
 Get-Service sshd | Format-List Name,Status,StartType
-Write-Host 'Done. Back in SynthTel, set Username to your Windows account (e.g. Administrator) and port 22.' -ForegroundColor Cyan`;
+Write-Host 'Done. Back in SynthTel: Username=Administrator, Port=22, then Probe Relay IP.' -ForegroundColor Cyan
+Write-Host 'If Probe still fails auth: confirm PasswordAuthentication yes in C:\\ProgramData\\ssh\\sshd_config and Restart-Service sshd.' -ForegroundColor Yellow`;
 
 function BoxDetectCard() {
   const [ip, setIp]          = useState("");
@@ -4355,9 +4382,9 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
         <pre ref={psPreRef} className="code" style={{fontSize:10,whiteSpace:"pre-wrap",padding:"8px 10px",margin:"8px 0",maxHeight:200,overflow:"auto",userSelect:"text"}}>{_PS_SSH_SETUP}</pre>
         <div className="dim2 sm mt8" style={{lineHeight:1.5}}>
           <ol style={{paddingLeft:18,margin:"8px 0"}}>
-            <li>On the Windows box, open PowerShell as <strong>Administrator</strong>, click Copy above, paste, press Enter.</li>
+            <li>On the Windows box, open PowerShell as <strong>Administrator</strong>, click Copy above, paste, press Enter. (Re-run even if sshd is already Running — it also enables password login for Administrator.)</li>
             <li>In this panel: Port = <strong>22</strong> (SSH — works for Windows OpenSSH and Ubuntu). Username = Windows account (e.g. <code>Administrator</code>), not <code>root</code>.</li>
-            <li>Confirm the host firewall (cloud/security group) allows inbound <strong>22</strong> from this SynthTel VPS.</li>
+            <li>Click <strong>Probe Relay IP</strong>. Confirm the host firewall (cloud/security group) allows inbound <strong>22</strong> from this SynthTel VPS.</li>
           </ol>
         </div>
       </details>
@@ -4450,7 +4477,11 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
                 </div>
               </>
             ) : (
-              <div>SSH connection failed: {probeResult.error}</div>
+              <div>
+                <div>SSH connection failed{probeResult.error ? ":" : "."}</div>
+                {probeResult.error && <div className="mt4" style={{wordBreak:"break-word"}}>{probeResult.error}</div>}
+                {!probeResult.error && <div className="dim2 xs mt4">No error detail returned — re-run Probe after updating, or check password / port 22 firewall.</div>}
+              </div>
             )}
           </div>
         </div>
