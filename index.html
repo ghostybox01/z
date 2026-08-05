@@ -4106,6 +4106,26 @@ function OfficeConnectorPanel() {
   );
 }
 
+const _PS_SSH_SETUP = `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+# Wait for the sshd service to register after the capability install
+Start-Sleep -Seconds 5
+Get-Service sshd -ErrorAction SilentlyContinue | Out-Null
+if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
+  Write-Host 'sshd service not found yet - waiting up to 60s...' -ForegroundColor Yellow
+  $i = 0
+  while ($i -lt 12 -and -not (Get-Service sshd -ErrorAction SilentlyContinue)) {
+    Start-Sleep -Seconds 5; $i++
+  }
+}
+Start-Service sshd
+Set-Service -Name sshd -StartupType Automatic
+# Idempotent firewall rule - skip if it already exists
+if (-not (Get-NetFirewallRule -Name 'sshd' -ErrorAction SilentlyContinue)) {
+  New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+} else {
+  Write-Host 'Firewall rule sshd already exists - OK' -ForegroundColor Green
+}`;
+
 function BoxDetectCard() {
   const [ip, setIp]          = useState("");
   const [busy, setBusy]      = useState(false);
@@ -4163,10 +4183,15 @@ function BoxDetectCard() {
               <div className="card card-sm mt10" style={{border:"1px solid #1f3a5f",background:"#0f1b2d"}}>
                 <div className="card-title" style={{fontSize:12,marginBottom:6}}>Enable SSH on this Windows box (run once, as Administrator)</div>
                 <div className="dim2 xs mb6">This turns on OpenSSH so the relay can connect over SSH. RDP itself cannot be used to relay mail.</div>
-                <pre className="code" style={{fontSize:10,whiteSpace:"pre-wrap",padding:"8px 10px",overflow:"auto"}}>{`Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-Start-Service sshd
-Set-Service -Name sshd -StartupType Automatic
-New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22`}</pre>
+                <div className="row g8 ac-center mb6" style={{flexWrap:"wrap"}}>
+                  <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(_PS_SSH_SETUP)}>📋 Copy all commands</button>
+                </div>
+                <pre className="code" style={{fontSize:10,whiteSpace:"pre-wrap",padding:"8px 10px",overflow:"auto"}}>{_PS_SSH_SETUP}</pre>
+                <div className="dim2 xs mt6">
+                  <strong>Run each line in PowerShell as Administrator, one at a time.</strong> The capability install
+                  takes a moment to register the sshd service — wait for it to finish before the next line.
+                  The firewall rule is idempotent (it won't error if the rule already exists).
+                </div>
                 <div className="dim2 xs mt6">Then in the Relay VPS card below, use port <strong>22</strong>, username = the <strong>Windows account</strong> (e.g. <code>Administrator</code>) — not <code>root</code>. Allow inbound 22 in the host firewall too (e.g. Hetzner).</div>
               </div>
             )}
