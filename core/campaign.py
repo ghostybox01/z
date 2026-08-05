@@ -1334,7 +1334,13 @@ def _send_one(
                         },
                     )
                     if result.get("ok"):
-                        return True, "", f"office/{relay_host}→{connector_host}:25 [{_via_suffix}]"
+                        tip = (result.get("message") or "")[:180]
+                        via_ok = f"office/{relay_host}→{connector_host}:25 [{_via_suffix}]"
+                        if tip:
+                            # Surface accept tip in error channel as info? Keep via clean;
+                            # log already has detail. Append short hint to via for UI.
+                            via_ok = via_ok + " · M365 accepted — check Quarantine/Message Trace if missing"
+                        return True, "", via_ok
                     return False, result.get("error") or "Office relay send failed", via
                 except Exception as exc:
                     return False, _parse_smtp_error(exc, lead.get("email", "")), via

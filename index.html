@@ -5237,6 +5237,14 @@ function TabMethod({
             If a Relay VPS / Windows RDP is configured below, Microsoft must whitelist <strong>that relay's public IP</strong> (not this SynthTel VPS). Requires Global Admin access once for setup.
           </Info>
 
+          <Info type="w">
+            <strong>Sent but not in Inbox/Junk?</strong> M365 can return SMTP 250 (accepted) and still quarantine or drop the message.
+            Check: <strong>Microsoft 365 Defender → Email &amp; collaboration → Quarantine</strong>, and
+            <strong>Exchange Admin Center → Mail flow → Message trace</strong> for the recipient.
+            Also add <code>ip4:23.95.17.147</code> (your relay IP) to the domain SPF record, and keep
+            <strong>MS Exchange Trust Headers</strong> OFF in expert options.
+          </Info>
+
           {/* Step 1 — Probe / IP */}
           <div className="card mb12 mt12" style={{borderLeft:"3px solid #0078d4"}}>
             <div className="card-title" style={{marginBottom:4}}>Step 1 — Probe this VPS &amp; get the IP</div>

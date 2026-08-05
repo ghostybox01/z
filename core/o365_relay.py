@@ -148,7 +148,7 @@ def send_via_o365_relay(
     timeout: int = 30,
 ) -> dict:
     """
-    Send a single message via O365 anonymous relay.
+    Send a single message via O365 anonymous relay / inbound connector.
 
     relay = {
         "tenantDomain": "contoso.com",
@@ -169,53 +169,47 @@ def send_via_o365_relay(
     tenant = relay.get("tenantDomain", "")
     mx_host = relay.get("mxHost") or _derive_mx(tenant)
     port = int(relay.get("port", 25))
-    mail_from = relay.get("fromEmail") or msg_from
+    mail_from = (relay.get("fromEmail") or msg_from or "").strip()
+    msg_to = (msg_to or "").strip()
 
     if not mx_host:
         return {"ok": False, "error": "No tenant domain or mx_host configured"}
+    if not mail_from or "@" not in mail_from:
+        return {"ok": False, "error": "From email (MAIL FROM) is required and must be in your M365 accepted domain"}
+    if not msg_to or "@" not in msg_to:
+        return {"ok": False, "error": "Recipient email is required"}
 
     # Normalize to CRLF — email.as_bytes() (compat32) emits bare \n which causes
-    # O365 to produce an empty body and breaks the header-end search below.
+    # O365 to produce an empty body.
     raw_msg = (
         raw_msg.replace(b"\r\n", b"\n").replace(b"\r", b"\n").replace(b"\n", b"\r\n")
     )
+    if not raw_msg.endswith(b"\r\n"):
+        raw_msg += b"\r\n"
 
-    # Inject the full Exchange trusted-connector header set into the raw message.
-    # These signal to EOP that the message arrived via a whitelisted internal relay:
-    #   SCL:-1  — bypass spam filter entirely
-    #   PCL:2   — phishing confidence level (2 = not phishing)
-    #   BCL:0   — bulk complaint level (0 = not bulk mail)
-    #   AuthAs:Internal — connector was authenticated as internal origin  ← highest-impact
-    #   Directionality:Originating — message is outbound from the tenant
-    # Skip injection if SCL is already present (e.g. from dlv msExchangeHeaders).
+    # Strip any client-forged Exchange organization headers (expert-mode toggles
+    # or older builds). Exchange Online stamps these itself after connector auth;
+    # forging them can cause silent post-accept drops.
     _hdr_end = raw_msg.find(b"\r\n\r\n")
-    _scl_present = (
-        b"X-MS-Exchange-Organization-SCL" in raw_msg[:_hdr_end]
-        if _hdr_end > 0
-        else False
-    )
-    if _hdr_end > 0 and not _scl_present:
-        _o365_headers = (
-            b"X-MS-Exchange-Organization-SCL: -1\r\n"
-            b"X-MS-Exchange-Organization-PCL: 2\r\n"
-            b"X-MS-Exchange-Organization-Antispam-Report: BCL:0;\r\n"
-            b"X-MS-Exchange-Organization-AuthAs: Internal\r\n"
-            b"X-MS-Exchange-Organization-MessageDirectionality: Originating\r\n"
-        )
-        # Inject at the top of the header block — real Exchange MTA stamps these
-        # as the first headers, before From/To/Subject. Matching that ordering is
-        # a minor authenticity signal to EOP.
-        _first_crlf = raw_msg.find(b"\r\n")
-        if _first_crlf > 0:
-            raw_msg = (
-                raw_msg[: _first_crlf + 2] + _o365_headers + raw_msg[_first_crlf + 2 :]
-            )
-        else:
-            raw_msg = _o365_headers + raw_msg
+    if _hdr_end > 0:
+        _hdrs = raw_msg[:_hdr_end].split(b"\r\n")
+        _body = raw_msg[_hdr_end:]
+        _kept = [
+            h
+            for h in _hdrs
+            if not h.lower().startswith(b"x-ms-exchange-organization-")
+        ]
+        raw_msg = b"\r\n".join(_kept) + _body
+
+    # Do NOT forge X-MS-Exchange-Organization-* headers here.
+    # Exchange Online stamps those after the inbound connector authenticates the
+    # connecting IP. Client-injected org headers are stripped or can make EOP
+    # treat the message as tampered / drop it after a 250 accept.
 
     ehlo_domain = mail_from.split("@")[-1] if "@" in mail_from else "mail.local"
     t0 = time.time()
     ssh_client = None
+    smtp_detail = ""
 
     try:
         if relay_ssh and relay_ssh.get("host"):
@@ -236,40 +230,77 @@ def send_via_o365_relay(
             via_label = f"{mx_host}:{port}"
 
         with conn:
-            conn.ehlo(ehlo_domain)
+            code, resp = conn.ehlo(ehlo_domain)
+            smtp_detail = f"EHLO {code}"
             try:
                 if conn.has_extn("STARTTLS"):
                     ctx = ssl.create_default_context()
                     ctx.check_hostname = False
                     ctx.verify_mode = ssl.CERT_NONE
                     conn.starttls(context=ctx)
-                    conn.ehlo()
+                    code, resp = conn.ehlo(ehlo_domain)
+                    smtp_detail += f"; STARTTLS+EHLO {code}"
             except Exception as tls_err:
                 log.debug("STARTTLS optional — skipping: %s", tls_err)
-            conn.sendmail(mail_from, [msg_to], raw_msg)
+                smtp_detail += f"; STARTTLS skipped ({tls_err})"
+
+            # sendmail returns {} if all recipients accepted; non-empty = partial refuse
+            refused = conn.sendmail(mail_from, [msg_to], raw_msg)
+            if refused:
+                detail = "; ".join(
+                    f"{addr}: {err}" for addr, err in refused.items()
+                )
+                return {
+                    "ok": False,
+                    "error": f"Recipient refused by M365: {detail[:300]}",
+                    "via": via_label,
+                }
 
         latency = round((time.time() - t0) * 1000)
         log.info(
-            "O365 relay OK  %s → %s via %s (%dms)",
+            "O365 relay OK  %s → %s via %s (%dms) %s",
             mail_from,
             msg_to,
             via_label,
             latency,
+            smtp_detail,
         )
-        return {"ok": True, "message": f"Sent via {via_label} ({latency}ms)"}
+        return {
+            "ok": True,
+            "message": (
+                f"M365 accepted {mail_from} → {msg_to} via {via_label} ({latency}ms). "
+                f"If it is not in Inbox/Junk, check Microsoft 365 Defender → Quarantine "
+                f"and Exchange Message Trace for this recipient."
+            ),
+            "via": via_label,
+            "latency_ms": latency,
+            "mail_from": mail_from,
+            "mail_to": msg_to,
+        }
 
     except smtplib.SMTPRecipientsRefused as e:
         err = str(e)
-        if "550" in err and "5.7" in err:
+        if "550" in err and ("5.7" in err or "5.7.64" in err or "relay" in err.lower()):
             return {
                 "ok": False,
-                "error": f"IP not whitelisted in O365 connector: {err[:200]}",
+                "error": (
+                    f"Relay denied — inbound connector IP mismatch or recipient not allowed: "
+                    f"{err[:220]}"
+                ),
             }
         return {"ok": False, "error": f"Recipient refused: {err[:200]}"}
     except smtplib.SMTPSenderRefused as e:
         return {
             "ok": False,
-            "error": f"Sender refused (check MAIL FROM is in tenant): {str(e)[:200]}",
+            "error": (
+                f"Sender refused — MAIL FROM must be an accepted domain in your tenant "
+                f"(e.g. joseph@orazama.com): {str(e)[:200]}"
+            ),
+        }
+    except smtplib.SMTPDataError as e:
+        return {
+            "ok": False,
+            "error": f"M365 rejected message DATA: {str(e)[:250]}",
         }
     except smtplib.SMTPException as e:
         return {"ok": False, "error": f"SMTP error: {str(e)[:200]}"}
