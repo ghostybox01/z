@@ -286,6 +286,28 @@ def _safe_redirect_url(
     return default
 
 
+# Compact PowerShell that installs OpenSSH even when Add-WindowsCapability
+# silently leaves State=NotPresent (common when Windows Update is blocked).
+# Used by WinRM/SMB bootstrap paths; UI Copy Command uses the fuller script.
+_OPENSSH_INSTALL_PS = (
+    "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; "
+    "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -EA SilentlyContinue|Out-Null; "
+    "Start-Sleep 5; "
+    "if(-not(Get-Service sshd -EA SilentlyContinue)){"
+    "$z=Join-Path $env:TEMP 'OpenSSH-Win64.zip'; "
+    "$d='C:\\Program Files\\OpenSSH'; "
+    "Invoke-WebRequest 'https://github.com/PowerShell/Win32-OpenSSH/releases/latest/download/OpenSSH-Win64.zip' "
+    "-OutFile $z -UseBasicParsing; "
+    "New-Item $d -ItemType Directory -Force|Out-Null; Expand-Archive $z $d -Force; "
+    "$i=Get-ChildItem $d -Recurse -Filter install-sshd.ps1|Select-Object -First 1; "
+    "if($i){Push-Location $i.DirectoryName; & .\\install-sshd.ps1; Pop-Location}"
+    "}; "
+    "Start-Sleep 3; Start-Service sshd -EA SilentlyContinue; "
+    "Set-Service sshd -StartupType Automatic -EA SilentlyContinue; "
+    "netsh advfirewall firewall add rule name=SSH dir=in action=allow protocol=tcp localport=22|Out-Null"
+)
+
+
 def _quote_imap_string(value: str) -> str:
     """Escape backslash and double-quote characters for an IMAP quoted string."""
     if not isinstance(value, str):
@@ -5400,9 +5422,7 @@ if(code && window.opener){{
                                 "netsh advfirewall firewall add rule name=SynthTelSMTP dir=in action=allow protocol=tcp localport=8025|Out-Null"
                             )
                             # Also install OpenSSH so next deploy uses SSH
-                            _wrun(
-                                "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 2>$null; Start-Service sshd -EA SilentlyContinue; Set-Service sshd -StartupType Automatic -EA SilentlyContinue; netsh advfirewall firewall add rule name=SSH dir=in action=allow protocol=tcp localport=22|Out-Null"
-                            )
+                            _wrun(_OPENSSH_INSTALL_PS)
                             _out = _wrun(
                                 "if(Get-Process -Name 3proxy -EA SilentlyContinue){'DEPLOY_OK'}else{'DEPLOY_FAIL'}"
                             )
@@ -5526,10 +5546,9 @@ if(code && window.opener){{
                                     "message": (
                                         f"impacket not available and could not be installed. "
                                         f"SSH:{ssh_port} and WinRM:5985 are also unreachable. "
-                                        "Manual fix — RDP into the machine and run as Administrator: "
-                                        "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; "
-                                        "Start-Service sshd; Set-Service sshd -StartupType Automatic; "
-                                        "netsh advfirewall firewall add rule name=SSH dir=in action=allow protocol=tcp localport=22"
+                                        "Manual fix — RDP into the machine, then use the Copy Command "
+                                        "button in the UI and paste the full OpenSSH script into "
+                                        "PowerShell as Administrator (do not type line-by-line)."
                                     ),
                                     "log": "\n".join(log_lines),
                                 },
@@ -5553,9 +5572,8 @@ if(code && window.opener){{
                             _cmds = (
                                 'cmd /c powershell -Command "'
                                 "winrm quickconfig -q 2>nul; "
-                                "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 2>nul; "
-                                "Start-Service sshd; Set-Service sshd -StartupType Automatic; "
-                                "netsh advfirewall firewall add rule name=SSH dir=in action=allow protocol=tcp localport=22 | Out-Null; "
+                                + _OPENSSH_INSTALL_PS.replace('"', '\\"')
+                                + "; "
                                 "netsh advfirewall firewall add rule name=WinRM dir=in action=allow protocol=tcp localport=5985 | Out-Null"
                                 '"'
                             )
@@ -5610,10 +5628,8 @@ if(code && window.opener){{
                                     "status": "error",
                                     "message": (
                                         f"SSH ({ssh_port}), WinRM (5985), and SMB (445) all failed or SMB exec failed: {str(_se)[:200]}. "
-                                        "One-time manual fix - RDP in and run in PowerShell as Admin: "
-                                        "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; "
-                                        "Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; "
-                                        "netsh advfirewall firewall add rule name=SSH dir=in action=allow protocol=tcp localport=22"
+                                        "OpenSSH is missing or firewalled on the RDP. Use the Copy Command button below — "
+                                        "paste the full script into PowerShell as Administrator (do not type line-by-line)."
                                     ),
                                 },
                             )
@@ -5627,11 +5643,9 @@ if(code && window.opener){{
                                 "status": "error",
                                 "message": (
                                     f"Cannot reach {host} on SSH:{ssh_port}, WinRM:5985, or SMB:445. "
-                                    "The RDP IP may be wrong, or all remote management ports are firewalled. "
-                                    "One-time fix: RDP in manually, open PowerShell as Admin, run: "
-                                    "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; "
-                                    "Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; "
-                                    "netsh advfirewall firewall add rule name=SSH dir=in action=allow protocol=tcp localport=22"
+                                    "The RDP IP may be wrong, or OpenSSH / remote management ports are firewalled. "
+                                    "RDP in, then use the Copy Command button below and paste the full OpenSSH "
+                                    "script into PowerShell as Administrator (do not type line-by-line)."
                                 ),
                             },
                         )
@@ -5982,11 +5996,9 @@ fi
                         + ":"
                         + str(data.get("sshPort", 22))
                         + ". "
-                        "Checklist: "
-                        "1) OpenSSH Server must be installed on the Windows RDP (Settings > Optional Features > OpenSSH Server). "
-                        "2) OpenSSH service must be running: run 'Start-Service sshd' as Admin in PowerShell. "
-                        "3) Windows Firewall must allow port 22: 'netsh advfirewall firewall add rule name=SSH dir=in action=allow protocol=tcp localport=22'. "
-                        "4) Check the SSH port is correct (default 22, some RDPs use 2222 or custom)."
+                        "OpenSSH is not reachable. Use the Copy Command button in the UI — paste the full "
+                        "script into PowerShell as Administrator on the RDP (installs OpenSSH with GitHub "
+                        "fallback, starts sshd, opens port 22). Also verify the SSH port (default 22)."
                     )
                 elif "authentication" in err.lower() or "auth" in err.lower():
                     msg = "SSH authentication failed. Check username and password. For Windows, use 'Administrator' as username."
@@ -5994,7 +6006,8 @@ fi
                     msg = (
                         "SSH port refused. OpenSSH Server is not listening on port "
                         + str(data.get("sshPort", 22))
-                        + ". Install and start OpenSSH Server on the RDP."
+                        + ". Use the Copy Command button below and paste the full OpenSSH script "
+                        "into PowerShell as Administrator on the RDP."
                     )
                 elif "no route" in err.lower() or "network unreachable" in err.lower():
                     msg = (
