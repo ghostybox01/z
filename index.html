@@ -4106,6 +4106,64 @@ function OfficeConnectorPanel() {
   );
 }
 
+/* ── Global clipboard helper — works on HTTP and HTTPS ──
+   Prefer sync execCommand first: navigator.clipboard is flaky on HTTP
+   admin panels and for large PowerShell scripts. Returns true/false. */
+function _copyFallback(text) {
+  var ta = document.createElement("textarea");
+  ta.value = String(text == null ? "" : text);
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;box-shadow:none;background:transparent;opacity:0;";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { ta.setSelectionRange(0, ta.value.length); } catch (e) {}
+  var ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  return !!ok;
+}
+function copyToClipboard(text) {
+  text = String(text == null ? "" : text);
+  if (_copyFallback(text)) return true;
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(function () {});
+    return true;
+  }
+  return false;
+}
+function selectElementText(el) {
+  if (!el) return;
+  try {
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch (e) {}
+}
+/** Reliable copy button for long scripts — shows Copied! and falls back to select-all. */
+function CopyScriptButton({text, preRef, label}) {
+  var [state, setState] = React.useState("idle");
+  function onCopy(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    var ok = copyToClipboard(text);
+    if (!ok && preRef && preRef.current) selectElementText(preRef.current);
+    setState(ok ? "ok" : "fail");
+    setTimeout(function () { setState("idle"); }, 2500);
+  }
+  var bg = state === "ok" ? "#166534" : state === "fail" ? "#7f1d1d" : "#14532d";
+  var bd = state === "ok" ? "#22c55e" : state === "fail" ? "#ef4444" : "#22c55e";
+  var fg = state === "ok" ? "#86efac" : state === "fail" ? "#fca5a5" : "#bbf7d0";
+  return (
+    <button type="button" onClick={onCopy} className="btn btn-ok btn-sm" style={{
+      fontWeight:700, background:bg, border:"1px solid "+bd, color:fg
+    }}>
+      {state === "ok" ? "✓ Copied — paste in PowerShell" : state === "fail" ? "Text selected — press Ctrl+C" : (label || "📋 Copy PowerShell script")}
+    </button>
+  );
+}
+
 /* One pasteable block for Windows RDP → OpenSSH.
    Handles: silent Add-WindowsCapability failures (State stays NotPresent),
    TLS 1.2 for GitHub downloads on older PowerShell, Win32-OpenSSH fallback,
@@ -4177,6 +4235,7 @@ function BoxDetectCard() {
   const [busy, setBusy]      = useState(false);
   const [res, setRes]        = useState(null);
   const [err, setErr]        = useState(null);
+  const psPreRef = React.useRef(null);
 
   async function detect() {
     const v = ip.trim();
@@ -4191,7 +4250,7 @@ function BoxDetectCard() {
   }
 
   const kindText = {
-    windows_rdp: { label:"Windows RDP box", color:"#38bdf8", ico:"🪟", hint:"RDP (3389) open — this is a Windows box. It does not accept SSH yet. Follow the setup steps below to enable its OpenSSH server so it can act as a relay." },
+    windows_rdp: { label:"Windows RDP box", color:"#38bdf8", ico:"🪟", hint:"RDP (3389) open — this is a Windows box. It does not accept SSH yet. Install OpenSSH (button below); after that it listens on SSH port 22 like Ubuntu." },
     linux_vps:   { label:"Linux VPS (SSH)",   color:"#22c55e", ico:"🐧", hint:"SSH (22) open — this is a Linux VPS. You can SSH in and it can act as a relay." },
     unknown:     { label:"No management port detected", color:"#f59e0b", ico:"❓", hint:"No RDP (3389), SSH (22), or VNC (5900) is reachable from this server — check the IP or that its firewall allows inbound on those ports." },
   }[res ? res.kind : "unknown"];
@@ -4228,16 +4287,14 @@ function BoxDetectCard() {
             {res.kind === "windows_rdp" && (
               <div className="card card-sm mt10" style={{border:"1px solid #1f3a5f",background:"#0f1b2d"}}>
                 <div className="card-title" style={{fontSize:12,marginBottom:6}}>Enable SSH on this Windows box (run once, as Administrator)</div>
-                <div className="dim2 xs mb6">This turns on OpenSSH so the relay can connect over SSH. RDP itself cannot be used to relay mail.</div>
+                <div className="dim2 xs mb6">Installs OpenSSH so the relay can use <strong>port 22</strong> (same as Ubuntu). RDP 3389 is desktop-only.</div>
                 <div className="row g8 ac-center mb6" style={{flexWrap:"wrap"}}>
-                  <button className="btn btn-ok btn-sm" onClick={()=>copyToClipboard(_PS_SSH_SETUP)}>📋 Copy PowerShell script</button>
+                  <CopyScriptButton text={_PS_SSH_SETUP} preRef={psPreRef} />
                 </div>
-                <pre className="code" style={{fontSize:10,whiteSpace:"pre-wrap",padding:"8px 10px",overflow:"auto",maxHeight:220}}>{_PS_SSH_SETUP}</pre>
+                <pre ref={psPreRef} className="code" style={{fontSize:10,whiteSpace:"pre-wrap",padding:"8px 10px",overflow:"auto",maxHeight:220,userSelect:"text"}}>{_PS_SSH_SETUP}</pre>
                 <div className="dim2 xs mt6">
-                  <strong>Paste the whole script</strong> into PowerShell as Administrator (do not retype or run line-by-line).
-                  It installs OpenSSH, falls back to GitHub if Windows Update fails, waits for <code>sshd</code>, and opens port 22.
+                  <strong>Paste the whole script</strong> into PowerShell as Administrator. Then in Relay VPS use port <strong>22</strong> and username <code>Administrator</code>.
                 </div>
-                <div className="dim2 xs mt6">Then in the Relay VPS card below, use port <strong>22</strong>, username = the <strong>Windows account</strong> (e.g. <code>Administrator</code>) — not <code>root</code>. Allow inbound 22 in the host firewall too (e.g. Hetzner).</div>
               </div>
             )}
           </div>
@@ -4251,6 +4308,7 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
   const [probing, setProbing]   = useState(false);
   const [probeResult, setProbeResult] = useState(null);
   const [showPass, setShowPass] = useState(false);
+  const psPreRef = React.useRef(null);
   const enabled = !!(officeRelay && officeRelay.host);
 
   async function probeRelay() {
@@ -4275,37 +4333,34 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
 
   return (
     <div className="card mb12" style={{borderLeft:"3px solid #22c55e"}}>
-      <div className="row jb ac-center mb8">
-        <div>
-          <div className="card-title" style={{margin:0}}>🔀 Relay VPS (Optional)</div>
-          <div className="dim2 sm mt4">
-            If this VPS's port 25 is blocked or flagged, route O365 sends through an external SSH relay.
-            The relay VPS IP goes in the M365 connector — not this VPS.
-          </div>
-          <details style={{marginTop:10,background:"#0f1b2d",border:"1px solid #1f3a5f",borderRadius:6,padding:"8px 10px"}} open>
-            <summary style={{cursor:"pointer",fontSize:12,fontWeight:600,color:"#7fb7ff"}}>🖥 Using a Windows RDP box as the relay? Read this</summary>
-            <div className="dim2 sm mt8" style={{lineHeight:1.5}}>
-              The relay connects over <strong>SSH</strong> (port 22 by default). A Windows RDP server does
-              <strong> not</strong> accept SSH out of the box — RDP uses port 3389 for screen sharing and cannot be used as the relay.
-            </div>
-            <div className="row g8 ac-center mt10" style={{flexWrap:"wrap"}}>
-              <button className="btn btn-ok btn-sm" onClick={()=>copyToClipboard(_PS_SSH_SETUP)} style={{fontWeight:700}}>
-                📋 Copy PowerShell script
-              </button>
-              <span className="dim2 xs">Paste the <strong>entire</strong> script into PowerShell as Administrator — do not type it by hand.</span>
-            </div>
-            <pre className="code" style={{fontSize:10,whiteSpace:"pre-wrap",padding:"8px 10px",margin:"8px 0",maxHeight:200,overflow:"auto"}}>{_PS_SSH_SETUP}</pre>
-            <div className="dim2 sm mt8" style={{lineHeight:1.5}}>
-              <ol style={{paddingLeft:18,margin:"8px 0"}}>
-                <li>On the Windows box, open PowerShell as <strong>Administrator</strong>, paste the script above, press Enter. It installs OpenSSH (with a GitHub fallback if Windows Update fails), starts <code>sshd</code>, and opens port 22.</li>
-                <li>In this panel use port <strong>22</strong>, and for Username use the <strong>Windows account</strong> (e.g. <code>Administrator</code>) — not <code>root</code>. Windows has no <code>root</code> user.</li>
-                <li>Also confirm the host firewall (e.g. Hetzner) allows inbound port 22 from this SynthTel VPS.</li>
-              </ol>
-            </div>
-          </details>
+      <div className="mb8">
+        <div className="card-title" style={{margin:0}}>🔀 Relay VPS (Optional)</div>
+        <div className="dim2 sm mt4">
+          If this VPS's port 25 is blocked or flagged, route O365 sends through an external SSH relay.
+          The relay VPS IP goes in the M365 connector — not this VPS.
         </div>
-        {enabled && <span style={{color:"var(--ok)",fontSize:12,fontWeight:600}}>● Active</span>}
       </div>
+
+      <details style={{marginBottom:12,background:"#0f1b2d",border:"1px solid #1f3a5f",borderRadius:6,padding:"8px 10px"}} open>
+        <summary style={{cursor:"pointer",fontSize:12,fontWeight:600,color:"#7fb7ff"}}>🖥 Using a Windows RDP box as the relay? Read this</summary>
+        <div className="dim2 sm mt8" style={{lineHeight:1.5}}>
+          RDP (port <strong>3389</strong>) is only the Windows desktop — the relay cannot use it.
+          After you install OpenSSH on the Windows box, it listens on <strong>SSH port 22</strong>, same as Ubuntu/Linux.
+          Enter <strong>22</strong> in the Port field below (not 3389).
+        </div>
+        <div className="row g8 ac-center mt10" style={{flexWrap:"wrap"}}>
+          <CopyScriptButton text={_PS_SSH_SETUP} preRef={psPreRef} />
+          <span className="dim2 xs">Paste the <strong>entire</strong> script into PowerShell as Administrator — do not type it by hand.</span>
+        </div>
+        <pre ref={psPreRef} className="code" style={{fontSize:10,whiteSpace:"pre-wrap",padding:"8px 10px",margin:"8px 0",maxHeight:200,overflow:"auto",userSelect:"text"}}>{_PS_SSH_SETUP}</pre>
+        <div className="dim2 sm mt8" style={{lineHeight:1.5}}>
+          <ol style={{paddingLeft:18,margin:"8px 0"}}>
+            <li>On the Windows box, open PowerShell as <strong>Administrator</strong>, click Copy above, paste, press Enter.</li>
+            <li>In this panel: Port = <strong>22</strong> (SSH — works for Windows OpenSSH and Ubuntu). Username = Windows account (e.g. <code>Administrator</code>), not <code>root</code>.</li>
+            <li>Confirm the host firewall (cloud/security group) allows inbound <strong>22</strong> from this SynthTel VPS.</li>
+          </ol>
+        </div>
+      </details>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,marginBottom:8}}>
         <div>
@@ -4315,14 +4370,15 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
             style={{fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)"}}/>
         </div>
         <div style={{minWidth:72}}>
-          <label className="lbl">Port</label>
+          <label className="lbl">SSH Port</label>
           <input type="number" value={officeRelay.port||22} onChange={e=>upd("port",parseInt(e.target.value)||22)}
-            min="1" max="65535" style={{fontSize:13,padding:"8px 10px"}}/>
+            min="1" max="65535" title="22 for Ubuntu and for Windows after OpenSSH is installed (not 3389)"
+            style={{fontSize:13,padding:"8px 10px"}}/>
         </div>
         <div style={{minWidth:120}}>
           <label className="lbl">Username</label>
           <input value={officeRelay.user||"root"} onChange={e=>upd("user",e.target.value.trim())}
-            placeholder="root" style={{fontSize:13,padding:"8px 10px"}}/>
+            placeholder="Administrator or root" style={{fontSize:13,padding:"8px 10px"}}/>
         </div>
       </div>
       <div className="mb12">
@@ -6174,8 +6230,8 @@ function ToastContainer() {
 function DeployResult({msg, rdp}) {
   // Hooks must run unconditionally (Rules of Hooks) — early returns below used to skip
   // useState and break the Copy Command button after a deploy finished.
-  var [copied, setCopied] = React.useState(false);
   var [showLog, setShowLog] = React.useState(false);
+  var sshPreRef = React.useRef(null);
 
   // msg may be JSON {status, message, log} or legacy plain text
   var parsed = null;
@@ -6215,13 +6271,6 @@ function DeployResult({msg, rdp}) {
 
   // Same robust script as Office Admin — paste whole block, not line-by-line
   var opensshCmd = _PS_SSH_SETUP + "\n\n# Optional WinRM backup (if SSH still blocked):\nwinrm quickconfig -q\nnetsh advfirewall firewall add rule name=\"WinRM-In\" dir=in action=allow protocol=tcp localport=5985";
-
-  function copyCmd() {
-    var text = isFirewallErr ? opensshCmd : (log || message);
-    copyToClipboard(text);
-    setCopied(true);
-    setTimeout(function() { setCopied(false); }, 2000);
-  }
 
   var borderCol = status === "ok" ? "#22c55e30" : "#ef444430";
   var bgHeader  = status === "ok" ? "#0f2718"   : "#2a0f0f";
@@ -6273,20 +6322,14 @@ function DeployResult({msg, rdp}) {
             <div style={{fontSize:11, fontWeight:700, color:"#f87171", textTransform:"uppercase", letterSpacing:.5}}>
               Run in PowerShell as Admin on the RDP
             </div>
-            <button type="button" onClick={copyCmd} style={{
-              background: copied ? "#166534" : "#1e3a5f",
-              border: "1px solid " + (copied ? "#22c55e" : "#3b82f6"),
-              color: copied ? "#4ade80" : "#60a5fa",
-              borderRadius:6, padding:"6px 14px", fontSize:12, cursor:"pointer",
-              fontWeight:700, whiteSpace:"nowrap", flexShrink:0}}>
-              {copied ? "Copied!" : "📋 Copy Command"}
-            </button>
+            <CopyScriptButton text={opensshCmd} preRef={sshPreRef} label="📋 Copy Command" />
           </div>
-          <pre style={{margin:0, background:"#0d1117", borderRadius:8, padding:"10px 12px",
+          <pre ref={sshPreRef} style={{margin:0, background:"#0d1117", borderRadius:8, padding:"10px 12px",
             fontSize:11, lineHeight:1.7, color:"#e2e8f0", overflowX:"auto", maxHeight:240, overflowY:"auto",
-            border:"1px solid #30363d", fontFamily:"monospace", whiteSpace:"pre-wrap"}}>{opensshCmd}</pre>
+            border:"1px solid #30363d", fontFamily:"monospace", whiteSpace:"pre-wrap", userSelect:"text"}}>{opensshCmd}</pre>
           <div style={{marginTop:8, fontSize:11, color:"#6b7280"}}>
             Paste the <strong style={{color:"#94a3b8"}}>entire</strong> script (do not type line-by-line). After it finishes, click Auto-Deploy again.
+            Windows OpenSSH uses port <strong style={{color:"#94a3b8"}}>22</strong> (same as Ubuntu) — not RDP 3389.
           </div>
         </div>
       </div>
@@ -6308,19 +6351,11 @@ function DeployResult({msg, rdp}) {
           <div style={{fontSize:11, fontWeight:700, color:"#94a3b8"}}>
             If OpenSSH is missing on the RDP, copy this script:
           </div>
-          <button type="button" onClick={function(){ copyToClipboard(opensshCmd); setCopied(true); setTimeout(function(){setCopied(false);},2000); }}
-            style={{
-              background: copied ? "#166534" : "#1e3a5f",
-              border: "1px solid " + (copied ? "#22c55e" : "#3b82f6"),
-              color: copied ? "#4ade80" : "#60a5fa",
-              borderRadius:6, padding:"6px 14px", fontSize:12, cursor:"pointer",
-              fontWeight:700, whiteSpace:"nowrap", flexShrink:0}}>
-            {copied ? "Copied!" : "📋 Copy Command"}
-          </button>
+          <CopyScriptButton text={opensshCmd} preRef={sshPreRef} label="📋 Copy Command" />
         </div>
-        <pre style={{margin:0, background:"#0d1117", borderRadius:8, padding:"10px 12px",
+        <pre ref={sshPreRef} style={{margin:0, background:"#0d1117", borderRadius:8, padding:"10px 12px",
           fontSize:10, lineHeight:1.6, color:"#94a3b8", overflowX:"auto", maxHeight:120, overflowY:"auto",
-          border:"1px solid #30363d", fontFamily:"monospace", whiteSpace:"pre-wrap"}}>{opensshCmd}</pre>
+          border:"1px solid #30363d", fontFamily:"monospace", whiteSpace:"pre-wrap", userSelect:"text"}}>{opensshCmd}</pre>
       </div>
       {log && (
         <div style={{background:"#1a0808", borderTop:"1px solid #ef444422"}}>
@@ -12333,20 +12368,6 @@ function TabAccount({username, role, doLogout,
     </div>
   );
 }
-/* ── Global clipboard helper — works on HTTP and HTTPS ── */
-function copyToClipboard(text) {
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).catch(function() { _copyFallback(text); });
-  } else { _copyFallback(text); }
-}
-function _copyFallback(text) {
-  var ta = document.createElement("textarea");
-  ta.value = text; ta.style.position = "fixed"; ta.style.top = "-9999px";
-  document.body.appendChild(ta); ta.focus(); ta.select();
-  try { document.execCommand("copy"); } catch(e) {}
-  document.body.removeChild(ta);
-}
-
 /* ════════════════════════════════════════
    MAIN APP
 ════════════════════════════════════════ */
