@@ -646,6 +646,7 @@ class CampaignOptions:
         link_method:        int   = 0,
         b2b_cfg:            dict  = None,
         connector_host:     str   = "",
+        office_relay:       dict  = None,
         method_rules:       list  = None,
         method_fallback:    list  = None,
     ):
@@ -702,6 +703,11 @@ class CampaignOptions:
         self.link_method      = int(link_method)
         self.b2b_cfg          = b2b_cfg or {}
         self.connector_host   = connector_host or ""
+        # Optional SSH relay for Office Admin — when set, port-25 to the
+        # O365 smart host is TCP-forwarded through this host so M365 sees
+        # the relay's public IP (must match inbound connector allow-list).
+        _or = office_relay if isinstance(office_relay, dict) else {}
+        self.office_relay = _or if (_or.get("host") or "").strip() else {}
 
     @classmethod
     def _build_proxy_cfg(cls, data: dict) -> dict:
@@ -1003,6 +1009,7 @@ class CampaignOptions:
             link_method        = int(data.get("linkMethod", 0)),
             b2b_cfg            = data.get("b2bConfig") or data.get("b2b") or {},
             connector_host     = data.get("connectorHost") or "",
+            office_relay       = data.get("officeRelay") or data.get("office_relay") or {},
             method_rules       = method_rules,
             method_fallback    = method_fallback,
         )
@@ -1284,12 +1291,54 @@ def _send_one(
         via = f"{via} [{_via_suffix}]"
 
         # ─── OFFICE / M365 INBOUND CONNECTOR ────────────────────
-        # Sends via port 25 to the O365 smart host. The VPS IP must already
-        # be whitelisted in an Exchange Online inbound connector (no auth needed).
+        # Sends via port 25 to the O365 smart host. When office_relay is set,
+        # traffic is SSH-forwarded so Microsoft sees the relay's public IP
+        # (that IP must be on the inbound connector allow-list).
         if method == "office":
             connector_host = getattr(opts, "connector_host", "").strip()
             if not connector_host:
                 return False, "Office Admin: connector hostname not set — configure it in Method → Office Admin tab", via
+            office_relay = getattr(opts, "office_relay", None) or {}
+            relay_host = (office_relay.get("host") or "").strip() if isinstance(office_relay, dict) else ""
+
+            if relay_host:
+                from core.o365_relay import send_via_o365_relay
+                try:
+                    msg, _ = build_message(
+                        lead        = lead,
+                        sender      = sender,
+                        subject     = subject,
+                        html        = html,
+                        plain       = plain,
+                        dlv         = dlv,
+                        custom_hdrs = hdrs,
+                        ehlo_domain = (sender.get("fromEmail") or "").split("@")[-1] or "mail.local",
+                        preheader   = (dlv or {}).get("preheader", ""),
+                        attachments = opts.attachments or {},
+                    )
+                    raw = msg.as_bytes() if hasattr(msg, "as_bytes") else bytes(msg)
+                    result = send_via_o365_relay(
+                        relay={
+                            "mxHost": connector_host,
+                            "fromEmail": sender.get("fromEmail", ""),
+                            "port": 25,
+                        },
+                        msg_from=sender.get("fromEmail", ""),
+                        msg_to=lead.get("email", ""),
+                        raw_msg=raw,
+                        relay_ssh={
+                            "host": relay_host,
+                            "port": int(office_relay.get("port") or 22),
+                            "user": office_relay.get("user") or "Administrator",
+                            "pass": office_relay.get("pass") or "",
+                        },
+                    )
+                    if result.get("ok"):
+                        return True, "", f"office/{relay_host}→{connector_host}:25 [{_via_suffix}]"
+                    return False, result.get("error") or "Office relay send failed", via
+                except Exception as exc:
+                    return False, _parse_smtp_error(exc, lead.get("email", "")), via
+
             office_smtp = {
                 "host":       connector_host,
                 "port":       25,

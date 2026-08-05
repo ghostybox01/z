@@ -105,7 +105,18 @@ def _open_ssh_channel(relay_ssh: dict, mx_host: str, port: int, timeout: int = 3
     Returns (ssh_client, channel) — caller must close ssh_client when done.
     relay_ssh keys: host, port (default 22), user, pass, key (path, optional)
     """
-    from core.ssh_helper import create_ssh_client
+    try:
+        from core.ssh_helper import create_ssh_client
+    except ImportError:
+        try:
+            from ssh_helper import create_ssh_client
+        except ImportError:
+            import paramiko
+
+            def create_ssh_client():
+                c = paramiko.SSHClient()
+                c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                return c
 
     ssh = create_ssh_client()
     ssh.connect(
@@ -115,6 +126,8 @@ def _open_ssh_channel(relay_ssh: dict, mx_host: str, port: int, timeout: int = 3
         password=relay_ssh.get("pass") or None,
         key_filename=relay_ssh.get("key") or None,
         timeout=timeout,
+        banner_timeout=timeout,
+        auth_timeout=timeout,
         allow_agent=False,
         look_for_keys=False,
     )

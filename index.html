@@ -4440,7 +4440,7 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
                 <div><strong>Public IP: {probeResult.publicIp}</strong></div>
                 <div className="dim2 xs mt4">
                   {probeResult.port25
-                    ? "✓ Port 25 outbound is open — add this IP to your M365 connector"
+                    ? "✓ Port 25 outbound is open — add this IP to your M365 connector (not the SynthTel VPS IP)"
                     : "⚠ Port 25 may be blocked on the relay — try sending anyway, some providers allow it"}
                 </div>
                 {probeResult.blacklist && (
@@ -4472,8 +4472,16 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
                     )}
                   </div>
                 )}
-                <div className="row g8 mt8">
+                <div className="row g8 mt8" style={{flexWrap:"wrap"}}>
                   <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(probeResult.publicIp)}>📋 Copy IP</button>
+                  <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(
+`Connect-ExchangeOnline
+New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDomains '*' -SenderIPAddresses '${probeResult.publicIp}' -RestrictDomainsToIPAddresses $true -RequireTls $true`
+                  )}>📋 Copy connector PowerShell</button>
+                </div>
+                <div className="dim2 xs mt8">
+                  Campaigns set to <strong>Office Admin</strong> will SSH through this relay, then deliver to your smart host on port 25.
+                  From address = your Senders / from email (e.g. tenant mailbox). Smart host stays <code>domain-dashes.mail.protection.outlook.com</code>.
                 </div>
               </>
             ) : (
@@ -5225,7 +5233,8 @@ function TabMethod({
       {mTab==="office" && (
         <div>
           <Info type="i">
-            <strong>Office Admin / M365 Inbound Connector</strong> — sends through your Microsoft 365 tenant via an inbound connector that trusts this VPS's IP on port 25. Requires Global Admin access once for setup.
+            <strong>Office Admin / M365 Inbound Connector</strong> — sends through your Microsoft 365 tenant via an inbound connector that trusts your sending IP on port 25.
+            If a Relay VPS / Windows RDP is configured below, Microsoft must whitelist <strong>that relay's public IP</strong> (not this SynthTel VPS). Requires Global Admin access once for setup.
           </Info>
 
           {/* Step 1 — Probe / IP */}
@@ -5241,10 +5250,30 @@ function TabMethod({
           {/* Step 2 — Add IP to M365 Connector */}
           <div className="card mb12" style={{borderLeft:"3px solid #0078d4"}}>
             <div className="card-title" style={{marginBottom:4}}>Step 2 — Add IP to M365 Inbound Connector</div>
-            <div className="dim sm">
-              Run the PowerShell snippet copied above in <strong>Exchange Online PowerShell</strong> as a Global Admin.
-              Alternatively: <strong>Exchange Admin Center → Mail flow → Connectors → New inbound connector</strong> (type: On-premises),
-              then add the VPS IP to the allowed sender IPs list and enable TLS.
+            <div className="dim sm" style={{lineHeight:1.55}}>
+              {officeRelay && officeRelay.host ? (
+                <>
+                  Relay VPS is set to <code>{officeRelay.host}</code> — put <strong>that IP</strong> in the connector
+                  (Microsoft sees the relay IP, not this SynthTel box).
+                </>
+              ) : (
+                <>Use the VPS public IP from Step 1 (or the Relay IP after you probe Step 4).</>
+              )}
+              <br/><br/>
+              <strong>Exchange Admin Center → Mail flow → Connectors → Add inbound connector</strong>
+              <ol style={{paddingLeft:18,margin:"8px 0"}}>
+                <li>Connection from: <strong>Your organization's email server</strong> (On-premises)</li>
+                <li>Name: e.g. <code>SynthTel-Sender</code></li>
+                <li>Authenticating sent email: <strong>By verifying that the IP address … matches …</strong></li>
+                <li>Sender IP addresses: add <strong>{(officeRelay && officeRelay.host) || "the probed public IP"}</strong></li>
+                <li>Accepted domains: typically <strong>all domains accepted by your org</strong> (or restrict to your tenant domains)</li>
+                <li>Turn on: <strong>Reject email messages if they aren't sent over TLS</strong> (recommended)</li>
+              </ol>
+              Or Exchange Online PowerShell:
+              <pre className="code" style={{fontSize:11,whiteSpace:"pre-wrap",padding:"8px 10px",margin:"8px 0"}}>{
+`Connect-ExchangeOnline
+New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDomains '*' -SenderIPAddresses '${(officeRelay && officeRelay.host) || "RELAY_OR_VPS_IP"}' -RestrictDomainsToIPAddresses $true -RequireTls $true`
+              }</pre>
             </div>
           </div>
 
