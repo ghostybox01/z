@@ -95,7 +95,10 @@ from core.mx_sender import (
     get_ctx as _mx_get_ctx, reset_ctx as _mx_reset_ctx,
     MxSenderContext, preflight_check_senders,
 )
-from core.api_sender import send_api, build_api_headers
+from core.api_sender import (
+    send_api, build_api_headers,
+    smtp2go_disable_recipient_restriction,
+)
 from core.owa_sender import send_owa
 from core.crm_sender import send_crm
 from core.tunnel_manager import (
@@ -1070,6 +1073,60 @@ def _is_infrastructure_error(error_str: str) -> bool:
 
 # ═══════════════════════════════════════════════════════════════
 # CAMPAIGN OPTIONS
+
+
+def _preflight_smtp2go_recipient_restriction(opts: CampaignOptions) -> Generator:
+    """
+    At campaign start for SMTP2GO API keys: disable Restrict Recipients
+    so any address can receive. Yields info/warn events for the campaign log.
+    """
+    apis = opts.apis or []
+    keys = []
+    seen = set()
+    for a in apis:
+        if not isinstance(a, dict):
+            continue
+        prov = (a.get("provider") or "").lower().replace("_", "-")
+        key = (a.get("apiKey") or a.get("key") or "").strip()
+        if not key or key in seen:
+            continue
+        # SMTP2GO keys are api-…; also trust an explicit provider label
+        if prov in ("smtp2go", "smtp-2go") or (key.startswith("api-") and len(key) >= 24):
+            seen.add(key)
+            keys.append(key)
+
+    if not keys:
+        return
+
+    yield {
+        "type": "info",
+        "msg": (
+            f"SMTP2GO preflight: disabling Restrict Recipients on "
+            f"{len(keys)} API key(s) so all leads can receive…"
+        ),
+    }
+    for key in keys:
+        try:
+            result = smtp2go_disable_recipient_restriction(key)
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)}
+        label = (key[:10] + "…") if len(key) > 12 else key
+        if result.get("ok"):
+            yield {
+                "type": "info",
+                "msg": f"✓ SMTP2GO {label}: {result.get('msg') or 'recipient restriction disabled'}",
+            }
+        else:
+            yield {
+                "type": "warn",
+                "msg": (
+                    f"⚠ SMTP2GO {label}: could not disable Restrict Recipients — "
+                    f"{result.get('error') or 'unknown error'}. "
+                    "Sends may fail for non-allowlisted recipients until fixed "
+                    "(API key needs Allowed Recipients permission, or turn it off in "
+                    "SMTP2GO → Settings → Sending Options → Restrictions)."
+                ),
+            }
 
 
 def _preflight_tunnels(opts: CampaignOptions) -> Generator:
@@ -2088,6 +2145,10 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     # ── Tunnel preflight ─────────────────────────────────────
     if method == "tunnel":
         yield from _preflight_tunnels(opts)
+
+    # ── SMTP2GO: open recipient restriction before first send ─
+    if method == "api":
+        yield from _preflight_smtp2go_recipient_restriction(opts)
 
     # ── Reset per-CAMPAIGN-USER state in pooled modules ──────
     # CRITICAL: pools and MX contexts are now keyed by `campaign_uid`

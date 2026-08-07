@@ -875,6 +875,18 @@ def _send_smtp2go(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
             for a in atts
         ]
 
+    # Default: open Restrict Recipients before the first send with this key
+    # (campaign preflight also does this; this covers test/one-off sends).
+    if key and key not in _SMTP2GO_RECIPIENT_RESTRICTION_OFF:
+        try:
+            dis = smtp2go_disable_recipient_restriction(key)
+            if dis.get("ok"):
+                log.info("[ApiSender] smtp2go pre-send: %s", dis.get("msg") or "restriction disabled")
+            else:
+                log.warning("[ApiSender] smtp2go pre-send disable failed: %s", dis.get("error"))
+        except Exception as exc:
+            log.warning("[ApiSender] smtp2go pre-send disable error: %s", exc)
+
     url = _API_URLS["smtp2go"]
     headers = {
         "Content-Type": "application/json",
