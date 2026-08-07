@@ -738,10 +738,11 @@ def smtp2go_disable_recipient_restriction(api_key: str) -> dict:
     elif err and "permission" in err.lower():
         return {
             "ok": False,
-            "error": (
-                f"{err}. Grant this API key permission for Allowed Recipients "
-                "in SMTP2GO → Sending → API Keys, or turn off Restrict Recipients "
-                "manually under Settings → Sending Options → Restrictions."
+            "error": "permission",
+            "hint": (
+                "This API key cannot manage Allowed Recipients. "
+                "Fix in app.smtp2go.com: (1) Settings → Sending Options → Restrictions → turn OFF Restrict Recipients, "
+                "OR (2) Sending → API Keys → open this key → Permissions → enable Allowed Recipients (/allowed_recipients/*) → Save, then re-add the key here."
             ),
         }
 
