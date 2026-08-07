@@ -5773,6 +5773,32 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
                 </select>
               </div>
             )}
+
+            {/* SMTP2GO — Restrict Recipients (sandbox allowlist) */}
+            {apiDraft.provider==="smtp2go" && (
+              <div style={{gridColumn:"1/-1",padding:"10px 12px",background:"var(--surface2)",borderRadius:8,border:"1px solid var(--border)"}}>
+                <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:4}}>SMTP2GO Restrict Recipients</div>
+                <div className="dim2 xs" style={{lineHeight:1.45,marginBottom:8}}>
+                  New/trial accounts often block sends with “Recipient is not on your allow list”.
+                  Click below to turn that restriction <strong>off</strong> via API (Settings → Sending Options → Restrictions),
+                  or sends will auto-heal on first failure. API key needs Allowed Recipients permission.
+                </div>
+                <button type="button" className="btn btn-g btn-sm" disabled={!apiDraft.key||apiTestLoading}
+                  onClick={async()=>{
+                    if(!apiDraft.key) return;
+                    setApiTestLoading(true); setApiTestResult(null);
+                    try {
+                      const r=await apiCall("/api/tools/smtp2go-recipients",{method:"POST",body:JSON.stringify({key:apiDraft.key,action:"disable"})});
+                      const d=await r.json();
+                      if(d.ok) setApiTestResult({ok:true, msg:d.msg||"Recipient restriction disabled"});
+                      else setApiTestResult({ok:false, msg:d.error||"Failed"});
+                    } catch(e){ setApiTestResult({ok:false, msg:e.message||"Request failed"}); }
+                    setApiTestLoading(false);
+                  }}>
+                  {apiTestLoading?"…":"🔓 Disable recipient restriction"}
+                </button>
+              </div>
+            )}
           </div>
           <div className="row g8 mt12">
             <button className="btn btn-p btn-sm" onClick={()=>{
@@ -5921,6 +5947,17 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
                   <span className="mono f1 trunc">{a.key.slice(0,12)}…</span>
                   {a.mailgunDomain&&<span style={{fontSize:11,color:"var(--ok)",fontFamily:"var(--font-mono)"}}>{a.mailgunDomain}</span>}
                   {a.provider==="ses-api"&&a.region&&<span style={{fontSize:11,color:"var(--t2)"}}>{a.region}</span>}
+                  {a.provider==="smtp2go" && (
+                    <button className="btn btn-g btn-xs" title="Turn off Restrict Recipients on this SMTP2GO account"
+                      onClick={async()=>{
+                        try {
+                          const r=await apiCall("/api/tools/smtp2go-recipients",{method:"POST",body:JSON.stringify({key:a.key,action:"disable"})});
+                          const d=await r.json();
+                          if(d.ok) showToast("ok","SMTP2GO", d.msg||"Recipient restriction disabled");
+                          else showToast("err","SMTP2GO", d.error||"Failed");
+                        } catch(e){ showToast("err","SMTP2GO", e.message||"Failed"); }
+                      }}>🔓 Open sends</button>
+                  )}
                   <button className="btn btn-d btn-xs" onClick={()=>setApiList(p=>p.filter((_,j)=>j!==i))}>✕ Delete</button>
                 </div>
               ))}

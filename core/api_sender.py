@@ -663,11 +663,180 @@ def _send_mailgun(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
         raise Exception(f"Mailgun HTTP {exc.code} — {detail}")
 
 
+def _smtp2go_request(api_key: str, path: str, body: Optional[dict] = None) -> tuple:
+    """
+    POST to SMTP2GO v3 API. Returns (parsed_json_or_None, error_string_or_None).
+    """
+    key = (api_key or "").strip()
+    if not key:
+        return None, "missing API key"
+    url = f"https://api.smtp2go.com/v3/{path.lstrip('/')}"
+    payload = {"api_key": key}
+    if body:
+        payload.update(body)
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Smtp2go-Api-Key": key,
+    }
+    raw = json.dumps(payload).encode("utf-8")
+    try:
+        resp = urlopen(Request(url, data=raw, headers=headers, method="POST"), timeout=15)
+        txt = resp.read().decode("utf-8", errors="replace")
+        try:
+            return (json.loads(txt) if txt.strip() else {}), None
+        except Exception:
+            return {"raw": txt}, None
+    except HTTPError as exc:
+        detail = ""
+        try:
+            body_s = exc.read().decode("utf-8", errors="replace")[:500]
+            err = json.loads(body_s)
+            nested = err.get("data") if isinstance(err.get("data"), dict) else {}
+            detail = nested.get("error") or nested.get("error_code") or err.get("error") or body_s
+        except Exception:
+            detail = str(exc)
+        return None, f"HTTP {exc.code}: {detail}"
+    except URLError as exc:
+        return None, f"network: {exc.reason}"
+    except Exception as exc:
+        return None, str(exc)
+
+
+# Per-process cache: API keys for which we've already disabled Restrict Recipients
+_SMTP2GO_RECIPIENT_RESTRICTION_OFF = set()
+
+
+def _smtp2go_is_allowlist_error(msg: str) -> bool:
+    m = (msg or "").lower()
+    if "not on your allow list" in m or "not on your allowlist" in m:
+        return True
+    return ("allow list" in m or "allowlist" in m) and ("recipient" in m or "restrict" in m)
+
+
+def smtp2go_disable_recipient_restriction(api_key: str) -> dict:
+    """
+    Turn OFF SMTP2GO Settings → Sending Options → Restrict Recipients.
+    Preserves any existing allowlist entries; sets enabled=false via /allowed_recipients/update.
+    """
+    key = (api_key or "").strip()
+    if not key:
+        return {"ok": False, "error": "API key required"}
+
+    viewed, err = _smtp2go_request(key, "allowed_recipients/view", {})
+    recipients = []
+    if viewed and isinstance(viewed.get("data"), dict):
+        recipients = list(viewed["data"].get("allowed_recipients") or [])
+        if viewed["data"].get("enabled") is False:
+            _SMTP2GO_RECIPIENT_RESTRICTION_OFF.add(key)
+            return {
+                "ok": True,
+                "enabled": False,
+                "allowed_recipients": recipients,
+                "msg": "Recipient restriction already disabled",
+            }
+    elif err and "permission" in err.lower():
+        return {
+            "ok": False,
+            "error": (
+                f"{err}. Grant this API key permission for Allowed Recipients "
+                "in SMTP2GO → Sending → API Keys, or turn off Restrict Recipients "
+                "manually under Settings → Sending Options → Restrictions."
+            ),
+        }
+
+    data, err2 = _smtp2go_request(
+        key,
+        "allowed_recipients/update",
+        {"allowed_recipients": recipients, "enabled": False},
+    )
+    if err2:
+        return {"ok": False, "error": err2}
+    nested = data.get("data") if isinstance((data or {}).get("data"), dict) else {}
+    _SMTP2GO_RECIPIENT_RESTRICTION_OFF.add(key)
+    return {
+        "ok": True,
+        "enabled": bool(nested.get("enabled")) if nested else False,
+        "allowed_recipients": nested.get("allowed_recipients", recipients) if nested else recipients,
+        "msg": "Recipient restriction disabled — you can send to any address",
+    }
+
+
+def smtp2go_allow_recipients(api_key: str, recipients: list) -> dict:
+    """
+    Add email addresses and/or domains to SMTP2GO Allowed Recipients list.
+    Domains may be passed as 'gmail.com' or '@gmail.com'.
+    """
+    key = (api_key or "").strip()
+    items = []
+    for r in recipients or []:
+        s = str(r or "").strip().lower()
+        if not s:
+            continue
+        items.append(s)
+    if not key:
+        return {"ok": False, "error": "API key required"}
+    if not items:
+        return {"ok": False, "error": "No recipients to add"}
+
+    data, err = _smtp2go_request(
+        key,
+        "allowed_recipients/add",
+        {"allowed_recipients": items},
+    )
+    if err:
+        return {"ok": False, "error": err}
+    nested = data.get("data") if isinstance((data or {}).get("data"), dict) else {}
+    return {
+        "ok": True,
+        "enabled": nested.get("enabled") if nested else None,
+        "allowed_recipients": nested.get("allowed_recipients", items) if nested else items,
+        "msg": f"Added to allow list: {', '.join(items)}",
+    }
+
+
+def _smtp2go_heal_allowlist(api_key: str, recipient_email: str) -> tuple:
+    """
+    Heal Restrict Recipients blocks.
+    Preference: disable the restriction entirely (campaign-friendly).
+    Fallback: add this recipient email + its domain to the allow list.
+    Returns (ok: bool, message: str).
+    """
+    key = (api_key or "").strip()
+    email = (recipient_email or "").strip().lower()
+
+    if key in _SMTP2GO_RECIPIENT_RESTRICTION_OFF:
+        # Already disabled earlier this process — still try adding recipient
+        # in case disable didn't stick / another process re-enabled it.
+        pass
+    else:
+        dis = smtp2go_disable_recipient_restriction(key)
+        if dis.get("ok") and dis.get("enabled") is False:
+            return True, dis.get("msg") or "recipient restriction disabled"
+
+    items = []
+    if email and "@" in email:
+        items.append(email)
+        dom = email.split("@", 1)[1]
+        if dom:
+            items.append(dom)
+    if items:
+        add = smtp2go_allow_recipients(key, items)
+        if add.get("ok"):
+            return True, add.get("msg") or "recipient added to allow list"
+        return False, add.get("error") or "failed to update allow list"
+
+    return False, "could not heal SMTP2GO recipient allow list"
+
+
 def _send_smtp2go(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
     """
     SMTP2GO v3 JSON API — POST https://api.smtp2go.com/v3/email/send
     Auth: X-Smtp2go-Api-Key header (and api_key in body for compatibility).
     Keys look like: api-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+    If Restrict Recipients blocks the send, we auto-disable the restriction
+    (or add the recipient/domain) and retry once.
     """
     key        = (api_cfg.get("apiKey") or "").strip()
     from_name  = sender.get("fromName", "")
@@ -706,60 +875,82 @@ def _send_smtp2go(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
             for a in atts
         ]
 
-    # Custom request so we can inspect data.succeeded / data.failed on HTTP 200
     url = _API_URLS["smtp2go"]
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
         "X-Smtp2go-Api-Key": key,
     }
-    raw = json.dumps(payload).encode("utf-8")
-    req = Request(url, data=raw, headers=headers, method="POST")
+
+    def _do_send():
+        raw = json.dumps(payload).encode("utf-8")
+        req = Request(url, data=raw, headers=headers, method="POST")
+        try:
+            resp = urlopen(req, timeout=15)
+            body = resp.read().decode("utf-8", errors="replace")
+            try:
+                data = json.loads(body) if body.strip() else {}
+            except Exception:
+                data = {}
+            result = data.get("data") if isinstance(data.get("data"), dict) else {}
+            failed = int(result.get("failed") or 0)
+            if failed:
+                failures = result.get("failures") or []
+                detail = failures[0] if failures else (result.get("error") or "send failed")
+                if isinstance(detail, dict):
+                    detail = detail.get("error") or detail.get("message") or str(detail)
+                raise Exception(f"API smtp2go — {detail}")
+            return resp.status
+        except HTTPError as exc:
+            body = ""
+            detail = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace")[:600]
+                err_data = json.loads(body)
+                nested = err_data.get("data") if isinstance(err_data.get("data"), dict) else {}
+                detail = (
+                    nested.get("error")
+                    or nested.get("error_code")
+                    or err_data.get("error")
+                    or err_data.get("message")
+                    or body
+                )
+            except Exception:
+                detail = body or str(exc)
+            if exc.code == 401:
+                raise Exception(
+                    "API smtp2go 401 Unauthorized — invalid API key. "
+                    "Check the key in SMTP2GO → Sending → API Keys."
+                )
+            if exc.code == 403:
+                raise Exception(
+                    f"API smtp2go 403 Forbidden — {detail}. "
+                    "Check API key permissions and verified sender domain."
+                )
+            raise Exception(f"API smtp2go HTTP {exc.code} — {detail}")
+        except URLError as exc:
+            raise Exception(f"API smtp2go network error: {exc.reason}")
+
     try:
-        resp = urlopen(req, timeout=15)
-        body = resp.read().decode("utf-8", errors="replace")
-        try:
-            data = json.loads(body) if body.strip() else {}
-        except Exception:
-            data = {}
-        result = data.get("data") if isinstance(data.get("data"), dict) else {}
-        failed = int(result.get("failed") or 0)
-        if failed:
-            failures = result.get("failures") or []
-            detail = failures[0] if failures else (result.get("error") or "send failed")
-            if isinstance(detail, dict):
-                detail = detail.get("error") or detail.get("message") or str(detail)
-            raise Exception(f"API smtp2go — {detail}")
-        return resp.status
-    except HTTPError as exc:
-        body = ""
-        detail = ""
-        try:
-            body = exc.read().decode("utf-8", errors="replace")[:600]
-            err_data = json.loads(body)
-            nested = err_data.get("data") if isinstance(err_data.get("data"), dict) else {}
-            detail = (
-                nested.get("error")
-                or nested.get("error_code")
-                or err_data.get("error")
-                or err_data.get("message")
-                or body
-            )
-        except Exception:
-            detail = body or str(exc)
-        if exc.code == 401:
+        return _do_send()
+    except Exception as first_exc:
+        msg = str(first_exc)
+        if not _smtp2go_is_allowlist_error(msg):
+            raise
+        ok, heal_msg = _smtp2go_heal_allowlist(key, lead_email)
+        if not ok:
             raise Exception(
-                "API smtp2go 401 Unauthorized — invalid API key. "
-                "Check the key in SMTP2GO → Sending → API Keys."
+                f"{msg} — auto-allow failed ({heal_msg}). "
+                "Disable Restrict Recipients in SMTP2GO → Settings → Sending Options → Restrictions, "
+                "or use the 'Disable recipient restriction' button under Method → API."
             )
-        if exc.code == 403:
+        log.info("[ApiSender] smtp2go allow-list heal: %s — retrying send to %s", heal_msg, lead_email)
+        try:
+            return _do_send()
+        except Exception as second_exc:
             raise Exception(
-                f"API smtp2go 403 Forbidden — {detail}. "
-                "Check API key permissions and verified sender domain."
+                f"{second_exc} — after allow-list heal ({heal_msg})"
             )
-        raise Exception(f"API smtp2go HTTP {exc.code} — {detail}")
-    except URLError as exc:
-        raise Exception(f"API smtp2go network error: {exc.reason}")
 
 
 def _send_postmark(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):

@@ -10278,6 +10278,49 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     pass
 
+        # ── SMTP2GO: disable Restrict Recipients / add allow-list entries ──
+        elif p == "/api/tools/smtp2go-recipients":
+            if not (sess := self._auth()):
+                return
+            try:
+                data = self._read_body()
+            except Exception:
+                self._json(400, {"error": "Invalid JSON"})
+                return
+            api_key = (data.get("key") or "").strip()
+            action = (data.get("action") or "disable").strip().lower()
+            recipients = data.get("recipients") or []
+            if not api_key:
+                self._json(400, {"error": "API key is required"})
+                return
+            try:
+                from core.api_sender import (
+                    smtp2go_disable_recipient_restriction,
+                    smtp2go_allow_recipients,
+                    _smtp2go_request,
+                )
+                if action in ("disable", "open", "off"):
+                    result = smtp2go_disable_recipient_restriction(api_key)
+                elif action in ("add", "allow"):
+                    result = smtp2go_allow_recipients(api_key, recipients)
+                elif action in ("view", "status"):
+                    viewed, err = _smtp2go_request(api_key, "allowed_recipients/view", {})
+                    if err:
+                        result = {"ok": False, "error": err}
+                    else:
+                        nested = viewed.get("data") if isinstance((viewed or {}).get("data"), dict) else {}
+                        result = {
+                            "ok": True,
+                            "enabled": nested.get("enabled"),
+                            "allowed_recipients": nested.get("allowed_recipients") or [],
+                        }
+                else:
+                    result = {"ok": False, "error": f"Unknown action '{action}' (use disable|add|view)"}
+                self._json(200, result)
+            except Exception as exc:
+                self._json(200, {"ok": False, "error": str(exc)})
+            return
+
         # ── Verify domain on ESP ─────────────────────────────
         elif p == "/api/tools/verify-domain":
             if not (sess := self._auth()):
