@@ -4673,6 +4673,7 @@ function TabMethod({
   smtpAutoDisable, setSmtpAutoDisable,
   smtpFailThreshold, setSmtpFailThreshold,
   smtpCooldownSecs, setSmtpCooldownSecs,
+  smtpUseProxy, setSmtpUseProxy,
   sendersRaw, setSendersRaw,
   officeConnectorHost, setOfficeConnectorHost,
   officeRelay, setOfficeRelay,
@@ -5568,6 +5569,11 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
               <Tog checked={smtpAutoDisable} onChange={setSmtpAutoDisable}
                 label="Auto-disable failed SMTPs"
                 desc="Skip a server after N consecutive failures.  Auto-recovers when its cooldown expires.  Off = use even broken servers (not recommended)."/>
+              <div style={{marginTop:10}}>
+                <Tog checked={!!smtpUseProxy} onChange={setSmtpUseProxy}
+                  label="Use Proxies for SMTP"
+                  desc="Off by default. Only enable if you need SOCKS5 from the Proxies tab — residential/datacenter proxies often hurt inbox with authenticated SMTP."/>
+              </div>
             </div>
           )}
 
@@ -6968,7 +6974,7 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
 
       {pTab==="list" && (
         <div>
-          <Info type="i">These SOCKS5 proxies are used by the <strong>Direct MX</strong> send method to route outbound port-25 connections. Add them manually below, use the <strong>9proxy tab</strong> to auto-import residential ISP proxies, or use the <strong>Builder tab</strong> to construct URLs from credential fields. HTTP proxies cannot relay raw SMTP and will be skipped.</Info>
+          <Info type="i">These SOCKS5 proxies are used by <strong>Direct MX</strong> (always) and by <strong>SMTP</strong> only when you enable <strong>Use Proxies for SMTP</strong> under Method → SMTP. Add them manually below, use the <strong>9proxy tab</strong> to auto-import residential ISP proxies, or use the <strong>Builder tab</strong> to construct URLs from credential fields. HTTP proxies cannot relay raw SMTP and will be skipped.</Info>
           <div className="g2 mt12" style={{alignItems:"start"}}>
           <div className="card">
             {serverIp && <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,fontSize:13}}>
@@ -12512,6 +12518,7 @@ function App() {
   const [smtpAutoDisable,   setSmtpAutoDisable]   = useState(_g("smtpAutoDisable", true));
   const [smtpFailThreshold, setSmtpFailThreshold] = useState(_g("smtpFailThreshold", 3));
   const [smtpCooldownSecs,  setSmtpCooldownSecs]  = useState(_g("smtpCooldownSecs", 60));
+  const [smtpUseProxy,      setSmtpUseProxy]      = useState(_g("smtpUseProxy", false));
   const [smtpDraft, setSmtpDraft]     = useState({host:"",port:587,username:"",password:"",ssl:false});
   const [apiList, setApiList]         = useState(_g("apiList",[]));
   const [apiDraft, setApiDraft]       = useState({provider:"sendgrid",key:"",secret:"",region:"us-east-1",mailgunDomain:"",mailgunRegion:"us",sparkpostRegion:"us"});
@@ -12612,7 +12619,7 @@ function App() {
       leadsRaw, allowDupes,
       sendersRaw, senderName, senderNames, senderReplyTo, rotMode,
       activeMethod, smtpList, apiList, owaConfig, crmConfig, tunnelList,
-      smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs,
+      smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs, smtpUseProxy,
       priority, batchSize, concurrent, cooldownEvery, cooldownSecs,
       batchPauseSecs, testEmail, testEveryN,
       htmlBodies, htmlRotateMode, delay, delayUnit,
@@ -12639,7 +12646,7 @@ function App() {
     linkRot, linkRotDraft, linkRotMode, leadsRaw, allowDupes,
     sendersRaw, senderName, senderNames, senderReplyTo, rotMode,
     activeMethod, smtpList, apiList, owaConfig, crmConfig, tunnelList,
-    smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs,
+    smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs, smtpUseProxy,
     priority, batchSize, concurrent, cooldownEvery, cooldownSecs,
     batchPauseSecs, testEmail, testEveryN,
     htmlBodies, htmlRotateMode, delay, delayUnit,
@@ -12688,6 +12695,7 @@ function App() {
       _s("activeMethod",setActiveMethod); _s("smtpList",setSmtpList); _s("apiList",setApiList);
       _s("smtpRotation",setSmtpRotation); _s("smtpAutoDisable",setSmtpAutoDisable);
       _s("smtpFailThreshold",setSmtpFailThreshold); _s("smtpCooldownSecs",setSmtpCooldownSecs);
+      _s("smtpUseProxy",setSmtpUseProxy);
       _s("owaConfig",setOwaConfig); _s("crmConfig",setCrmConfig);
       _s("tunnelList",setTunnelList);
       _s("priority",setPriority); _s("batchSize",setBatchSize); _s("concurrent",setConcurrent);
@@ -13233,7 +13241,9 @@ function App() {
       owa:owaConfig, crm:crmConfig, tunnels:effectiveTunnels,
       // Only include ispTunnels if actually using ISP method — prevents auto-switch to tunnel
       ...(effectiveMethod==="isp" ? {ispTunnels} : {}),
-      proxies:proxies.map(p=>p.raw||p),
+      // SMTP: proxies are opt-in (smtpUseProxy). Auto-applying Proxies-tab
+      // SOCKS to authenticated SMTP was a common junk/auth path issue.
+      proxies: (effectiveMethod==="smtp" && !smtpUseProxy) ? [] : proxies.map(p=>p.raw||p),
       batchSize:parseInt(batchSize), maxConnections:parseInt(concurrent)||1, delay:parseInt(delay), delayUnit,
       cooldownEvery:parseInt(cooldownEvery)||0, cooldownSecs:parseFloat(cooldownSecs)||60,
       batchPauseSecs:parseFloat(batchPauseSecs)||0,
@@ -13260,7 +13270,7 @@ function App() {
       campaignName:campName, rotationMode:rotMode,
       // SMTP-specific rotation + auto-disable settings.  Backend reads
       // these out of `sending` (CampaignOptions.from_dict copies them).
-      smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs,
+      smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs, smtpUseProxy,
       // Override the legacy 'rotation' map so the SMTP rotation mode
       // selected in the UI actually takes effect (was hard-coded to
       // rotationMode for every method type).
@@ -13865,6 +13875,7 @@ function App() {
                                           smtpAutoDisable={smtpAutoDisable} setSmtpAutoDisable={setSmtpAutoDisable}
                                           smtpFailThreshold={smtpFailThreshold} setSmtpFailThreshold={setSmtpFailThreshold}
                                           smtpCooldownSecs={smtpCooldownSecs} setSmtpCooldownSecs={setSmtpCooldownSecs}
+                                          smtpUseProxy={smtpUseProxy} setSmtpUseProxy={setSmtpUseProxy}
                                           officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost}
                                           officeRelay={officeRelay} setOfficeRelay={setOfficeRelay}
                                           cpanelList={cpanelList} setCpanelList={setCpanelList}
@@ -14113,8 +14124,9 @@ AUTO-DISABLE ON FAILURE:
   Optional cool-down: re-enable after X seconds automatically.
 
 PROXY WITH SMTP:
-  Add proxies in the Proxies tab. Tick "Use Proxy" in Method → SMTP.
-  The SMTP connection is tunnelled through the SOCKS5 proxy.
+  Add proxies in the Proxies tab. Enable "Use Proxies for SMTP" under Method → SMTP
+  (off by default — proxies often hurt inbox with authenticated SMTP).
+  When on, the SMTP connection is tunnelled through the SOCKS5 proxy.
   Note: SSL/port-465 is auto-downgraded to TLS/587 when using a proxy
   (SSL wrapping over SOCKS5 is not supported by most proxies).
 
