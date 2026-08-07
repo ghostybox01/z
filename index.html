@@ -5238,11 +5238,11 @@ function TabMethod({
           </Info>
 
           <Info type="w">
-            <strong>Sent but not in Inbox/Junk?</strong> M365 can return SMTP 250 (accepted) and still quarantine or drop the message.
-            Check: <strong>Microsoft 365 Defender → Email &amp; collaboration → Quarantine</strong>, and
-            <strong>Exchange Admin Center → Mail flow → Message trace</strong> for the recipient.
-            Also add <code>ip4:23.95.17.147</code> (your relay IP) to the domain SPF record, and keep
-            <strong>MS Exchange Trust Headers</strong> OFF in expert options.
+            <strong>Sent but Junk / missing?</strong> Office Admin does <em>not</em> use your Proxies tab —
+            mail exits from the Relay IP (<code>23.95.17.147</code>). Open the junked message → View source →
+            check <code>Authentication-Results</code>: if SPF is softfail/fail for that IP, add
+            <code>ip4:23.95.17.147</code> to the <code>orazama.com</code> SPF record. Also check
+            Defender Quarantine and Exchange Message Trace.
           </Info>
 
           {/* Step 1 — Probe / IP */}
@@ -13171,7 +13171,8 @@ function App() {
     if(!htmlBody.trim()&&!plainBody.trim()){showPopup({title:"No Email Body",msg:"Write your email in the Compose tab first.",ico:"📝",type:"alert"});return;}
     const senders=sendersRaw.split(/\r?\n/).map(s=>s.trim().split("|")[0].trim()).filter(s=>s.includes("@"));
     if(!senders.length){showPopup({title:"No Senders",msg:"Add at least one sender email in the Senders tab.",ico:"📤",type:"alert"});return;}
-    const expertMode = true;
+    const expertMode = false; // keep synthetic/bypass headers off unless we re-enable expert UI later
+
 
     pauseRef.current={paused:false,abort:false};
     setCampRunning(true); setCampPaused(false); setCampLog([]);

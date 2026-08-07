@@ -1303,6 +1303,14 @@ def _send_one(
 
             if relay_host:
                 from core.o365_relay import send_via_o365_relay
+                # Clean copy — do not inherit any proxy/synthetic header state
+                office_dlv = dict(dlv or {})
+                for _k in (
+                    "msExchangeHeaders", "threadSimulate", "arcSimulate", "antiDetect",
+                    "hideFromEmail", "spamFilter", "bypassMode", "originatingIpAuto",
+                    "allowSyntheticHeaders", "allowRiskyBypass", "autoFlagEmail",
+                ):
+                    office_dlv[_k] = False
                 try:
                     msg, _ = build_message(
                         lead        = lead,
@@ -1310,10 +1318,10 @@ def _send_one(
                         subject     = subject,
                         html        = html,
                         plain       = plain,
-                        dlv         = dlv,
-                        custom_hdrs = hdrs,
+                        dlv         = office_dlv,
+                        custom_hdrs = [],  # no custom junk headers on office path
                         ehlo_domain = (sender.get("fromEmail") or "").split("@")[-1] or "mail.local",
-                        preheader   = (dlv or {}).get("preheader", ""),
+                        preheader   = (office_dlv or {}).get("preheader", ""),
                         attachments = opts.attachments or {},
                     )
                     raw = msg.as_bytes() if hasattr(msg, "as_bytes") else bytes(msg)
@@ -1769,10 +1777,31 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             dlv["listUnsub"] = True
             if dlv.get("unsubUrl"):
                 dlv["oneClickUnsub"] = True
+            else:
+                dlv["oneClickUnsub"] = False
         else:
             dlv["oneClickUnsub"] = False
         if opts.skip_preflight_dns:
             opts.skip_preflight_dns = False
+
+    # Office Admin / M365 inbound connector: never use SOCKS proxies and never
+    # apply synthetic/bypass header tricks. Junk here is almost always SPF/IP
+    # reputation or content — forged headers only make it worse.
+    if method == "office":
+        opts.proxy = {}
+        for _k in (
+            "msExchangeHeaders", "threadSimulate", "arcSimulate", "antiDetect",
+            "hideFromEmail", "spamFilter", "bypassMode", "bypassZeroFont",
+            "bypassComments", "bypassHomoglyphs", "bypassFontRand", "bypassInnat",
+            "bypassNoisePixel", "bypassStyleVariation", "autoFlagEmail",
+            "originatingIpAuto", "allowSyntheticHeaders", "allowRiskyBypass",
+        ):
+            dlv[_k] = False
+        dlv["priority"] = "normal"
+        # List-Unsubscribe marks bulk; keep only if the user explicitly set URLs.
+        if not (dlv.get("unsubUrl") or dlv.get("unsubEmail")):
+            dlv["listUnsub"] = False
+            dlv["oneClickUnsub"] = False
 
     # ── Parse timing config (LIVE-mutable) ───────────────────
     # `sending` is a dict held by reference inside opts; the
