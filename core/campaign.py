@@ -1117,16 +1117,28 @@ def _preflight_smtp2go_recipient_restriction(opts: CampaignOptions) -> Generator
                 "msg": f"✓ SMTP2GO {label}: {result.get('msg') or 'recipient restriction disabled'}",
             }
         else:
-            yield {
-                "type": "warn",
-                "msg": (
-                    f"⚠ SMTP2GO {label}: could not disable Restrict Recipients — "
-                    f"{result.get('error') or 'unknown error'}. "
-                    "Sends may fail for non-allowlisted recipients until fixed "
-                    "(API key needs Allowed Recipients permission, or turn it off in "
-                    "SMTP2GO → Settings → Sending Options → Restrictions)."
-                ),
-            }
+            hint = result.get("hint") or ""
+            err = result.get("error") or "unknown error"
+            if err == "permission" or "permission" in str(err).lower():
+                yield {
+                    "type": "warn",
+                    "msg": (
+                        f"⚠ SMTP2GO {label}: API key lacks Allowed Recipients permission — "
+                        "cannot auto-open the allow list. "
+                        + (hint or (
+                            "In app.smtp2go.com: Settings → Sending Options → Restrictions → turn OFF Restrict Recipients "
+                            "(fastest), OR Sending → API Keys → this key → Permissions → enable /allowed_recipients/* → Save."
+                        ))
+                    ),
+                }
+            else:
+                yield {
+                    "type": "warn",
+                    "msg": (
+                        f"⚠ SMTP2GO {label}: could not disable Restrict Recipients — {err}. "
+                        "Turn it off in app.smtp2go.com → Settings → Sending Options → Restrictions."
+                    ),
+                }
 
 
 def _preflight_tunnels(opts: CampaignOptions) -> Generator:

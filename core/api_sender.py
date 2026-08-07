@@ -752,6 +752,16 @@ def smtp2go_disable_recipient_restriction(api_key: str) -> dict:
         {"allowed_recipients": recipients, "enabled": False},
     )
     if err2:
+        if "permission" in err2.lower():
+            return {
+                "ok": False,
+                "error": "permission",
+                "hint": (
+                    "This API key cannot manage Allowed Recipients. "
+                    "Fix in app.smtp2go.com: (1) Settings → Sending Options → Restrictions → turn OFF Restrict Recipients, "
+                    "OR (2) Sending → API Keys → open this key → Permissions → enable Allowed Recipients (/allowed_recipients/*) → Save."
+                ),
+            }
         return {"ok": False, "error": err2}
     nested = data.get("data") if isinstance((data or {}).get("data"), dict) else {}
     _SMTP2GO_RECIPIENT_RESTRICTION_OFF.add(key)
