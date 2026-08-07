@@ -5779,11 +5779,13 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
               <div style={{gridColumn:"1/-1",padding:"10px 12px",background:"var(--surface2)",borderRadius:8,border:"1px solid var(--border)"}}>
                 <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:4}}>SMTP2GO Restrict Recipients</div>
                 <div className="dim2 xs" style={{lineHeight:1.45,marginBottom:8}}>
-                  At campaign start SynthTel adds your lead emails/domains to SMTP2GO
-                  <strong> Allowed Recipients</strong> so Restrict Recipients doesn’t block sends.
-                  Your API key needs <code>/allowed_recipients/add</code> under
-                  <strong> Sending → API Keys → Permissions</strong>.
-                  Or turn Restrict Recipients <strong>OFF</strong> under Settings → Sending Options → Restrictions.
+                  SynthTel auto-adds campaign leads to SMTP2GO Allowed Recipients at send start.
+                  That requires the key to include <code>/allowed_recipients/add</code> (or <code>*</code>).
+                  <br/><br/>
+                  <strong>API-only / no panel?</strong> A send-only key cannot unlock this — ask whoever
+                  gave you the key to either enable allow-list permission on it, give you a full key,
+                  or turn <strong>Restrict Recipients</strong> OFF on the account. There is no workaround
+                  with <code>/email/send</code> alone.
                 </div>
                 <div className="row g8" style={{flexWrap:"wrap"}}>
                 <button type="button" className="btn btn-g btn-sm" disabled={!apiDraft.key||apiTestLoading}
@@ -5794,11 +5796,28 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
                       const r=await apiCall("/api/tools/smtp2go-recipients",{method:"POST",body:JSON.stringify({key:apiDraft.key,action:"disable"})});
                       const d=await r.json();
                       if(d.ok) setApiTestResult({ok:true, msg:d.msg||"Recipient restriction disabled"});
-                      else setApiTestResult({ok:false, msg:d.error||d.hint||"Failed — enable /allowed_recipients/* on the key, or turn Restrict Recipients off in the SMTP2GO app"});
+                      else setApiTestResult({ok:false, msg:d.hint||d.error||"Send-only key — ask the account owner for /allowed_recipients/add or Restrict Recipients OFF"});
                     } catch(e){ setApiTestResult({ok:false, msg:e.message||"Request failed"}); }
                     setApiTestLoading(false);
                   }}>
-                  {apiTestLoading?"…":"🔓 Disable recipient restriction"}
+                  {apiTestLoading?"…":"🔓 Try disable restriction"}
+                </button>
+                <button type="button" className="btn btn-g btn-sm" disabled={!apiDraft.key||apiTestLoading}
+                  onClick={async()=>{
+                    if(!apiDraft.key) return;
+                    setApiTestLoading(true); setApiTestResult(null);
+                    try {
+                      const r=await apiCall("/api/tools/smtp2go-recipients",{method:"POST",body:JSON.stringify({key:apiDraft.key,action:"permissions"})});
+                      const d=await r.json();
+                      if(d.ok){
+                        const perms=(d.permissions||[]).join(", ")||"(none listed)";
+                        const allow=d.can_manage_allowlist?"YES — can auto-allowlist":"NO — send-only, ask owner for allow-list permission";
+                        setApiTestResult({ok:!!d.can_manage_allowlist, msg:`Permissions: ${perms} · Allow-list: ${allow}`});
+                      } else setApiTestResult({ok:false, msg:d.error||"Could not read permissions"});
+                    } catch(e){ setApiTestResult({ok:false, msg:e.message||"Request failed"}); }
+                    setApiTestLoading(false);
+                  }}>
+                  {apiTestLoading?"…":"🔎 Check key permissions"}
                 </button>
                 </div>
               </div>

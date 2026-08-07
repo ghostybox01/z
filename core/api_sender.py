@@ -718,6 +718,46 @@ def _smtp2go_is_allowlist_error(msg: str) -> bool:
     return ("allow list" in m or "allowlist" in m) and ("recipient" in m or "restrict" in m)
 
 
+def smtp2go_view_permissions(api_key: str) -> dict:
+    """
+    List endpoints this API key can call.
+    /api_keys/permissions is available to all keys.
+    """
+    key = (api_key or "").strip()
+    if not key:
+        return {"ok": False, "error": "API key required"}
+    data, err = _smtp2go_request(key, "api_keys/permissions", {})
+    if err:
+        return {"ok": False, "error": err}
+    perms = data.get("data") if isinstance(data, dict) else None
+    # Response shapes vary: data=[...paths] or data={data:[...]}
+    if isinstance(perms, dict):
+        perms = perms.get("data") or perms.get("endpoints") or []
+    if not isinstance(perms, list):
+        perms = []
+    paths = [str(p) for p in perms if p]
+    can_allow = any(
+        p in ("*", "/allowed_recipients/*", "/allowed_recipients/add")
+        or str(p).startswith("/allowed_recipients")
+        for p in paths
+    )
+    can_send = any(
+        p in ("*", "/email/*", "/email/send") or str(p).startswith("/email/")
+        for p in paths
+    ) or not paths  # empty unknown — don't assume false for send
+    return {
+        "ok": True,
+        "permissions": paths,
+        "can_send": bool(can_send or "/email/send" in paths or "*" in paths),
+        "can_manage_allowlist": can_allow,
+        "msg": (
+            "Key can manage Allowed Recipients"
+            if can_allow
+            else "Key is send-only — cannot add allow-list recipients via API"
+        ),
+    }
+
+
 def smtp2go_disable_recipient_restriction(api_key: str) -> dict:
     """
     Turn OFF SMTP2GO Settings → Sending Options → Restrict Recipients.
@@ -740,6 +780,7 @@ def smtp2go_disable_recipient_restriction(api_key: str) -> dict:
                 "msg": "Recipient restriction already disabled",
             }
     elif err and "permission" in err.lower():
+        _SMTP2GO_ALLOWLIST_NO_PERM.add(key)
         return {
             "ok": False,
             "error": "permission",
@@ -757,6 +798,7 @@ def smtp2go_disable_recipient_restriction(api_key: str) -> dict:
     )
     if err2:
         if "permission" in err2.lower():
+            _SMTP2GO_ALLOWLIST_NO_PERM.add(key)
             return {
                 "ok": False,
                 "error": "permission",
@@ -804,6 +846,7 @@ def smtp2go_allow_recipients(api_key: str, recipients: list) -> dict:
     )
     if err:
         if "permission" in err.lower():
+            _SMTP2GO_ALLOWLIST_NO_PERM.add(key)
             return {
                 "ok": False,
                 "error": "permission",
@@ -902,9 +945,15 @@ def _send_smtp2go(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
             for a in atts
         ]
 
-    # Default: ensure this recipient is allow-listed before send
-    # (campaign preflight also bulk-adds; this covers test/one-off sends).
-    if key and lead_email:
+    # Ensure recipient is allow-listed before send (skip if already bulk-done,
+    # restriction already off, or key has no allow-list permission).
+    if (
+        key
+        and lead_email
+        and key not in _SMTP2GO_ALLOWLIST_BULK_DONE
+        and key not in _SMTP2GO_RECIPIENT_RESTRICTION_OFF
+        and key not in _SMTP2GO_ALLOWLIST_NO_PERM
+    ):
         try:
             items = [lead_email.lower()]
             if "@" in lead_email:
@@ -912,7 +961,7 @@ def _send_smtp2go(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
             add = smtp2go_allow_recipients(key, items)
             if add.get("ok"):
                 log.info("[ApiSender] smtp2go pre-send allow: %s", add.get("msg"))
-            elif key not in _SMTP2GO_RECIPIENT_RESTRICTION_OFF:
+            else:
                 dis = smtp2go_disable_recipient_restriction(key)
                 if dis.get("ok"):
                     log.info("[ApiSender] smtp2go pre-send: %s", dis.get("msg") or "restriction disabled")

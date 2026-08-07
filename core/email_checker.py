@@ -762,6 +762,36 @@ class Smtp2goProvider(EmailProvider):
     def fetch_status(self) -> EmailServiceStatus:
         status = EmailServiceStatus(provider=self.name)
 
+        # Permissions — available to every key; tells us if allow-list APIs work
+        data, err = self._request("api_keys/permissions")
+        if data is not None:
+            perms = data.get("data") if isinstance(data, dict) else None
+            if isinstance(perms, dict):
+                perms = perms.get("data") or perms.get("endpoints") or []
+            if not isinstance(perms, list):
+                perms = []
+            paths = [str(p) for p in perms if p]
+            status.extra_info["api_permissions"] = ", ".join(paths[:20]) + (
+                f" (+{len(paths)-20} more)" if len(paths) > 20 else ""
+            )
+            can_allow = any(
+                p in ("*", "/allowed_recipients/*", "/allowed_recipients/add")
+                or str(p).startswith("/allowed_recipients")
+                for p in paths
+            )
+            status.extra_info["can_manage_allowlist"] = "Yes" if can_allow else "No"
+            if not can_allow:
+                status.errors.append(
+                    "API-only / send-only key: cannot add Allowed Recipients or disable "
+                    "Restrict Recipients. Ask the SMTP2GO account owner for a key with "
+                    "/allowed_recipients/add (or *), or have them turn OFF Restrict Recipients. "
+                    "There is no workaround with /email/send alone."
+                )
+                if not status.account_status or status.account_status == "Unknown":
+                    status.account_status = "Send-only key"
+        elif err:
+            status.extra_info["permissions_error"] = err
+
         # Monthly cycle / quota
         data, err = self._request("stats/email_cycle")
         if data:
@@ -774,7 +804,10 @@ class Smtp2goProvider(EmailProvider):
                     status.extra_info["cycle"] = (
                         f"{cycle.get('cycle_start', '?')} → {cycle.get('cycle_end', '?')}"
                     )
-                status.account_status = "Active"
+                if status.account_status in ("Unknown", "", None):
+                    status.account_status = "Active"
+                elif status.account_status == "Send-only key":
+                    pass
         elif err:
             status.errors.append(f"Cycle: {err}")
 

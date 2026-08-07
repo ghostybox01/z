@@ -1186,11 +1186,11 @@ def _preflight_smtp2go_recipient_restriction(opts: CampaignOptions) -> Generator
                 yield {
                     "type": "warn",
                     "msg": (
-                        f"⚠ SMTP2GO {label}: cannot update allow list — this API key needs "
-                        "Sending → API Keys → Permissions → enable `/allowed_recipients/add` "
-                        "(or `/allowed_recipients/*`). Or turn OFF Restrict Recipients under "
-                        "Settings → Sending Options → Restrictions. Without one of those, "
-                        "non-allowlisted leads will fail."
+                        f"⚠ SMTP2GO {label}: send-only API key — cannot add leads to the allow list. "
+                        "You need the account owner to either (a) issue a key with "
+                        "`/allowed_recipients/add` or `*`, or (b) turn OFF Restrict Recipients. "
+                        "Panel access is not required on your side — only the owner can change this. "
+                        "With /email/send alone there is no API workaround."
                     ),
                 }
             else:

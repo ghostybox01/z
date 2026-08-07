@@ -10303,6 +10303,9 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                     result = smtp2go_disable_recipient_restriction(api_key)
                 elif action in ("add", "allow"):
                     result = smtp2go_allow_recipients(api_key, recipients)
+                elif action in ("permissions", "perms"):
+                    from core.api_sender import smtp2go_view_permissions
+                    result = smtp2go_view_permissions(api_key)
                 elif action in ("view", "status"):
                     viewed, err = _smtp2go_request(api_key, "allowed_recipients/view", {})
                     if err:
@@ -10315,7 +10318,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                             "allowed_recipients": nested.get("allowed_recipients") or [],
                         }
                 else:
-                    result = {"ok": False, "error": f"Unknown action '{action}' (use disable|add|view)"}
+                    result = {"ok": False, "error": f"Unknown action '{action}' (use disable|add|view|permissions)"}
                 self._json(200, result)
             except Exception as exc:
                 self._json(200, {"ok": False, "error": str(exc)})
