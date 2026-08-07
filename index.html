@@ -5779,12 +5779,13 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
               <div style={{gridColumn:"1/-1",padding:"10px 12px",background:"var(--surface2)",borderRadius:8,border:"1px solid var(--border)"}}>
                 <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:4}}>SMTP2GO Restrict Recipients</div>
                 <div className="dim2 xs" style={{lineHeight:1.45,marginBottom:8}}>
-                  New/trial accounts often block sends with “Recipient is not on your allow list”.
-                  SynthTel tries to turn Restrict Recipients <strong>off</strong> via API at campaign start.
-                  If your key only has <code>/email/send</code>, that fails — then either turn Restrict Recipients
-                  off under <strong>Settings → Sending Options → Restrictions</strong>, or edit the key under
-                  <strong>Sending → API Keys → Permissions</strong> and enable <code>/allowed_recipients/*</code>.
+                  At campaign start SynthTel adds your lead emails/domains to SMTP2GO
+                  <strong> Allowed Recipients</strong> so Restrict Recipients doesn’t block sends.
+                  Your API key needs <code>/allowed_recipients/add</code> under
+                  <strong> Sending → API Keys → Permissions</strong>.
+                  Or turn Restrict Recipients <strong>OFF</strong> under Settings → Sending Options → Restrictions.
                 </div>
+                <div className="row g8" style={{flexWrap:"wrap"}}>
                 <button type="button" className="btn btn-g btn-sm" disabled={!apiDraft.key||apiTestLoading}
                   onClick={async()=>{
                     if(!apiDraft.key) return;
@@ -5793,12 +5794,13 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
                       const r=await apiCall("/api/tools/smtp2go-recipients",{method:"POST",body:JSON.stringify({key:apiDraft.key,action:"disable"})});
                       const d=await r.json();
                       if(d.ok) setApiTestResult({ok:true, msg:d.msg||"Recipient restriction disabled"});
-                      else setApiTestResult({ok:false, msg:d.error||"Failed"});
+                      else setApiTestResult({ok:false, msg:d.error||d.hint||"Failed — enable /allowed_recipients/* on the key, or turn Restrict Recipients off in the SMTP2GO app"});
                     } catch(e){ setApiTestResult({ok:false, msg:e.message||"Request failed"}); }
                     setApiTestLoading(false);
                   }}>
                   {apiTestLoading?"…":"🔓 Disable recipient restriction"}
                 </button>
+                </div>
               </div>
             )}
           </div>

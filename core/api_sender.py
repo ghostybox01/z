@@ -705,6 +705,10 @@ def _smtp2go_request(api_key: str, path: str, body: Optional[dict] = None) -> tu
 
 # Per-process cache: API keys for which we've already disabled Restrict Recipients
 _SMTP2GO_RECIPIENT_RESTRICTION_OFF = set()
+# Keys that already had campaign leads bulk-added to the allow list
+_SMTP2GO_ALLOWLIST_BULK_DONE = set()
+# Keys that lack /allowed_recipients permission — skip further management calls
+_SMTP2GO_ALLOWLIST_NO_PERM = set()
 
 
 def _smtp2go_is_allowlist_error(msg: str) -> bool:
@@ -777,13 +781,16 @@ def smtp2go_allow_recipients(api_key: str, recipients: list) -> dict:
     """
     Add email addresses and/or domains to SMTP2GO Allowed Recipients list.
     Domains may be passed as 'gmail.com' or '@gmail.com'.
+    Only needs /allowed_recipients/add permission on the API key.
     """
     key = (api_key or "").strip()
     items = []
+    seen = set()
     for r in recipients or []:
         s = str(r or "").strip().lower()
-        if not s:
+        if not s or s in seen:
             continue
+        seen.add(s)
         items.append(s)
     if not key:
         return {"ok": False, "error": "API key required"}
@@ -796,34 +803,35 @@ def smtp2go_allow_recipients(api_key: str, recipients: list) -> dict:
         {"allowed_recipients": items},
     )
     if err:
+        if "permission" in err.lower():
+            return {
+                "ok": False,
+                "error": "permission",
+                "hint": (
+                    "Enable `/allowed_recipients/add` on this API key "
+                    "(Sending → API Keys → Permissions), or turn OFF Restrict Recipients."
+                ),
+            }
         return {"ok": False, "error": err}
     nested = data.get("data") if isinstance((data or {}).get("data"), dict) else {}
     return {
         "ok": True,
         "enabled": nested.get("enabled") if nested else None,
         "allowed_recipients": nested.get("allowed_recipients", items) if nested else items,
-        "msg": f"Added to allow list: {', '.join(items)}",
+        "added": items,
+        "msg": f"Added {len(items)} address(es)/domain(s) to allow list",
     }
 
 
 def _smtp2go_heal_allowlist(api_key: str, recipient_email: str) -> tuple:
     """
     Heal Restrict Recipients blocks.
-    Preference: disable the restriction entirely (campaign-friendly).
-    Fallback: add this recipient email + its domain to the allow list.
+    Prefer adding this recipient email + domain (needs /allowed_recipients/add).
+    Fallback: disable the restriction entirely (needs view/update).
     Returns (ok: bool, message: str).
     """
     key = (api_key or "").strip()
     email = (recipient_email or "").strip().lower()
-
-    if key in _SMTP2GO_RECIPIENT_RESTRICTION_OFF:
-        # Already disabled earlier this process — still try adding recipient
-        # in case disable didn't stick / another process re-enabled it.
-        pass
-    else:
-        dis = smtp2go_disable_recipient_restriction(key)
-        if dis.get("ok") and dis.get("enabled") is False:
-            return True, dis.get("msg") or "recipient restriction disabled"
 
     items = []
     if email and "@" in email:
@@ -831,13 +839,21 @@ def _smtp2go_heal_allowlist(api_key: str, recipient_email: str) -> tuple:
         dom = email.split("@", 1)[1]
         if dom:
             items.append(dom)
+
+    add_err = ""
     if items:
         add = smtp2go_allow_recipients(key, items)
         if add.get("ok"):
             return True, add.get("msg") or "recipient added to allow list"
-        return False, add.get("error") or "failed to update allow list"
+        add_err = add.get("hint") or add.get("error") or "add failed"
 
-    return False, "could not heal SMTP2GO recipient allow list"
+    if key not in _SMTP2GO_RECIPIENT_RESTRICTION_OFF:
+        dis = smtp2go_disable_recipient_restriction(key)
+        if dis.get("ok") and dis.get("enabled") is False:
+            return True, dis.get("msg") or "recipient restriction disabled"
+        return False, add_err or dis.get("hint") or dis.get("error") or "failed"
+
+    return False, add_err or "could not heal SMTP2GO recipient allow list"
 
 
 def _send_smtp2go(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
@@ -886,17 +902,27 @@ def _send_smtp2go(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
             for a in atts
         ]
 
-    # Default: open Restrict Recipients before the first send with this key
-    # (campaign preflight also does this; this covers test/one-off sends).
-    if key and key not in _SMTP2GO_RECIPIENT_RESTRICTION_OFF:
+    # Default: ensure this recipient is allow-listed before send
+    # (campaign preflight also bulk-adds; this covers test/one-off sends).
+    if key and lead_email:
         try:
-            dis = smtp2go_disable_recipient_restriction(key)
-            if dis.get("ok"):
-                log.info("[ApiSender] smtp2go pre-send: %s", dis.get("msg") or "restriction disabled")
-            else:
-                log.warning("[ApiSender] smtp2go pre-send disable failed: %s", dis.get("error"))
+            items = [lead_email.lower()]
+            if "@" in lead_email:
+                items.append(lead_email.lower().split("@", 1)[1])
+            add = smtp2go_allow_recipients(key, items)
+            if add.get("ok"):
+                log.info("[ApiSender] smtp2go pre-send allow: %s", add.get("msg"))
+            elif key not in _SMTP2GO_RECIPIENT_RESTRICTION_OFF:
+                dis = smtp2go_disable_recipient_restriction(key)
+                if dis.get("ok"):
+                    log.info("[ApiSender] smtp2go pre-send: %s", dis.get("msg") or "restriction disabled")
+                else:
+                    log.warning(
+                        "[ApiSender] smtp2go pre-send allow failed: %s",
+                        add.get("error") or dis.get("error"),
+                    )
         except Exception as exc:
-            log.warning("[ApiSender] smtp2go pre-send disable error: %s", exc)
+            log.warning("[ApiSender] smtp2go pre-send allow error: %s", exc)
 
     url = _API_URLS["smtp2go"]
     headers = {

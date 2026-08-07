@@ -98,6 +98,7 @@ from core.mx_sender import (
 from core.api_sender import (
     send_api, build_api_headers,
     smtp2go_disable_recipient_restriction,
+    smtp2go_allow_recipients,
 )
 from core.owa_sender import send_owa
 from core.crm_sender import send_crm
@@ -1075,10 +1076,33 @@ def _is_infrastructure_error(error_str: str) -> bool:
 # CAMPAIGN OPTIONS
 
 
+def _smtp2go_collect_lead_allow_items(leads: list) -> list:
+    """Unique recipient emails + domains from campaign leads for SMTP2GO allow list."""
+    items = []
+    seen = set()
+    for lead in leads or []:
+        email = ""
+        if isinstance(lead, dict):
+            email = (lead.get("email") or "").strip().lower()
+        else:
+            email = str(lead or "").strip().lower()
+        if not email or "@" not in email:
+            continue
+        if email not in seen:
+            seen.add(email)
+            items.append(email)
+        dom = email.split("@", 1)[1]
+        if dom and dom not in seen:
+            seen.add(dom)
+            items.append(dom)
+    return items
+
+
 def _preflight_smtp2go_recipient_restriction(opts: CampaignOptions) -> Generator:
     """
-    At campaign start for SMTP2GO API keys: disable Restrict Recipients
-    so any address can receive. Yields info/warn events for the campaign log.
+    At campaign start for SMTP2GO: add all lead emails/domains to Allowed Recipients
+    so Restrict Recipients doesn't block sends. Also try disabling the restriction
+    when the API key allows it.
     """
     apis = opts.apis or []
     keys = []
@@ -1090,7 +1114,6 @@ def _preflight_smtp2go_recipient_restriction(opts: CampaignOptions) -> Generator
         key = (a.get("apiKey") or a.get("key") or "").strip()
         if not key or key in seen:
             continue
-        # SMTP2GO keys are api-…; also trust an explicit provider label
         if prov in ("smtp2go", "smtp-2go") or (key.startswith("api-") and len(key) >= 24):
             seen.add(key)
             keys.append(key)
@@ -1098,45 +1121,84 @@ def _preflight_smtp2go_recipient_restriction(opts: CampaignOptions) -> Generator
     if not keys:
         return
 
+    allow_items = _smtp2go_collect_lead_allow_items(opts.leads or [])
+    n_emails = sum(1 for x in allow_items if "@" in x)
+
     yield {
         "type": "info",
         "msg": (
-            f"SMTP2GO preflight: disabling Restrict Recipients on "
-            f"{len(keys)} API key(s) so all leads can receive…"
+            f"SMTP2GO preflight: adding {n_emails} lead email(s) "
+            f"(+ domains) to Allowed Recipients on {len(keys)} key(s)…"
         ),
     }
+
+    chunk = 80
     for key in keys:
-        try:
-            result = smtp2go_disable_recipient_restriction(key)
-        except Exception as exc:
-            result = {"ok": False, "error": str(exc)}
         label = (key[:10] + "…") if len(key) > 12 else key
-        if result.get("ok"):
+        added_ok = False
+        add_err = ""
+
+        if allow_items:
+            # Chunk so large campaigns don't blow request size limits
+            for i in range(0, len(allow_items), chunk):
+                batch = allow_items[i:i + chunk]
+                try:
+                    result = smtp2go_allow_recipients(key, batch)
+                except Exception as exc:
+                    result = {"ok": False, "error": str(exc)}
+                if result.get("ok"):
+                    added_ok = True
+                else:
+                    add_err = result.get("error") or "add failed"
+                    # Permission errors won't succeed on later chunks
+                    if "permission" in add_err.lower():
+                        break
+
+        if added_ok:
+            try:
+                from core.api_sender import _SMTP2GO_ALLOWLIST_BULK_DONE
+                _SMTP2GO_ALLOWLIST_BULK_DONE.add(key)
+            except Exception:
+                pass
             yield {
                 "type": "info",
-                "msg": f"✓ SMTP2GO {label}: {result.get('msg') or 'recipient restriction disabled'}",
+                "msg": (
+                    f"✓ SMTP2GO {label}: added {n_emails} recipient(s) to allow list "
+                    f"— campaign leads can receive"
+                ),
             }
         else:
-            hint = result.get("hint") or ""
-            err = result.get("error") or "unknown error"
-            if err == "permission" or "permission" in str(err).lower():
+            # Try disabling the restriction entirely (needs view/update perms)
+            try:
+                dis = smtp2go_disable_recipient_restriction(key)
+            except Exception as exc:
+                dis = {"ok": False, "error": str(exc)}
+            if dis.get("ok") and dis.get("enabled") is False:
+                yield {
+                    "type": "info",
+                    "msg": f"✓ SMTP2GO {label}: {dis.get('msg') or 'recipient restriction disabled'}",
+                }
+                continue
+
+            err = add_err or dis.get("error") or "unknown error"
+            perm = "permission" in str(err).lower() or err == "permission"
+            if perm:
                 yield {
                     "type": "warn",
                     "msg": (
-                        f"⚠ SMTP2GO {label}: API key lacks Allowed Recipients permission — "
-                        "cannot auto-open the allow list. "
-                        + (hint or (
-                            "In app.smtp2go.com: Settings → Sending Options → Restrictions → turn OFF Restrict Recipients "
-                            "(fastest), OR Sending → API Keys → this key → Permissions → enable /allowed_recipients/* → Save."
-                        ))
+                        f"⚠ SMTP2GO {label}: cannot update allow list — this API key needs "
+                        "Sending → API Keys → Permissions → enable `/allowed_recipients/add` "
+                        "(or `/allowed_recipients/*`). Or turn OFF Restrict Recipients under "
+                        "Settings → Sending Options → Restrictions. Without one of those, "
+                        "non-allowlisted leads will fail."
                     ),
                 }
             else:
                 yield {
                     "type": "warn",
                     "msg": (
-                        f"⚠ SMTP2GO {label}: could not disable Restrict Recipients — {err}. "
-                        "Turn it off in app.smtp2go.com → Settings → Sending Options → Restrictions."
+                        f"⚠ SMTP2GO {label}: allow-list update failed — {err}. "
+                        "Enable `/allowed_recipients/add` on the key, or turn off Restrict Recipients."
                     ),
                 }
 
