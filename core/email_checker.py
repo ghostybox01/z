@@ -11,6 +11,7 @@ A universal email service account checker that supports multiple providers:
 - Mailjet
 - Brevo (Sendinblue)
 - SparkPost
+- SMTP2GO
 
 Auto-detects the provider from the API key format and displays:
 - Send limits and quotas
@@ -727,6 +728,115 @@ class SparkPostProvider(EmailProvider):
         return status
 
 
+class Smtp2goProvider(EmailProvider):
+    """SMTP2GO email service provider (API keys: api-…)."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key.strip()
+        self.base_url = "https://api.smtp2go.com/v3"
+
+    @property
+    def name(self) -> str:
+        return "SMTP2GO"
+
+    @staticmethod
+    def detect(key: str, secret: Optional[str] = None) -> bool:
+        k = (key or "").strip()
+        # Official format: api- + 32 generated chars (docs). Accept slightly
+        # shorter/longer alnum so pasted keys still match.
+        return bool(re.match(r"^api-[A-Za-z0-9]{20,}$", k))
+
+    def _request(self, endpoint: str, body: Optional[dict] = None) -> Tuple[Optional[Dict], Optional[str]]:
+        payload = {"api_key": self.api_key}
+        if body:
+            payload.update(body)
+        return _http_post(
+            f"{self.base_url}/{endpoint.lstrip('/')}",
+            {
+                "Accept": "application/json",
+                "X-Smtp2go-Api-Key": self.api_key,
+            },
+            payload,
+        )
+
+    def fetch_status(self) -> EmailServiceStatus:
+        status = EmailServiceStatus(provider=self.name)
+
+        # Monthly cycle / quota
+        data, err = self._request("stats/email_cycle")
+        if data:
+            cycle = data.get("data") if isinstance(data.get("data"), dict) else data
+            if isinstance(cycle, dict):
+                status.sent_this_month = cycle.get("cycle_used")
+                status.remaining_this_month = cycle.get("cycle_remaining")
+                status.monthly_limit = cycle.get("cycle_max")
+                if cycle.get("cycle_start") or cycle.get("cycle_end"):
+                    status.extra_info["cycle"] = (
+                        f"{cycle.get('cycle_start', '?')} → {cycle.get('cycle_end', '?')}"
+                    )
+                status.account_status = "Active"
+        elif err:
+            status.errors.append(f"Cycle: {err}")
+
+        # Verified sender domains
+        data, err = self._request("domain/view")
+        if data:
+            payload = data.get("data") if isinstance(data.get("data"), dict) else data
+            domains = []
+            if isinstance(payload, dict):
+                domains = payload.get("domains") or payload.get("sender_domains") or []
+            for item in domains or []:
+                dom = item.get("domain") if isinstance(item, dict) else None
+                if isinstance(dom, dict):
+                    name = dom.get("fulldomain") or dom.get("domain") or ""
+                    verified = bool(dom.get("dkim_verified")) and bool(
+                        dom.get("rpath_verified", True)
+                    )
+                    # Treat DKIM-verified domains as sendable even if rpath pending
+                    if dom.get("dkim_verified"):
+                        verified = True
+                    status.domains.append({
+                        "domain": name,
+                        "verified": verified,
+                        "dkim_verified": dom.get("dkim_verified"),
+                        "rpath_verified": dom.get("rpath_verified"),
+                        "state": "active" if verified else (dom.get("dkim_status") or "pending"),
+                    })
+                elif isinstance(item, dict) and item.get("domain"):
+                    name = item.get("domain")
+                    verified = bool(item.get("is_verified") or item.get("verified"))
+                    status.domains.append({
+                        "domain": name,
+                        "verified": verified,
+                        "state": "active" if verified else "pending",
+                    })
+        elif err:
+            status.errors.append(f"Domains: {err}")
+
+        # Single sender emails
+        data, err = self._request("single_sender_emails/view")
+        if data:
+            senders = data.get("senders")
+            if senders is None and isinstance(data.get("data"), dict):
+                senders = data["data"].get("senders") or data["data"].get("emails")
+            for s in senders or []:
+                if not isinstance(s, dict):
+                    continue
+                email = s.get("email_address") or s.get("email") or ""
+                if email and (s.get("verified", True)):
+                    status.verified_emails.append(email)
+        elif err and "404" not in err and "permission" not in err.lower():
+            status.errors.append(f"Senders: {err}")
+
+        if not status.account_status or status.account_status == "Unknown":
+            status.account_status = "Active" if not status.errors else "Check Errors"
+        elif status.errors and status.account_status == "Active":
+            # Still mark Active if cycle worked — domain errors are non-fatal for send keys
+            pass
+
+        return status
+
+
 # Provider registry for auto-detection
 PROVIDERS = [
     AWSSESProvider,
@@ -734,6 +844,7 @@ PROVIDERS = [
     BrevoProvider,
     PostmarkProvider,
     SparkPostProvider,
+    Smtp2goProvider,
     MailgunProvider,
     MailjetProvider,  # Must come after others since it requires secret
 ]
@@ -753,6 +864,7 @@ def _provider_by_hint(hint: Optional[str]) -> Optional[type]:
         "aws": "awsses", "aws-ses": "awsses", "ses": "awsses",
         "sendinblue": "brevo", "mailchimp": "mailchimp", "mandrill": "mandrill",
         "resend": "resend", "sparkpost": "sparkpost", "postmark": "postmark",
+        "smtp2go": "smtp2go", "smtp-2go": "smtp2go",
     }
     mapped = aliases.get(hint.strip().lower())
     if mapped:
@@ -1268,4 +1380,5 @@ BILLING_URLS = {
     "ses-api":   "https://console.aws.amazon.com/ses/home",
     "mailjet":   "https://app.mailjet.com/account/billing-and-offers",
     "resend":    "https://resend.com/settings/billing",
+    "smtp2go":   "https://app.smtp2go.com/settings/billing",
 }

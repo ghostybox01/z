@@ -1424,6 +1424,7 @@ const SMTP_PRESETS = [
   {name:"Zoho",                  host:"smtp.zoho.com",                             port:587, ssl:false, note:"Use your Zoho email and password."},
   {name:"SendGrid",              host:"smtp.sendgrid.net",                         port:587, ssl:false, note:"Username is always 'apikey'. Password is your SendGrid API Key."},
   {name:"Mailgun",               host:"smtp.mailgun.org",                          port:587, ssl:false, note:"Username: postmaster@yourdomain.com. Password: Mailgun SMTP password (not API key)."},
+  {name:"SMTP2GO",               host:"mail.smtp2go.com",                          port:587, ssl:false, note:"Username/password from SMTP2GO → Settings → SMTP Users. Prefer Method → API with an api-… key for campaigns."},
   ..._SES_PRESETS,
 ];
 
@@ -5658,6 +5659,7 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
                   <option value="sparkpost">SparkPost</option>
                   <option value="brevo">Brevo (Sendinblue)</option>
                   <option value="resend">Resend</option>
+                  <option value="smtp2go">SMTP2GO</option>
                   <option value="mandrill">Mailchimp / Mandrill</option>
                 </optgroup>
                 <optgroup label="── AWS ──">
@@ -5677,6 +5679,7 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
                 else if(k.startsWith("AKIA")||k.startsWith("ASIA")) p="ses-api";
                 else if(k.startsWith("xkeysib-")||k.startsWith("xsmtpsib-")) p="brevo";
                 else if(k.startsWith("re_"))      p="resend";
+                else if(/^api-[A-Za-z0-9]{20,}$/.test(k)) p="smtp2go";
                 else if(k.startsWith("server_"))  p="postmark";
                 else if(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(k)) p="postmark";
                 else if(/[a-zA-Z0-9]{20,}-[a-z]{2}\d+$/.test(k)) p="mandrill";
@@ -5684,7 +5687,7 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
                 setApiDetectedSenders([]); setApiSenderSel(new Set()); setApiDetectedDomainInfo({});
                 setApiDraft({...apiDraft,key:k,provider:p});
               }}
-                placeholder={apiDraft.provider==="ses-api" ? "AKIA..." : apiDraft.provider==="mailgun" ? "key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : "sk_…"}
+                placeholder={apiDraft.provider==="ses-api" ? "AKIA..." : apiDraft.provider==="mailgun" ? "key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : apiDraft.provider==="smtp2go" ? "api-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : "sk_…"}
                 style={{fontSize:14,padding:"10px 12px"}}/>
             </div>
 
@@ -5791,7 +5794,7 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
               if(!apiDraft.key) return;
               setApiTestLoading(true); setApiTestResult(null); setApiDetectedSenders([]); setApiDetectedDomainInfo({});
               try {
-                const _espHintMap={sendgrid:"sendgrid","ses-api":"ses",mailgun:"mailgun",postmark:"postmark",sparkpost:"sparkpost",brevo:"brevo",resend:"resend",mandrill:"mandrill",mailchimp:"mailchimp",mailjet:"mailjet"};
+                const _espHintMap={sendgrid:"sendgrid","ses-api":"ses",mailgun:"mailgun",postmark:"postmark",sparkpost:"sparkpost",brevo:"brevo",resend:"resend",mandrill:"mandrill",mailchimp:"mailchimp",mailjet:"mailjet",smtp2go:"smtp2go"};
                 const r=await apiCall("/api/tools/check-esp",{method:"POST",body:JSON.stringify({
                   key:apiDraft.key, secret:apiDraft.secret||null,
                   region:apiDraft.region||"us-east-1",
@@ -11231,6 +11234,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                       <option value="brevo">Brevo</option>
                       <option value="sparkpost">SparkPost</option>
                       <option value="resend">Resend</option>
+                      <option value="smtp2go">SMTP2GO</option>
                       <option value="mailchimp">Mailchimp</option>
                       <option value="mandrill">Mailchimp / Mandrill</option>
                     </select>
@@ -11509,7 +11513,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
 
                   {/* Billing link */}
                   {(()=>{
-                    const billingUrls={sendgrid:"https://app.sendgrid.com/settings/billing",mailgun:"https://app.mailgun.com/app/billing/overview",brevo:"https://app.brevo.com/account/billing",postmark:"https://account.postmarkapp.com/billing",sparkpost:"https://app.sparkpost.com/account/billing",ses:"https://console.aws.amazon.com/ses/home","aws ses":"https://console.aws.amazon.com/ses/home",mailjet:"https://app.mailjet.com/account/billing-and-offers",resend:"https://resend.com/settings/billing"};
+                    const billingUrls={sendgrid:"https://app.sendgrid.com/settings/billing",mailgun:"https://app.mailgun.com/app/billing/overview",brevo:"https://app.brevo.com/account/billing",postmark:"https://account.postmarkapp.com/billing",sparkpost:"https://app.sparkpost.com/account/billing",ses:"https://console.aws.amazon.com/ses/home","aws ses":"https://console.aws.amazon.com/ses/home",mailjet:"https://app.mailjet.com/account/billing-and-offers",resend:"https://resend.com/settings/billing",smtp2go:"https://app.smtp2go.com/settings/billing"};
                     const prov=(r.provider||"").toLowerCase();
                     const url=billingUrls[prov]||billingUrls[prov.split(" ")[0]];
                     return url?(

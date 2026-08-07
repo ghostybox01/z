@@ -6902,7 +6902,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 if not provider:
                     pc = detect_provider(api_key, secret)
                     if pc is None:
-                        self._json(200, {"error": "Could not detect provider. Supported: SendGrid (SG.*), AWS SES (AKIA*), Mailgun (key-*), Postmark (server_*), Mailjet, Brevo, SparkPost"}); return
+                        self._json(200, {"error": "Could not detect provider. Supported: SendGrid (SG.*), AWS SES (AKIA*), Mailgun (key-*), Postmark (server_*), Mailjet, Brevo, SparkPost, Resend (re_*), SMTP2GO (api-*)"}); return
                     else:
                         self._json(200, {"error": f"Provider detected as {pc.__name__.replace('Provider','')} but needs additional credentials (secret key, region, or domain)"}); return
                 status = provider.fetch_status()

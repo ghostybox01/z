@@ -9874,7 +9874,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                         self._json(
                             200,
                             {
-                                "error": "Could not detect provider. Select a provider manually or use a supported key format. Supported: SendGrid (SG.*), AWS SES (AKIA*), Mailgun (key-*), Postmark (UUID), Mailjet, Brevo (xkeysib-*), SparkPost, Resend (re_*), Mailchimp (*-us1), Mandrill"
+                                "error": "Could not detect provider. Select a provider manually or use a supported key format. Supported: SendGrid (SG.*), AWS SES (AKIA*), Mailgun (key-*), Postmark (UUID), Mailjet, Brevo (xkeysib-*), SparkPost, Resend (re_*), SMTP2GO (api-*), Mailchimp (*-us1), Mandrill"
                             },
                         )
                         return

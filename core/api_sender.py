@@ -194,6 +194,7 @@ _API_URLS = {
     "sparkpost":  "https://api.sparkpost.com/api/v1/transmissions",
     "ses":        "https://email.{region}.amazonaws.com/v2/email/outbound-emails",
     "mailjet":    "https://api.mailjet.com/v3.1/send",
+    "smtp2go":    "https://api.smtp2go.com/v3/email/send",
     # mailgun: endpoint built dynamically from domain field
 }
 
@@ -391,9 +392,12 @@ def _api_request(
             try:
                 body = exc.read().decode("utf-8", errors="replace")[:600]
                 err_data = json.loads(body)
+                _nested = err_data.get("data") if isinstance(err_data.get("data"), dict) else {}
                 detail = (
                     err_data.get("message")
                     or err_data.get("error")
+                    or _nested.get("error")
+                    or _nested.get("error_code")
                     or err_data.get("detail")
                     or (err_data.get("errors") or [{}])[0].get("message", "")
                     or body
@@ -657,6 +661,105 @@ def _send_mailgun(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=
         if exc.code == 400:
             raise Exception(f"Mailgun 400 Bad Request — {detail}")
         raise Exception(f"Mailgun HTTP {exc.code} — {detail}")
+
+
+def _send_smtp2go(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
+    """
+    SMTP2GO v3 JSON API — POST https://api.smtp2go.com/v3/email/send
+    Auth: X-Smtp2go-Api-Key header (and api_key in body for compatibility).
+    Keys look like: api-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    """
+    key        = (api_cfg.get("apiKey") or "").strip()
+    from_name  = sender.get("fromName", "")
+    from_email = sender.get("fromEmail", "")
+    reply_to   = sender.get("replyTo", "")
+    lead_email = lead.get("email", "")
+    lead_name  = lead.get("name", "")
+
+    sender_str = f"{from_name} <{from_email}>" if from_name else from_email
+    to_str     = f"{lead_name} <{lead_email}>" if lead_name else lead_email
+
+    payload = {
+        "api_key":   key,
+        "sender":    sender_str,
+        "to":        [to_str],
+        "subject":   subject,
+        "html_body": html,
+        "text_body": plain or subject,
+    }
+    hdrs = []
+    if reply_to:
+        hdrs.append({"header": "Reply-To", "value": reply_to})
+    if extra_hdrs:
+        for k, v in extra_hdrs.items():
+            if k:
+                hdrs.append({"header": str(k), "value": str(v)})
+    if hdrs:
+        payload["custom_headers"] = hdrs
+    if atts:
+        payload["attachments"] = [
+            {
+                "filename": a["filename"],
+                "fileblob": a["content_b64"],
+                "mimetype": a["content_type"].split(";", 1)[0].strip() or "application/octet-stream",
+            }
+            for a in atts
+        ]
+
+    # Custom request so we can inspect data.succeeded / data.failed on HTTP 200
+    url = _API_URLS["smtp2go"]
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Smtp2go-Api-Key": key,
+    }
+    raw = json.dumps(payload).encode("utf-8")
+    req = Request(url, data=raw, headers=headers, method="POST")
+    try:
+        resp = urlopen(req, timeout=15)
+        body = resp.read().decode("utf-8", errors="replace")
+        try:
+            data = json.loads(body) if body.strip() else {}
+        except Exception:
+            data = {}
+        result = data.get("data") if isinstance(data.get("data"), dict) else {}
+        failed = int(result.get("failed") or 0)
+        if failed:
+            failures = result.get("failures") or []
+            detail = failures[0] if failures else (result.get("error") or "send failed")
+            if isinstance(detail, dict):
+                detail = detail.get("error") or detail.get("message") or str(detail)
+            raise Exception(f"API smtp2go — {detail}")
+        return resp.status
+    except HTTPError as exc:
+        body = ""
+        detail = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")[:600]
+            err_data = json.loads(body)
+            nested = err_data.get("data") if isinstance(err_data.get("data"), dict) else {}
+            detail = (
+                nested.get("error")
+                or nested.get("error_code")
+                or err_data.get("error")
+                or err_data.get("message")
+                or body
+            )
+        except Exception:
+            detail = body or str(exc)
+        if exc.code == 401:
+            raise Exception(
+                "API smtp2go 401 Unauthorized — invalid API key. "
+                "Check the key in SMTP2GO → Sending → API Keys."
+            )
+        if exc.code == 403:
+            raise Exception(
+                f"API smtp2go 403 Forbidden — {detail}. "
+                "Check API key permissions and verified sender domain."
+            )
+        raise Exception(f"API smtp2go HTTP {exc.code} — {detail}")
+    except URLError as exc:
+        raise Exception(f"API smtp2go network error: {exc.reason}")
 
 
 def _send_postmark(api_cfg, sender, lead, html, plain, subject, extra_hdrs, atts=None):
@@ -1046,6 +1149,7 @@ def send_api(
         "sparkpost": _send_sparkpost,
         "ses":       _send_ses,
         "mailjet":   _send_mailjet,
+        "smtp2go":   _send_smtp2go,
     }
 
     fn = dispatch.get(provider)

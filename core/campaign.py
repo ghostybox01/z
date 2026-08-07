@@ -28,7 +28,7 @@ FIX-G  autoPlain default changed to True.
 Wires all 8 send modules together:
   • core.smtp_sender     → SMTP relay (pooled connections, proxy-aware)
   • core.mx_sender       → Direct-to-MX on port 25 (tunnel-native)
-  • core.api_sender      → Brevo / SendGrid / Resend / Mailgun / Postmark / SparkPost / SES
+  • core.api_sender      → Brevo / SendGrid / Resend / Mailgun / Postmark / SparkPost / SES / SMTP2GO
   • core.owa_sender      → Exchange Web Services (EWS / OWA)
   • core.crm_sender      → HubSpot / Salesforce / Dynamics / Zoho / Pipedrive / Custom
   • core.tunnel_manager  → SSH SOCKS5 + ISP proxy tunnels
@@ -826,6 +826,7 @@ class CampaignOptions:
             if k.startswith("key-"): return "mailgun"
             if k.startswith("AKIA") or k.startswith("ASIA"): return "ses"
             if k.startswith("xkeysib-") or k.startswith("xsmtpsib-"): return "brevo"
+            if k.startswith("api-") and len(k) >= 24: return "smtp2go"
             if len(k) == 40 and k.replace("-","").isalnum(): return "postmark"
             if k.startswith("re_"): return "resend"
             return "sendgrid"
@@ -836,6 +837,8 @@ class CampaignOptions:
             "aws-ses": "ses",
             "brevo":   "brevo",
             "sendinblue": "brevo",
+            "smtp-2go": "smtp2go",
+            "smtp2go": "smtp2go",
         }
         apis = []
         for a in (_raw_apis or []):
@@ -854,7 +857,8 @@ class CampaignOptions:
                     if (raw_key.startswith("SG.") and saved != "sendgrid") or \
                        (raw_key.startswith("key-") and saved != "mailgun") or \
                        (raw_key.startswith("xkeysib-") and saved != "brevo") or \
-                       (raw_key.startswith("re_") and saved != "resend"):
+                       (raw_key.startswith("re_") and saved != "resend") or \
+                       (raw_key.startswith("api-") and len(raw_key) >= 24 and saved != "smtp2go"):
                         a = {**a, "provider": detected}
                 apis.append(a)
         _raw_owas = data.get("owas") or ([data["owa"]] if isinstance(data.get("owa"), dict) else data.get("owa", []))
