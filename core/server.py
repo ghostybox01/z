@@ -529,6 +529,20 @@ def _campaign_worker(uid, data, run_id, camp_name, total_count, tg_msg_id, start
             )
 
         campaign_iter = iter(process_campaign(data))
+        # Playbook automation: campaign start
+        try:
+            from core.playbook_extras import extras_from_campaign_data, fire_automation_hook
+            _pb = extras_from_campaign_data(data)
+            fire_automation_hook(_pb, "start", {
+                "user_id": uid,
+                "campaign": camp_name,
+                "method": method,
+                "total": total_count,
+                "run_id": run_id,
+            })
+        except Exception as _pb_exc:
+            log.debug("[campaign worker] playbook start hook: %s", _pb_exc)
+
         while True:
             with active_campaigns_lock:
                 ctrl = CAMPAIGN_CONTROLS.get(uid) or {}
@@ -644,6 +658,37 @@ def _campaign_worker(uid, data, run_id, camp_name, total_count, tg_msg_id, start
         _put(_CAMP_STREAM_END)
 
         # Finalize state (DB row, Telegram, counters, queue handle).
+        # Playbook automation: done / fail
+        try:
+            from core.playbook_extras import extras_from_campaign_data, fire_automation_hook
+            _pb = extras_from_campaign_data(data)
+            _ev = "fail" if (stopped and sent_count == 0 and failed_count > 0) else "done"
+            if failed_count > 0 and sent_count == 0 and not stopped:
+                _ev = "fail"
+            fire_automation_hook(_pb, _ev, {
+                "user_id": uid,
+                "campaign": camp_name,
+                "method": method,
+                "sent": sent_count,
+                "failed": failed_count,
+                "total": total_count,
+                "stopped": stopped,
+                "run_id": run_id,
+            })
+            # Also fire fail when there were failures (optional second hook)
+            if failed_count > 0 and _ev == "done" and _pb.get("automationOnFail"):
+                fire_automation_hook(_pb, "fail", {
+                    "user_id": uid,
+                    "campaign": camp_name,
+                    "sent": sent_count,
+                    "failed": failed_count,
+                    "total": total_count,
+                    "partial": True,
+                    "run_id": run_id,
+                })
+        except Exception:
+            pass
+
         if TG_AVAILABLE and tg_msg_id:
             try:
                 duration = time.time() - campaign_start_ts

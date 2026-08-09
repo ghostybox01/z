@@ -106,6 +106,10 @@ from core.tunnel_manager import (
     open_ssh_socks, close_all_tunnels, close_tunnel,
 )
 from core.mime_builder import build_message
+from core.playbook_extras import (
+    extras_from_campaign_data, fire_automation_hook,
+    finalize_outbound_html, normalize_extras,
+)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -653,10 +657,12 @@ class CampaignOptions:
         office_relay:       dict  = None,
         method_rules:       list  = None,
         method_fallback:    list  = None,
+        playbook_extras:    dict  = None,
     ):
         self.uid            = uid
         self.inbox_profile  = bool(inbox_profile)
         self.method         = method if method in VALID_METHODS else "smtp"
+        self.playbook_extras = normalize_extras(playbook_extras or {})
         # Per-recipient routing — list of {"when": glob, "method": engine}.
         # Evaluated in order by _resolve_engine() inside _send_one().
         self.method_rules   = list(method_rules) if method_rules else []
@@ -1020,6 +1026,7 @@ class CampaignOptions:
             office_relay       = data.get("officeRelay") or data.get("office_relay") or {},
             method_rules       = method_rules,
             method_fallback    = method_fallback,
+            playbook_extras    = extras_from_campaign_data(data),
         )
 
 
@@ -1878,6 +1885,49 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     sending = opts.sending
     campaign_uid = getattr(opts, "uid", None)
     inbox_profile = bool(getattr(opts, "inbox_profile", True))
+    pb = getattr(opts, "playbook_extras", None) or {}
+
+    # Playbook Extras: size HTML→image / PDF render pools for this campaign
+    try:
+        from core.mime_builder import configure_render_pools
+        configure_render_pools(
+            browser_pool_size=pb.get("browserPoolSize", 3),
+            pdf_pool_size=pb.get("pdfPoolSize", 2),
+        )
+    except Exception:
+        pass
+
+    # Auto-cap send concurrency when heavy renders are enabled
+    _atts = opts.attachments or {}
+    _heavy = bool(_atts.get("html_image") or _atts.get("pdf") or _atts.get("html_pdf") or _atts.get("ghost_pdf"))
+    if _heavy:
+        try:
+            _b = max(1, int(pb.get("browserPoolSize", 3) or 3))
+            _p = max(1, int(pb.get("pdfPoolSize", 2) or 2))
+            _cap = max(_b, _p)
+        except Exception:
+            _cap = 3
+        try:
+            cur = int(sending.get("maxConnections") or 1)
+            if cur > _cap:
+                sending["maxConnections"] = _cap
+                yield {
+                    "type": "info",
+                    "msg": (
+                        f"Playbook: capped concurrent sends to {_cap} "
+                        f"(max of HTML→image/PDF pool sizes)"
+                    ),
+                }
+        except Exception:
+            pass
+
+    if pb.get("useAutomationHooks") or pb.get("useAnalyticsBeacon"):
+        bits = []
+        if pb.get("useAutomationHooks"):
+            bits.append("automation hooks")
+        if pb.get("useAnalyticsBeacon"):
+            bits.append(f"analytics beacon ({pb.get('analyticsProvider')})")
+        yield {"type": "info", "msg": f"Playbook Extras ON: {', '.join(bits)}"}
 
     # Safety clamp: keep risky synthetic/bypass behavior off by default unless
     # explicitly enabled by expert flags in the payload.
@@ -2695,8 +2745,11 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             picked_reply = (_pick(opts.reply_tos, sender_rot, i)
                             if opts.reply_tos else sender.get("replyTo",""))
             resolved_sender["replyTo"]   = resolve_tags(picked_reply or "", tag_ctx_pre)
-            tag_ctx = build_context(lead=lead, sender=resolved_sender, subject=subj_raw,
-                                    counter=i+1, links_cfg=opts.links_cfg)
+            tag_ctx = build_context(
+                lead=lead, sender=resolved_sender, subject=subj_raw,
+                counter=i+1, links_cfg=opts.links_cfg,
+                playbook_extras=getattr(opts, "playbook_extras", None),
+            )
             resolved_subject = resolve_tags(subj_raw, tag_ctx)
 
             # Apply subject encoding (method 0 = none, 1-11 = various encodings)
@@ -2715,6 +2768,16 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 _body_rot = html_rotate_mode if html_rotate_mode else sender_rot
                 chosen_body = _pick(all_bodies, _body_rot, i)
             resolved_html = resolve_tags(chosen_body, tag_ctx)
+
+            # Playbook: finalize HTML (analytics beacon inject). Skip beacon when
+            # HTML→image replaces the body — pixels won't fire inside a PNG.
+            _skip_beacon = bool((opts.attachments or {}).get("html_image"))
+            resolved_html = finalize_outbound_html(
+                resolved_html,
+                extras=getattr(opts, "playbook_extras", None),
+                lead_email=(lead.get("email") if isinstance(lead, dict) else "") or "",
+                skip_analytics=_skip_beacon,
+            )
 
             # Initialize resolved_plain before spam filter block (apply_full_bypass needs it)
             if method == "api" or dlv.get("autoPlain") or not opts.plain_body:

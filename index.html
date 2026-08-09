@@ -2321,6 +2321,8 @@ function TabCampaign({
   bypassFontRand, setBypassFontRand, bypassInnat, setBypassInnat,
   newCampaign, clearHistory,
   bccEnabled, setBccEnabled, bccEmail, setBccEmail,
+  // Playbook Extras (all OFF by default)
+  playbookExtras, setPlaybookExtras,
 }) {
   // Clamp every percentage at 100 — the local-event handler and the
   // server-poll mirror can momentarily disagree by 1-2 events while the
@@ -2597,6 +2599,110 @@ function TabCampaign({
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="card mb16" style={{borderLeft:"3px solid #0ea5e9"}}>
+              <div className="card-title">Playbook Extras</div>
+              <div className="dim sm mb12" style={{lineHeight:1.45}}>
+                Optional automation hooks, analytics beacons, and HTML→image/PDF render pools. All off by default.
+              </div>
+
+              <Tog checked={!!playbookExtras.useAutomationHooks}
+                onChange={v=>setPlaybookExtras(p=>({...p, useAutomationHooks:v}))}
+                label={<Tip text="POST JSON to Zapier, Make, or n8n when the campaign starts, fails, or finishes. Payload includes event, campaign, sent, failed, total, run_id.">Automation Hooks</Tip>}
+                desc="Fire webhooks on start / fail / done"/>
+              {!!playbookExtras.useAutomationHooks && (
+                <div className="col g8 mb12" style={{marginTop:8}}>
+                  <div>
+                    <label className="lbl">On Start URL</label>
+                    <input value={playbookExtras.automationOnStart||""}
+                      onChange={e=>setPlaybookExtras(p=>({...p, automationOnStart:e.target.value}))}
+                      placeholder="https://hooks.zapier.com/..."
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                  <div>
+                    <label className="lbl">On Fail URL</label>
+                    <input value={playbookExtras.automationOnFail||""}
+                      onChange={e=>setPlaybookExtras(p=>({...p, automationOnFail:e.target.value}))}
+                      placeholder="https://hook.eu1.make.com/..."
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                  <div>
+                    <label className="lbl">On Done URL</label>
+                    <input value={playbookExtras.automationOnDone||""}
+                      onChange={e=>setPlaybookExtras(p=>({...p, automationOnDone:e.target.value}))}
+                      placeholder="https://n8n.example/webhook/..."
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                </div>
+              )}
+
+              <Tog checked={!!playbookExtras.useAnalyticsBeacon}
+                onChange={v=>setPlaybookExtras(p=>({...p, useAnalyticsBeacon:v}))}
+                label={<Tip text="Inject a 1×1 open pixel before </body>. Most clients block scripts — prefer a pixel URL. Skipped automatically when HTML→Image is enabled.">Analytics Beacons</Tip>}
+                desc="Inject GA4 / Segment / Mixpanel / custom open pixel into HTML"/>
+              {!!playbookExtras.useAnalyticsBeacon && (
+                <div className="col g8 mb12" style={{marginTop:8}}>
+                  <div>
+                    <label className="lbl">Provider</label>
+                    <select value={playbookExtras.analyticsProvider||"custom"}
+                      onChange={e=>setPlaybookExtras(p=>({...p, analyticsProvider:e.target.value}))}
+                      style={{fontSize:14,padding:"10px 12px"}}>
+                      <option value="custom">Custom pixel URL</option>
+                      <option value="ga4">Google Analytics 4</option>
+                      <option value="segment">Segment</option>
+                      <option value="mixpanel">Mixpanel</option>
+                    </select>
+                  </div>
+                  {(playbookExtras.analyticsProvider||"custom") !== "custom" && (
+                    <div>
+                      <label className="lbl">
+                        {playbookExtras.analyticsProvider==="ga4"?"Measurement ID"
+                          :playbookExtras.analyticsProvider==="segment"?"Write key"
+                          :"Project token"}
+                      </label>
+                      <input value={playbookExtras.analyticsId||""}
+                        onChange={e=>setPlaybookExtras(p=>({...p, analyticsId:e.target.value}))}
+                        placeholder={playbookExtras.analyticsProvider==="ga4"?"G-XXXXXXXX":"key / token"}
+                        style={{fontSize:14,padding:"10px 12px"}}/>
+                    </div>
+                  )}
+                  <div>
+                    <label className="lbl">Custom pixel URL {playbookExtras.analyticsProvider==="custom"?"":"(optional override)"}</label>
+                    <input value={playbookExtras.analyticsPixelUrl||""}
+                      onChange={e=>setPlaybookExtras(p=>({...p, analyticsPixelUrl:e.target.value}))}
+                      placeholder="https://tracker.example/open.gif?e={email}"
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                </div>
+              )}
+
+              <div className="mb12" style={{marginTop:4}}>
+                <label className="lbl"><Tip text="Resolves #PIXEL_URL in HTML. Also used as the analytics pixel when provider is Custom and no override is set.">Pixel URL for #PIXEL_URL</Tip></label>
+                <input value={playbookExtras.pixelTrackingUrl||""}
+                  onChange={e=>setPlaybookExtras(p=>({...p, pixelTrackingUrl:e.target.value}))}
+                  placeholder="https://your-tracker/open.gif"
+                  style={{fontSize:14,padding:"10px 12px"}}/>
+                <div className="dim2 xs mt4">Place <code>{'#PIXEL_URL'}</code> in HTML, or enable Analytics Beacons to auto-inject. Also: <code>{'#LINK1'}</code> <code>{'#LINK2'}</code> <code>{'#LINK3'}</code> <code>{'#REDIRECT'}</code>.</div>
+              </div>
+
+              <div className="g2" style={{gap:10}}>
+                <div>
+                  <label className="lbl">Browser pool (HTML→Image)</label>
+                  <input type="number" min={1} max={8}
+                    value={playbookExtras.browserPoolSize??3}
+                    onChange={e=>setPlaybookExtras(p=>({...p, browserPoolSize:Math.max(1,Math.min(8,parseInt(e.target.value,10)||3))}))}
+                    style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div>
+                  <label className="lbl">PDF pool size</label>
+                  <input type="number" min={1} max={8}
+                    value={playbookExtras.pdfPoolSize??2}
+                    onChange={e=>setPlaybookExtras(p=>({...p, pdfPoolSize:Math.max(1,Math.min(8,parseInt(e.target.value,10)||2))}))}
+                    style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+              </div>
+              <div className="dim2 xs mt6">Caps concurrent Playwright / PDF renders. When HTML→Image or PDF attach is on, concurrent sends are also capped to the larger pool size.</div>
             </div>
 
             <div className="div-lbl">REQUIRED HEADERS (GMAIL/YAHOO 2024+ RULES)</div>
@@ -12642,6 +12748,13 @@ function App() {
   const [bccEnabled, setBccEnabled] = useState(_g("bccEnabled",false));
   const [bccEmail, setBccEmail]     = useState(_g("bccEmail",""));
 
+  // ── Playbook Extras (all OFF by default) ──
+  const [playbookExtras, setPlaybookExtras] = useState(_g("playbookExtras", {
+    useAutomationHooks: false, automationOnStart: "", automationOnFail: "", automationOnDone: "",
+    useAnalyticsBeacon: false, analyticsProvider: "custom", analyticsId: "", analyticsPixelUrl: "",
+    pixelTrackingUrl: "", browserPoolSize: 3, pdfPoolSize: 2,
+  }));
+
   // ── Proxies ──
   const [proxies, setProxies]       = useState(_g("proxies",[]));
   const [proxyDraft, setProxyDraft] = useState("");
@@ -12695,6 +12808,7 @@ function App() {
       skipPreflightDns, threadSimulate, arcSimulate, msExchangeHdrs,
       proxies, proxyType, campName,
       bccEnabled, bccEmail,
+      playbookExtras,
       selectedAttachIds,
       rateLimitPause, officeConnectorHost, selectedTypes, attachConfigs,
       cpanelList, cpanelPrefix,
@@ -12722,6 +12836,7 @@ function App() {
     skipPreflightDns, threadSimulate, arcSimulate, msExchangeHdrs,
     proxies, proxyType, campName,
     bccEnabled, bccEmail,
+    playbookExtras,
     selectedAttachIds,
     rateLimitPause, officeConnectorHost, selectedTypes, attachConfigs,
     cpanelList, cpanelPrefix,
@@ -12782,6 +12897,9 @@ function App() {
       _s("msExchangeHdrs",setMsExchangeHdrs);
       _s("proxies",setProxies); _s("proxyType",setProxyType); _s("campName",setCampName);
       _s("bccEnabled",setBccEnabled); _s("bccEmail",setBccEmail);
+      if(c.playbookExtras && typeof c.playbookExtras === "object") {
+        setPlaybookExtras(prev => ({ ...prev, ...c.playbookExtras }));
+      }
       _s("selectedAttachIds",setSelectedAttachIds);
       _s("rateLimitPause",setRateLimitPause); _s("officeConnectorHost",setOfficeConnectorHost);
       _s("officeRelay",setOfficeRelay);
@@ -13335,6 +13453,7 @@ function App() {
       // SMTP-specific rotation + auto-disable settings.  Backend reads
       // these out of `sending` (CampaignOptions.from_dict copies them).
       smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs, smtpUseProxy,
+      playbookExtras,
       // Override the legacy 'rotation' map so the SMTP rotation mode
       // selected in the UI actually takes effect (was hard-coded to
       // rotationMode for every method type).
@@ -13926,6 +14045,7 @@ function App() {
       bypassFontRand,setBypassFontRand,bypassInnat,setBypassInnat,
       newCampaign, clearHistory,
       bccEnabled,setBccEnabled,bccEmail,setBccEmail,
+      playbookExtras, setPlaybookExtras,
     };
 
     switch(tab) {
@@ -14593,6 +14713,25 @@ PERSONAL BCC
   Sends a blind carbon copy of every email to an address you specify.
   Use for QA — confirm what recipients actually receive.
   Warning: at high volume your BCC inbox fills up fast. Use Test Email instead.
+
+PLAYBOOK EXTRAS (all OFF by default)
+  Campaign → Deliverability → Playbook Extras card.
+
+  Automation Hooks
+    POST JSON to Zapier / Make / n8n on campaign start, fail, or done.
+    Payload includes event, campaign name, sent/failed/total, run_id.
+
+  Analytics Beacons
+    Inject a 1×1 open pixel (GA4 / Segment / Mixpanel / custom URL) into HTML.
+    Most clients block scripts — prefer a pixel URL. Skipped when HTML→Image is on.
+
+  #PIXEL_URL / #LINK1 / #LINK2 / #LINK3 / #REDIRECT
+    #PIXEL_URL uses the Pixel URL field (or Redirects image tracking).
+    #LINK1–3 pick fixed positions from Link Rotation; #REDIRECT aliases #LINK.
+
+  Browser / PDF pools
+    Cap concurrent Playwright HTML→Image and PDF renders.
+    Concurrent sends are also capped to the larger pool size when those attaches are on.
 
 TEST EMAIL / SEND TEST EVERY N
   Sends a copy to your test address every N sends.

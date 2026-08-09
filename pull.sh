@@ -8,7 +8,7 @@ for f in server.py campaign.py api_sender.py b2b_manager.py crm_sender.py \
           email_checker.py email_sorter.py imap_extractor.py link_encoder.py \
           mime_builder.py mx_sender.py o365_relay.py owa_sender.py smtp_sender.py \
           spam_filter.py suppression_list.py tags.py telegram_bot.py tunnel_manager.py \
-          ssh_helper.py safe_urlopen.py; do
+          ssh_helper.py safe_urlopen.py playbook_extras.py; do
   curl -fsSL "$REPO/core/$f" -o "$CORE/$f" && echo "✓ $f" || echo "✗ $f"
 done
 

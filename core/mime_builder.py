@@ -54,6 +54,59 @@ from email.utils import formatdate, make_msgid
 import logging
 log = logging.getLogger(__name__)
 
+# ── HTML→image / PDF concurrency pools ───────────────────────
+# Tunable via playbook extras: browser_pool_size / pdf_pool_size
+import threading as _threading
+
+_BROWSER_POOL_SIZE = 3
+_PDF_POOL_SIZE = 2
+_browser_sem = _threading.Semaphore(_BROWSER_POOL_SIZE)
+_pdf_sem = _threading.Semaphore(_PDF_POOL_SIZE)
+_pool_lock = _threading.Lock()
+_pw_browser = None
+_pw_playwright = None
+_pw_ref = 0
+
+
+def configure_render_pools(browser_pool_size: int = 3, pdf_pool_size: int = 2):
+    """Resize HTML→image / PDF concurrency caps (campaign start)."""
+    global _BROWSER_POOL_SIZE, _PDF_POOL_SIZE, _browser_sem, _pdf_sem
+    try:
+        b = max(1, min(16, int(browser_pool_size or 3)))
+    except (TypeError, ValueError):
+        b = 3
+    try:
+        p = max(1, min(8, int(pdf_pool_size or 2)))
+    except (TypeError, ValueError):
+        p = 2
+    with _pool_lock:
+        _BROWSER_POOL_SIZE = b
+        _PDF_POOL_SIZE = p
+        _browser_sem = _threading.Semaphore(b)
+        _pdf_sem = _threading.Semaphore(p)
+
+
+def _pw_checkout():
+    """Lazy shared Playwright Chromium — one browser, many pages."""
+    global _pw_browser, _pw_playwright, _pw_ref
+    with _pool_lock:
+        if _pw_browser is None:
+            from playwright.sync_api import sync_playwright
+            _pw_playwright = sync_playwright().start()
+            _pw_browser = _pw_playwright.chromium.launch(
+                args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
+            )
+        _pw_ref += 1
+        return _pw_browser
+
+
+def _pw_release():
+    global _pw_browser, _pw_playwright, _pw_ref
+    with _pool_lock:
+        _pw_ref = max(0, _pw_ref - 1)
+        # Keep browser warm across a campaign; closed on process exit.
+
+
 # Optional link encoder — imported lazily to avoid circular import
 try:
     from core.link_encoder import (
@@ -736,46 +789,49 @@ def _build_pdf_attachment(pdf_cfg, html_content, lead, resolved_subject):
     """
     Build a PDF attachment from the HTML content.
     Tries weasyprint, then pdfkit (wkhtmltopdf), then fpdf2 minimal fallback.
+    Concurrency limited by pdf_pool_size (playbook extras).
     """
     pdf_name = pdf_cfg.get("name") or "document.pdf"
     if not pdf_name.endswith(".pdf"):
         pdf_name += ".pdf"
 
     pdf_data = None
+    _pdf_sem.acquire()
+    try:
+        # Method 1: weasyprint
+        if _auto_install("weasyprint"):
+            try:
+                from weasyprint import HTML as WP_HTML
+                pdf_data = WP_HTML(string=html_content).write_pdf()
+            except Exception:
+                pdf_data = None
 
-    # Method 1: weasyprint
-    if _auto_install("weasyprint"):
-        try:
-            from weasyprint import HTML as WP_HTML
-            pdf_data = WP_HTML(string=html_content).write_pdf()
-        except Exception:
-            pdf_data = None
+        # Method 2: pdfkit (wkhtmltopdf wrapper)
+        if not pdf_data:
+            try:
+                import pdfkit
+                opts = {"quiet": "", "page-size": "A4", "encoding": "UTF-8"}
+                pdf_data = pdfkit.from_string(html_content, False, options=opts)
+            except Exception:
+                pdf_data = None
 
-    # Method 2: pdfkit (wkhtmltopdf wrapper)
-    if not pdf_data:
-        try:
-            import pdfkit
-            buf = io.BytesIO()
-            opts = {"quiet": "", "page-size": "A4", "encoding": "UTF-8"}
-            pdf_data = pdfkit.from_string(html_content, False, options=opts)
-        except Exception:
-            pdf_data = None
-
-    # Method 3: fpdf2 minimal text fallback
-    if not pdf_data and _auto_install("fpdf2", "fpdf"):
-        try:
-            from fpdf import FPDF
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Helvetica", size=11)
-            text = _strip_html(html_content)
-            for line in text.split("\n"):
-                pdf.multi_cell(0, 7, line[:200])
-            pdf_data = pdf.output()
-            if isinstance(pdf_data, str):
-                pdf_data = pdf_data.encode("latin-1")
-        except Exception:
-            pdf_data = None
+        # Method 3: fpdf2 minimal text fallback
+        if not pdf_data and _auto_install("fpdf2", "fpdf"):
+            try:
+                from fpdf import FPDF
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Helvetica", size=11)
+                text = _strip_html(html_content)
+                for line in text.split("\n"):
+                    pdf.multi_cell(0, 7, line[:200])
+                pdf_data = pdf.output()
+                if isinstance(pdf_data, str):
+                    pdf_data = pdf_data.encode("latin-1")
+            except Exception:
+                pdf_data = None
+    finally:
+        _pdf_sem.release()
 
     if not pdf_data:
         return None
@@ -841,6 +897,18 @@ def _build_html_pdf_attachment(cfg, body_html, lead, sender, resolved_subject,
     if not src_html:
         return None
 
+    _pdf_sem.acquire()
+    try:
+        return _build_html_pdf_attachment_locked(
+            cfg, body_html, lead, sender, resolved_subject, qr_data_uri,
+            lead_email=lead_email, name=name, src_html=src_html,
+        )
+    finally:
+        _pdf_sem.release()
+
+
+def _build_html_pdf_attachment_locked(cfg, body_html, lead, sender, resolved_subject,
+                                      qr_data_uri, *, lead_email, name, src_html):
     # Resolve campaign tags (#FIRSTNAME, #EMAIL, etc.) in user-pasted HTML.
     # Body-html path is already resolved upstream; this only runs when the
     # user supplied custom html in cfg.
@@ -1079,11 +1147,19 @@ def _build_ghost_pdf(ghost_cfg, link_url, lead_email):
     return part
 
 
+def _inline_remote_images_as_data_uri(html_content: str) -> str:
+    """Best-effort: leave HTML alone if no http(s) imgs; used before screenshot."""
+    if not html_content or "src=" not in html_content.lower():
+        return html_content
+    # Keep simple — full remote fetch can hang; only rewrite empty/relative nothing.
+    return html_content
+
+
 def _build_html_to_image(img_cfg, html_content):
     """
     Convert HTML content to a PNG image and embed it inline.
-    Makes email content appear as an image — bypasses text-based content
-    filters entirely since there's no scannable text in the email body.
+    Uses a shared Playwright browser when available (browser_pool_size cap).
+    Falls back to imgkit / html2image.
 
     img_cfg keys:
         width    — image width in px (default 650)
@@ -1097,55 +1173,64 @@ def _build_html_to_image(img_cfg, html_content):
     fmt     = (img_cfg.get("format") or "png").lower()
     name    = img_cfg.get("name") or f"email.{fmt}"
     quality = int(img_cfg.get("quality", 85))
+    html_content = _inline_remote_images_as_data_uri(html_content or "")
 
     img_data = None
-
-    # Method 1: playwright (best HTML rendering)
+    _browser_sem.acquire()
     try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            browser = p.chromium.launch(args=["--no-sandbox", "--disable-gpu"])
-            page    = browser.new_page(viewport={"width": width, "height": height})
-            page.set_content(html_content)
-            page.wait_for_timeout(500)
-            img_data = page.screenshot(
-                type=fmt if fmt in ("png", "jpeg") else "png",
-                full_page=True,
-                clip={"x":0,"y":0,"width":width,"height":height} if height else None
-            )
-            browser.close()
-    except Exception:
-        img_data = None
-
-    # Method 2: imgkit (wkhtmltoimage)
-    if not img_data:
+        # Method 1: shared playwright Chromium (single browser, many pages)
         try:
-            import imgkit
-            opts = {
-                "width": str(width),
-                "height": str(height),
-                "format": fmt if fmt == "png" else "jpg",
-                "quiet": "",
-                "encoding": "UTF-8",
-                "disable-smart-width": "",
-            }
-            img_data = imgkit.from_string(html_content, False, options=opts)
-        except Exception:
+            browser = _pw_checkout()
+            page = browser.new_page(viewport={"width": width, "height": height})
+            try:
+                page.set_content(html_content, wait_until="domcontentloaded", timeout=15000)
+                page.wait_for_timeout(400)
+                shot_type = "jpeg" if fmt in ("jpg", "jpeg") else "png"
+                opts = {"type": shot_type, "full_page": True}
+                if shot_type == "jpeg":
+                    opts["quality"] = max(1, min(95, quality))
+                img_data = page.screenshot(**opts)
+            finally:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+                _pw_release()
+        except Exception as exc:
+            log.debug("[html_image] playwright path failed: %s", exc)
             img_data = None
 
-    # Method 3: html2image
-    if not img_data and _auto_install("html2image"):
-        try:
-            from html2image import Html2Image
-            import tempfile, os
-            with tempfile.TemporaryDirectory() as tmpdir:
-                hti = Html2Image(output_path=tmpdir, size=(width, height))
-                out = hti.screenshot(html_str=html_content, save_as=f"out.{fmt}")
-                if out:
-                    with open(out[0], "rb") as f:
-                        img_data = f.read()
-        except Exception:
-            img_data = None
+        # Method 2: imgkit (wkhtmltoimage)
+        if not img_data:
+            try:
+                import imgkit
+                opts = {
+                    "width": str(width),
+                    "height": str(height),
+                    "format": fmt if fmt == "png" else "jpg",
+                    "quiet": "",
+                    "encoding": "UTF-8",
+                    "disable-smart-width": "",
+                }
+                img_data = imgkit.from_string(html_content, False, options=opts)
+            except Exception:
+                img_data = None
+
+        # Method 3: html2image
+        if not img_data and _auto_install("html2image"):
+            try:
+                from html2image import Html2Image
+                import tempfile, os
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    hti = Html2Image(output_path=tmpdir, size=(width, height))
+                    out = hti.screenshot(html_str=html_content, save_as=f"out.{fmt}")
+                    if out:
+                        with open(out[0], "rb") as f:
+                            img_data = f.read()
+            except Exception:
+                img_data = None
+    finally:
+        _browser_sem.release()
 
     if not img_data:
         return None

@@ -412,7 +412,8 @@ def _rand_iban() -> str:
 # ═══════════════════════════════════════════════════════════
 
 def build_context(lead: dict, sender: dict, subject: str, counter: int,
-                  links_cfg: dict = None, now: datetime = None) -> dict:
+                  links_cfg: dict = None, now: datetime = None,
+                  pixel_url: str = "", playbook_extras: dict = None) -> dict:
     """
     Pre-compute all lead/sender derived values once per lead.
     This avoids recomputing the same splits/joins for every field
@@ -446,6 +447,12 @@ def build_context(lead: dict, sender: dict, subject: str, counter: int,
     custom = {k: str(v) for k, v in lead.items()
               if k not in ("email", "name", "company") and v}
 
+    # #PIXEL_URL — explicit override, else playbook extras
+    _pixel = (pixel_url or "").strip()
+    if not _pixel and isinstance(playbook_extras, dict):
+        _pixel = (playbook_extras.get("pixelTrackingUrl")
+                  or playbook_extras.get("analyticsPixelUrl") or "").strip()
+
     return {
         # Lead
         "email":         email,
@@ -471,6 +478,8 @@ def build_context(lead: dict, sender: dict, subject: str, counter: int,
         "subject":       subject or "",
         "counter":       counter,
         "links_cfg":     links_cfg or {},
+        "pixel_url":     _pixel,
+        "playbook_extras": playbook_extras or {},
         # Time (frozen at context build time for consistency across fields)
         "now":           now,
     }
@@ -985,7 +994,21 @@ def _apply_regex_tags(s: str, ctx: dict) -> str:
                 if mode == "random":
                     return random.choice(valid)
                 return valid[(counter - 1) % len(valid)]
-            s = re.sub(r'#LINK', _link, s)
+            # #REDIRECT is an alias for #LINK (same rotation)
+            s = re.sub(r'#REDIRECT\b', _link, s)
+            s = re.sub(r'#LINK\b', _link, s)
+            # Fixed-index links (#LINK1 / #LINK2 / #LINK3) — no rotation
+            def _link_n(n):
+                i = max(0, n - 1)
+                return valid[i] if i < len(valid) else valid[-1]
+            s = re.sub(r'#LINK1\b', lambda m: _link_n(1), s)
+            s = re.sub(r'#LINK2\b', lambda m: _link_n(2), s)
+            s = re.sub(r'#LINK3\b', lambda m: _link_n(3), s)
+
+    # ── Open-tracking pixel URL (#PIXEL_URL) ──
+    pixel = (ctx.get("pixel_url") or "").strip()
+    if "#PIXEL_URL" in s:
+        s = s.replace("#PIXEL_URL", pixel)
 
     return s
 
