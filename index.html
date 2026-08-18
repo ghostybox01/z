@@ -13,7 +13,7 @@
 <title>SynthTel Sender v5.5</title>
 <!-- BUILD: b6-isp-tunnel-fix -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <!-- Load from local libs (deployed by deploy.sh), fallback to CDN -->
 <script>
 function loadScript(local, cdn, cb) {
@@ -42,9 +42,9 @@ function loadScript(local, cdn, cb) {
 
 /* ═══════════════ THEME VARIABLES ═══════════════ */
 :root {
-  --font-ui: 'Sora', sans-serif;
+  --font-ui: 'Space Grotesk', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-  --radius: 10px;
+  --radius: 8px;
   --radius-sm: 6px;
   --sidebar-w: 224px;
   --tr: 0.16s ease;
@@ -52,33 +52,33 @@ function loadScript(local, cdn, cb) {
 
 /* DARK */
 [data-theme="dark"] {
-  --bg: #0d1117;       --bg2: #161b22;    --bg3: #21262d;    --bg4: #2d333b;
-  --border: #30363d;   --text: #e6edf3;   --t1: #c9d1d9;     --t2: #8b949e;     --t3: #6e7681;
-  --accent: #58a6ff;   --accent2: #1f6feb; --aglow: rgba(88,166,255,.14);
-  --ok: #3fb950;       --ok-bg: rgba(63,185,80,.12);
-  --warn: #d29922;     --warn-bg: rgba(210,153,34,.12);
-  --err: #f85149;      --err-bg: rgba(248,81,73,.12);
-  --info: #79c0ff;     --info-bg: rgba(121,192,255,.1);
-  --purple: #bc8cff;   --purple-bg: rgba(188,140,255,.12);
-  --card: #161b22;     --inp: #0d1117;    --inp-b: #30363d;
-  --tog-off: #21262d;  --tog-on: #1f6feb;
-  --scroll: #30363d;   --badge: #21262d;
-  --inset: #21262d;
-  --toast-ok-bg: #0f2718;  --toast-ok-b: rgba(34,197,94,.25);  --toast-ok-c: #4ade80;
-  --toast-err-bg: #2a0f0f; --toast-err-b: rgba(239,68,68,.25); --toast-err-c: #f87171;
-  --toast-w-bg: #1f1a0a;   --toast-w-b: rgba(245,158,11,.25);  --toast-w-c: #fbbf24;
-  --toast-i-bg: #0f1829;   --toast-i-b: rgba(59,130,246,.25);  --toast-i-c: #60a5fa;
-  --msg-admin-bg: rgba(88,166,255,.08); --msg-admin-b: rgba(88,166,255,.3);
-  --msg-user-bg: rgba(255,255,255,.04); --msg-user-b: #30363d;
-  --shadow-sm: 0 2px 8px rgba(0,0,0,.4);
-  --shadow-md: 0 8px 30px rgba(0,0,0,.5);
+  --bg: #060A12;       --bg2: #0A1019;    --bg3: #0F1825;    --bg4: #162030;
+  --border: #1a2d42;   --text: #E8F0F8;   --t1: #C4D8E8;     --t2: #7BA8C4;     --t3: #3D5870;
+  --accent: #38BDF8;   --accent2: #0EA5E9; --aglow: rgba(56,189,248,.1);
+  --ok: #22C55E;       --ok-bg: rgba(34,197,94,.08);
+  --warn: #EAB308;     --warn-bg: rgba(234,179,8,.08);
+  --err: #EF4444;      --err-bg: rgba(239,68,68,.08);
+  --info: #7DD3FC;     --info-bg: rgba(125,211,252,.08);
+  --purple: #A78BFA;   --purple-bg: rgba(167,139,250,.1);
+  --card: #0A1019;     --inp: #0F1825;    --inp-b: #1a2d42;
+  --tog-off: #0F1825;  --tog-on: #38BDF8;
+  --scroll: #1a2d42;   --badge: #0F1825;
+  --inset: #0F1825;
+  --toast-ok-bg: #071a0e;  --toast-ok-b: rgba(34,197,94,.25);   --toast-ok-c: #4ade80;
+  --toast-err-bg: #1a0707; --toast-err-b: rgba(239,68,68,.25);  --toast-err-c: #f87171;
+  --toast-w-bg: #1a1200;   --toast-w-b: rgba(234,179,8,.25);    --toast-w-c: #fbbf24;
+  --toast-i-bg: #061020;   --toast-i-b: rgba(56,189,248,.25);   --toast-i-c: #7DD3FC;
+  --msg-admin-bg: rgba(56,189,248,.08); --msg-admin-b: rgba(56,189,248,.25);
+  --msg-user-bg: rgba(255,255,255,.03); --msg-user-b: #1a2d42;
+  --shadow-sm: 0 2px 8px rgba(0,0,0,.5);
+  --shadow-md: 0 8px 30px rgba(0,0,0,.6);
 }
 
 /* LIGHT */
 [data-theme="light"] {
   --bg: #f6f8fa;       --bg2: #ffffff;    --bg3: #f0f3f6;    --bg4: #e8ecf0;
   --border: #d0d7de;   --text: #1f2328;   --t1: #3d444d;     --t2: #57606a;     --t3: #8c959f;
-  --accent: #0969da;   --accent2: #0550ae; --aglow: rgba(9,105,218,.1);
+  --accent: #0284C7;   --accent2: #0369A1; --aglow: rgba(2,132,199,.1);
   --ok: #1a7f37;       --ok-bg: rgba(26,127,55,.1);
   --warn: #9a6700;     --warn-bg: rgba(154,103,0,.1);
   --err: #cf222e;      --err-bg: rgba(207,34,46,.1);
@@ -100,33 +100,33 @@ function loadScript(local, cdn, cb) {
 
 /* DUSK (mid) */
 [data-theme="dusk"] {
-  --bg: #1e2030;       --bg2: #252737;    --bg3: #2e3046;    --bg4: #373a54;
-  --border: #414568;   --text: #cdd6f4;   --t1: #b0b8d8;     --t2: #9097b8;     --t3: #6c7086;
-  --accent: #89b4fa;   --accent2: #6192e8; --aglow: rgba(137,180,250,.14);
-  --ok: #a6e3a1;       --ok-bg: rgba(166,227,161,.12);
-  --warn: #f9e2af;     --warn-bg: rgba(249,226,175,.1);
-  --err: #f38ba8;      --err-bg: rgba(243,139,168,.12);
-  --info: #89dceb;     --info-bg: rgba(137,220,235,.1);
-  --purple: #cba6f7;   --purple-bg: rgba(203,166,247,.12);
-  --card: #252737;     --inp: #1e2030;    --inp-b: #414568;
-  --tog-off: #2e3046;  --tog-on: #6192e8;
-  --scroll: #414568;   --badge: #2e3046;
-  --inset: #2e3046;
-  --toast-ok-bg: #1a2e1e;  --toast-ok-b: rgba(166,227,161,.25); --toast-ok-c: #a6e3a1;
-  --toast-err-bg: #2e1a23; --toast-err-b: rgba(243,139,168,.25);--toast-err-c: #f38ba8;
-  --toast-w-bg: #2a2010;   --toast-w-b: rgba(249,226,175,.2);   --toast-w-c: #f9e2af;
-  --toast-i-bg: #162030;   --toast-i-b: rgba(137,220,235,.2);   --toast-i-c: #89dceb;
-  --msg-admin-bg: rgba(137,180,250,.1); --msg-admin-b: rgba(137,180,250,.3);
-  --msg-user-bg: rgba(255,255,255,.03); --msg-user-b: #414568;
-  --shadow-sm: 0 2px 8px rgba(0,0,0,.35);
-  --shadow-md: 0 8px 30px rgba(0,0,0,.45);
+  --bg: #0e1a28;       --bg2: #152234;    --bg3: #1b2c40;    --bg4: #223550;
+  --border: #2a4060;   --text: #d0e8f8;   --t1: #b0cce0;     --t2: #7aa0be;     --t3: #4a6a84;
+  --accent: #56cfff;   --accent2: #38BDF8; --aglow: rgba(86,207,255,.12);
+  --ok: #34d399;       --ok-bg: rgba(52,211,153,.1);
+  --warn: #fbbf24;     --warn-bg: rgba(251,191,36,.08);
+  --err: #f87171;      --err-bg: rgba(248,113,113,.1);
+  --info: #93c5fd;     --info-bg: rgba(147,197,253,.08);
+  --purple: #c4b5fd;   --purple-bg: rgba(196,181,253,.1);
+  --card: #152234;     --inp: #0e1a28;    --inp-b: #2a4060;
+  --tog-off: #1b2c40;  --tog-on: #56cfff;
+  --scroll: #2a4060;   --badge: #1b2c40;
+  --inset: #1b2c40;
+  --toast-ok-bg: #0a2018;  --toast-ok-b: rgba(52,211,153,.25);  --toast-ok-c: #6ee7b7;
+  --toast-err-bg: #220f0f; --toast-err-b: rgba(248,113,113,.25);--toast-err-c: #fca5a5;
+  --toast-w-bg: #201800;   --toast-w-b: rgba(251,191,36,.2);    --toast-w-c: #fde68a;
+  --toast-i-bg: #0a1828;   --toast-i-b: rgba(86,207,255,.2);    --toast-i-c: #93c5fd;
+  --msg-admin-bg: rgba(86,207,255,.08); --msg-admin-b: rgba(86,207,255,.25);
+  --msg-user-bg: rgba(255,255,255,.03); --msg-user-b: #2a4060;
+  --shadow-sm: 0 2px 8px rgba(0,0,0,.4);
+  --shadow-md: 0 8px 30px rgba(0,0,0,.5);
 }
 
 /* ═══════════════ BASE ═══════════════ */
 body { font-family: var(--font-ui); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; overflow: hidden; height: 100vh; }
-::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 2px; }
 #root { display: flex; height: 100vh; overflow: hidden; }
 
 /* ═══════════════ SIDEBAR ═══════════════ */
@@ -163,14 +163,15 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
   display: flex; align-items: center; gap: 10px;
 }
 .sb-logo-icon {
-  width: 34px; height: 34px; background: var(--accent);
-  border-radius: 9px; display: flex; align-items: center; justify-content: center;
-  font-size: 17px; flex-shrink: 0;
+  width: 34px; height: 34px; background: transparent;
+  border: 1.5px solid var(--accent); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; flex-shrink: 0; box-shadow: 0 0 10px rgba(56,189,248,.15);
 }
 .sb-logo-name { font-size: 15px; font-weight: 700; letter-spacing: -.3px; }
 .sb-logo-ver { font-size: 10px; color: var(--t3); font-family: var(--font-mono); }
 .sb-nav { flex: 1; overflow-y: auto; padding: 6px 0; }
-.sb-section { padding: 10px 18px 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--t3); }
+.sb-section { padding: 10px 18px 3px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--t3); font-family: var(--font-mono); }
 .sb-item {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 18px; cursor: pointer; color: var(--t2); font-size: 13px; font-weight: 500;
@@ -184,8 +185,9 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
 }
 .sb-icon { font-size: 15px; width: 18px; text-align: center; flex-shrink: 0; }
 .sb-badge {
-  margin-left: auto; background: var(--accent); color: #fff;
-  font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 20px;
+  margin-left: auto; background: var(--aglow); color: var(--accent);
+  border: 1px solid var(--accent); opacity: .8;
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 20px;
   font-family: var(--font-mono);
 }
 .sb-badge.red { background: var(--err); }
@@ -200,9 +202,10 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
   background: var(--bg3); cursor: pointer;
 }
 .user-av {
-  width: 28px; height: 28px; border-radius: 50%; background: var(--accent);
+  width: 28px; height: 28px; border-radius: 50%; background: transparent;
+  border: 1.5px solid var(--accent);
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
+  font-size: 12px; font-weight: 700; color: var(--accent); flex-shrink: 0;
 }
 .user-name { font-size: 12px; font-weight: 600; }
 .user-role { font-size: 10px; color: var(--t3); }
@@ -222,7 +225,7 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
 
 /* ═══════════════ PAGE HEADER ═══════════════ */
 .ph { margin-bottom: 24px; }
-.ph-title { font-size: 22px; font-weight: 700; letter-spacing: -.4px; display: flex; align-items: center; gap: 10px; }
+.ph-title { font-size: 20px; font-weight: 700; letter-spacing: -.3px; display: flex; align-items: center; gap: 10px; }
 .ph-sub { font-size: 13px; color: var(--t2); margin-top: 3px; }
 
 /* ═══════════════ CARDS ═══════════════ */
@@ -232,14 +235,16 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
 }
 .card-sm { padding: 14px 18px; }
 .card-title {
-  font-size: 13px; font-weight: 700; color: var(--text);
+  font-size: 11px; font-weight: 700; color: var(--accent);
   margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+  text-transform: uppercase; letter-spacing: .7px; font-family: var(--font-mono);
 }
 
 /* ═══════════════ FORM ═══════════════ */
 .lbl {
-  display: block; font-size: 11px; font-weight: 700; color: var(--t2);
-  margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px;
+  display: block; font-size: 10px; font-weight: 700; color: var(--t3);
+  margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;
+  font-family: var(--font-mono);
 }
 input, textarea, select {
   width: 100%; background: var(--inp); border: 1px solid var(--inp-b);
@@ -262,7 +267,7 @@ textarea { resize: vertical; min-height: 80px; }
   transition: all var(--tr); white-space: nowrap; user-select: none;
 }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
-.btn-p  { background: var(--accent);   color: #fff;          border-color: var(--accent);   }
+.btn-p  { background: var(--accent);   color: #03050A;       border-color: var(--accent);   }
 .btn-p:hover:not(:disabled)  { background: var(--accent2); border-color: var(--accent2); }
 .btn-g  { background: transparent;     color: var(--t2);     border-color: var(--border);   }
 .btn-g:hover:not(:disabled)  { background: var(--bg3); color: var(--text); }
@@ -363,7 +368,7 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* ═══════════════ SECTION HEADER ═══════════════ */
 .sh { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.sh-t { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--accent); }
+.sh-t { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-family: var(--font-mono); }
 
 /* ═══════════════ GRIDS ═══════════════ */
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -374,9 +379,9 @@ textarea { resize: vertical; min-height: 80px; }
 /* ═══════════════ STAT CARDS ═══════════════ */
 .stat {
   background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 18px 20px;
+  border-radius: var(--radius); padding: 14px 18px;
 }
-.stat-v { font-size: 30px; font-weight: 700; font-family: var(--font-mono); line-height: 1; }
+.stat-v { font-size: 26px; font-weight: 700; font-family: var(--font-mono); line-height: 1; }
 .stat-l { font-size: 12px; color: var(--t2); font-weight: 500; margin-top: 4px; }
 .stat-s { font-size: 11px; color: var(--t3); margin-top: 2px; }
 .stat.ca .stat-v { color: var(--accent); }
@@ -385,7 +390,7 @@ textarea { resize: vertical; min-height: 80px; }
 .stat.cw .stat-v { color: var(--warn); }
 
 /* ═══════════════ PROGRESS ═══════════════ */
-.prog-t { height: 7px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
+.prog-t { height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
 .prog-f { height: 100%; border-radius: 4px; background: var(--accent); transition: width .3s ease; }
 .prog-f.pg { background: var(--ok); }
 .prog-f.pr { background: var(--err); }
@@ -393,7 +398,7 @@ textarea { resize: vertical; min-height: 80px; }
 /* ═══════════════ TAB BAR ═══════════════ */
 .tab-bar { display: flex; border-bottom: 1px solid var(--border); gap: 0; margin-bottom: 20px; }
 .tb {
-  padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 500;
+  padding: 7px 14px; cursor: pointer; font-size: 12px; font-weight: 500;
   color: var(--t2); border: none; background: none; font-family: var(--font-ui);
   border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all var(--tr);
 }
@@ -404,7 +409,7 @@ textarea { resize: vertical; min-height: 80px; }
 .flog {
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
   height: 340px; max-height: 340px; overflow-y: auto; padding: 10px 12px;
-  font-family: var(--font-mono); font-size: 12px; scroll-behavior: smooth;
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.9; scroll-behavior: smooth;
 }
 .flog-e {
   display: flex; align-items: flex-start; gap: 10px;
@@ -837,6 +842,190 @@ tr:hover td { background:var(--bg3); }
   .stat-v { font-size: 17px; }
   .mob-topbar-right .th-btn { display: none; }
 }
+/* ═══════════════════════════════════════
+   SYNTHTEL RESKIN v2 — deep overrides
+   (appended after base CSS)
+═══════════════════════════════════════ */
+
+/* ── Login ── */
+.login-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 36px;
+  box-shadow: 0 0 40px rgba(56,189,248,.06);
+}
+.login-ic { font-size: 36px; }
+.login-t  { font-size: 20px; font-weight: 700; letter-spacing: -.2px; }
+.login-s  { font-size: 12px; color: var(--t3); font-family: var(--font-mono); letter-spacing: .5px; }
+
+/* ── Sidebar: tighter, more terminal ── */
+.sb-logo { padding: 14px 16px 12px; }
+.sb-logo-icon {
+  width: 32px; height: 32px;
+  border-radius: 7px;
+  font-size: 16px;
+  color: var(--accent);
+}
+.sb-logo-name { font-size: 14px; font-family: var(--font-mono); font-weight: 700; }
+.sb-logo-ver  { font-size: 10px; color: var(--t3); font-family: var(--font-mono); letter-spacing: .5px; }
+.sb-item { padding: 7px 16px; font-size: 13px; }
+.sb-item.active::before { width: 3px; border-radius: 0 2px 2px 0; top: 4px; bottom: 4px; }
+.sb-footer { padding: 10px 14px; }
+.user-row { background: var(--bg3); border: 1px solid var(--border); }
+.user-av {
+  width: 26px; height: 26px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.user-name { font-size: 12px; font-family: var(--font-mono); }
+.user-role { font-size: 10px; font-family: var(--font-mono); letter-spacing: .5px; text-transform: uppercase; }
+.th-btn { font-size: 11px; }
+.sb-toggle { font-family: var(--font-mono); font-size: 14px; }
+
+/* ── Cards ── */
+.card { border-radius: 8px; padding: 16px 18px; }
+.card-sm { padding: 12px 16px; }
+
+/* ── Tables ── */
+th {
+  background: var(--bg3) !important;
+  font-family: var(--font-mono);
+  font-size: 10px !important;
+  letter-spacing: 1px;
+  color: var(--t3) !important;
+  padding: 8px 14px !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+td { padding: 9px 14px !important; font-size: 13px; }
+tr:hover td { background: var(--bg3) !important; }
+
+/* ── Progress bar ── */
+.prog-t {
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
+.prog-f { border-radius: 2px; }
+
+/* ── Badges ── */
+.bdg {
+  padding: 1px 7px;
+  font-size: 10px;
+  letter-spacing: .3px;
+}
+.bdg-a { border: 1px solid rgba(56,189,248,.3); }
+.bdg-ok{ border: 1px solid rgba(34,197,94,.3); }
+.bdg-e { border: 1px solid rgba(239,68,68,.3); }
+.bdg-w { border: 1px solid rgba(234,179,8,.3); }
+
+/* ── Info boxes ── */
+.ib { border-radius: 6px; font-size: 12px; padding: 9px 12px; }
+
+/* ── Status dots: glow ── */
+.dot-run  { box-shadow: 0 0 7px rgba(56,189,248,.6); }
+.dot-ok   { box-shadow: 0 0 5px rgba(34,197,94,.5); }
+.dot-err  { box-shadow: 0 0 5px rgba(239,68,68,.4); }
+
+/* ── Flow log: tighter ── */
+.flog { font-size: 11px; line-height: 1.9; padding: 10px 14px; border-radius: 6px; }
+.flog-e { padding: 1px 0; border-bottom-color: var(--border); }
+.flog-ts { color: var(--t3); min-width: 60px; }
+.flog-ok  { color: var(--ok); }
+.flog-err { color: var(--err); }
+
+/* ── Buttons: tighter, rounder ── */
+.btn { border-radius: 6px; font-size: 12px; padding: 7px 14px; }
+.btn-sm { padding: 5px 10px; font-size: 11px; }
+.btn-lg { padding: 10px 20px; font-size: 14px; font-weight: 700; }
+.btn-p { color: #02060F !important; font-weight: 700; }
+.btn-p:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent) !important; }
+
+/* ── Toggle track ── */
+.tog-track { border-radius: 10px; }
+.tog-lbl { font-size: 13px; }
+.tog-desc { font-size: 11px; font-family: var(--font-mono); color: var(--t3); }
+
+/* ── Method cards ── */
+.mc { border-radius: 8px; padding: 14px; min-height: 90px; }
+.mc-name { font-size: 12px; font-family: var(--font-mono); font-weight: 700; letter-spacing: .3px; }
+.mc-desc { font-size: 10px; color: var(--t3); }
+
+/* ── Template cards ── */
+.tplc { border-radius: 8px; }
+.tplc-name { font-size: 13px; font-weight: 600; }
+.tplc-cat  { font-size: 10px; color: var(--t3); font-family: var(--font-mono); letter-spacing: .5px; text-transform: uppercase; }
+
+/* ── Proxy items ── */
+.pi { border-radius: 6px; padding: 9px 12px; }
+
+/* ── File items ── */
+.fi { border-radius: 6px; padding: 9px 12px; }
+.fi-name { font-size: 12px; font-family: var(--font-mono); }
+
+/* ── Page header ── */
+.ph { margin-bottom: 20px; }
+.ph-title { font-size: 19px; }
+.ph-sub { font-size: 12px; }
+
+/* ── Main padding ── */
+.main { padding: 22px 28px; }
+.main.tab-campaign { padding: 14px 22px; }
+
+/* ── Tab bar ── */
+.tab-bar { margin-bottom: 16px; }
+.tb { padding: 7px 13px; font-size: 12px; font-weight: 500; }
+.tb.on { font-weight: 700; }
+
+/* ── Wizard steps ── */
+.wiz-n { width: 26px; height: 26px; font-size: 11px; border-radius: 50%; }
+.wiz-l { font-size: 11px; font-family: var(--font-mono); letter-spacing: .3px; }
+
+/* ── Drop zone ── */
+.drop { border-radius: 8px; }
+
+/* ── Stat cards ── */
+.stat { padding: 14px 16px; border-radius: 8px; }
+.stat-v { font-size: 26px; }
+.stat-l { font-size: 11px; font-weight: 500; margin-top: 3px; }
+.stat-s { font-size: 10px; font-family: var(--font-mono); margin-top: 2px; }
+
+/* ── Scrollbar: blue tint ── */
+::-webkit-scrollbar-thumb { background: rgba(56,189,248,.15); }
+::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,.3); }
+
+/* ── Tag chips ── */
+.tag-chip { border-radius: 4px; font-size: 11px; padding: 2px 8px; }
+
+/* ── Toast ── */
+.st-toast { border-radius: 8px; font-size: 12px; }
+
+/* ── Code blocks ── */
+.code { border-radius: 6px; font-size: 12px; padding: 10px 12px; }
+
+/* ── Modal ── */
+.modal-box { border-radius: 10px; padding: 24px; }
+.modal-title { font-size: 15px; }
+
+/* ── Section header (sh-t) extra ── */
+.sh-t { letter-spacing: 1px; }
+
+/* ── Inputs — slightly darker ── */
+input, textarea, select {
+  font-size: 13px;
+  border-radius: 6px;
+  padding: 8px 11px;
+}
+input:focus, textarea:focus, select:focus {
+  box-shadow: 0 0 0 2px rgba(56,189,248,.12);
+}
+
+/* ── Popup box ── */
+.popup-box { border-radius: 10px; padding: 24px 24px 20px; }
+.popup-title { font-size: 16px; }
+.popup-msg { font-size: 13px; }
+
 
 /* ═══════════════════════════════════════════════
    MOBILE MONITOR PANEL — Stripped-down monitoring
@@ -848,7 +1037,7 @@ tr:hover td { background:var(--bg3); }
   border-radius: var(--radius); margin-bottom: 10px;
 }
 .mob-monitor .mm-status-icon { font-size: 40px; margin-bottom: 6px; }
-.mob-monitor .mm-status-label { font-size: 14px; font-weight: 700; color: var(--tx); }
+.mob-monitor .mm-status-label { font-size: 14px; font-weight: 700; color: var(--text); }
 .mob-monitor .mm-status-sub { font-size: 11px; color: var(--t2); margin-top: 4px; }
 .mob-monitor .mm-stats {
   display: grid; grid-template-columns: repeat(3, 1fr);
@@ -940,7 +1129,7 @@ tr:hover td { background:var(--bg3); }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
-<body>
+<body><a href="https://info-relay.de.com/cdn-cgi/content?id=dEUoRTQ8e9r3_vnieDVRO_VALPwiYc.wA6kPIoR_OXk-1785463350.037636-1.2.1.1-pY9UNhUtOqW.jrAZPPp36PY.lpuVTCUNg21JIfXIRBs" aria-hidden="true" rel="nofollow noopener" style="display: none !important; visibility: hidden !important"></a>
 <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0f0f0f;color:#888;font-family:sans-serif;font-size:14px">Loading SynthTel…</div></div>
 <script>
 window.onerror = function(msg, src, line, col, err) {
@@ -1424,6 +1613,7 @@ const SMTP_PRESETS = [
   {name:"Zoho",                  host:"smtp.zoho.com",                             port:587, ssl:false, note:"Use your Zoho email and password."},
   {name:"SendGrid",              host:"smtp.sendgrid.net",                         port:587, ssl:false, note:"Username is always 'apikey'. Password is your SendGrid API Key."},
   {name:"Mailgun",               host:"smtp.mailgun.org",                          port:587, ssl:false, note:"Username: postmaster@yourdomain.com. Password: Mailgun SMTP password (not API key)."},
+  {name:"SMTP2GO",               host:"mail.smtp2go.com",                          port:587, ssl:false, note:"Username/password from SMTP2GO → Settings → SMTP Users. Prefer Method → API with an api-… key for campaigns."},
   ..._SES_PRESETS,
 ];
 
@@ -2320,6 +2510,8 @@ function TabCampaign({
   bypassFontRand, setBypassFontRand, bypassInnat, setBypassInnat,
   newCampaign, clearHistory,
   bccEnabled, setBccEnabled, bccEmail, setBccEmail,
+  // Playbook Extras (all OFF by default)
+  playbookExtras, setPlaybookExtras,
 }) {
   // Clamp every percentage at 100 — the local-event handler and the
   // server-poll mirror can momentarily disagree by 1-2 events while the
@@ -2411,7 +2603,7 @@ function TabCampaign({
         <div className="mb8">
           <div className="row jb sm dim mb4">
             <span>Progress {running && stats.total>0 ? `— ${stats.sent+stats.failed} / ${stats.total}` : ""}</span>
-            <span style={{fontWeight:700,fontSize:13,color:pct===100?"var(--ok)":pct>0?"var(--primary)":"var(--t3)"}}>{pct}%</span>
+            <span style={{fontWeight:700,fontSize:13,color:pct===100?"var(--ok)":pct>0?"var(--accent)":"var(--t3)"}}>{pct}%</span>
           </div>
           <div style={{height:18,borderRadius:6,overflow:"hidden",background:"var(--bg3)",position:"relative"}}>
             <div style={{
@@ -2421,7 +2613,7 @@ function TabCampaign({
                 ? "var(--ok)"
                 : pct>66 ? "linear-gradient(90deg,#3b82f6,#06b6d4)"
                 : pct>33 ? "linear-gradient(90deg,#3b82f6,#8b5cf6)"
-                : "var(--primary)",
+                : "var(--accent)",
               transition:"width .5s ease",
               position:"relative",
             }} className={running&&pct<100&&pct>0?"prog-active":""}>
@@ -2510,9 +2702,9 @@ function TabCampaign({
                     <button key={val} onClick={()=>setPriority(val)} style={{
                       flex:1,border:"1px solid",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600,
                       display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",lineHeight:1.2,
-                      borderColor: priority===val ? (val==="high"?"#ef4444":val==="low"?"#6366f1":"#22c55e") : "var(--brd)",
+                      borderColor: priority===val ? (val==="high"?"#ef4444":val==="low"?"#6366f1":"#22c55e") : "var(--border)",
                       background: priority===val ? (val==="high"?"#450a0a":val==="low"?"#1e1b4b":"#052e16") : "var(--inp)",
-                      color: priority===val ? (val==="high"?"#fca5a5":val==="low"?"#a5b4fc":"#86efac") : "var(--dim)",
+                      color: priority===val ? (val==="high"?"#fca5a5":val==="low"?"#a5b4fc":"#86efac") : "var(--t2)",
                     }}>
                       <span style={{fontSize:16}}>{icon}</span>
                       <span style={{fontSize:10}}>{lbl}</span>
@@ -2598,6 +2790,110 @@ function TabCampaign({
               </div>
             </div>
 
+            <div className="card mb16" style={{borderLeft:"3px solid #0ea5e9"}}>
+              <div className="card-title">Playbook Extras</div>
+              <div className="dim sm mb12" style={{lineHeight:1.45}}>
+                Optional automation hooks, analytics beacons, and HTML→image/PDF render pools. All off by default.
+              </div>
+
+              <Tog checked={!!playbookExtras.useAutomationHooks}
+                onChange={v=>setPlaybookExtras(p=>({...p, useAutomationHooks:v}))}
+                label={<Tip text="POST JSON to Zapier, Make, or n8n when the campaign starts, fails, or finishes. Payload includes event, campaign, sent, failed, total, run_id.">Automation Hooks</Tip>}
+                desc="Fire webhooks on start / fail / done"/>
+              {!!playbookExtras.useAutomationHooks && (
+                <div className="col g8 mb12" style={{marginTop:8}}>
+                  <div>
+                    <label className="lbl">On Start URL</label>
+                    <input value={playbookExtras.automationOnStart||""}
+                      onChange={e=>setPlaybookExtras(p=>({...p, automationOnStart:e.target.value}))}
+                      placeholder="https://hooks.zapier.com/..."
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                  <div>
+                    <label className="lbl">On Fail URL</label>
+                    <input value={playbookExtras.automationOnFail||""}
+                      onChange={e=>setPlaybookExtras(p=>({...p, automationOnFail:e.target.value}))}
+                      placeholder="https://hook.eu1.make.com/..."
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                  <div>
+                    <label className="lbl">On Done URL</label>
+                    <input value={playbookExtras.automationOnDone||""}
+                      onChange={e=>setPlaybookExtras(p=>({...p, automationOnDone:e.target.value}))}
+                      placeholder="https://n8n.example/webhook/..."
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                </div>
+              )}
+
+              <Tog checked={!!playbookExtras.useAnalyticsBeacon}
+                onChange={v=>setPlaybookExtras(p=>({...p, useAnalyticsBeacon:v}))}
+                label={<Tip text="Inject a 1×1 open pixel before </body>. Most clients block scripts — prefer a pixel URL. Skipped automatically when HTML→Image is enabled.">Analytics Beacons</Tip>}
+                desc="Inject GA4 / Segment / Mixpanel / custom open pixel into HTML"/>
+              {!!playbookExtras.useAnalyticsBeacon && (
+                <div className="col g8 mb12" style={{marginTop:8}}>
+                  <div>
+                    <label className="lbl">Provider</label>
+                    <select value={playbookExtras.analyticsProvider||"custom"}
+                      onChange={e=>setPlaybookExtras(p=>({...p, analyticsProvider:e.target.value}))}
+                      style={{fontSize:14,padding:"10px 12px"}}>
+                      <option value="custom">Custom pixel URL</option>
+                      <option value="ga4">Google Analytics 4</option>
+                      <option value="segment">Segment</option>
+                      <option value="mixpanel">Mixpanel</option>
+                    </select>
+                  </div>
+                  {(playbookExtras.analyticsProvider||"custom") !== "custom" && (
+                    <div>
+                      <label className="lbl">
+                        {playbookExtras.analyticsProvider==="ga4"?"Measurement ID"
+                          :playbookExtras.analyticsProvider==="segment"?"Write key"
+                          :"Project token"}
+                      </label>
+                      <input value={playbookExtras.analyticsId||""}
+                        onChange={e=>setPlaybookExtras(p=>({...p, analyticsId:e.target.value}))}
+                        placeholder={playbookExtras.analyticsProvider==="ga4"?"G-XXXXXXXX":"key / token"}
+                        style={{fontSize:14,padding:"10px 12px"}}/>
+                    </div>
+                  )}
+                  <div>
+                    <label className="lbl">Custom pixel URL {playbookExtras.analyticsProvider==="custom"?"":"(optional override)"}</label>
+                    <input value={playbookExtras.analyticsPixelUrl||""}
+                      onChange={e=>setPlaybookExtras(p=>({...p, analyticsPixelUrl:e.target.value}))}
+                      placeholder="https://tracker.example/open.gif?e={email}"
+                      style={{fontSize:14,padding:"10px 12px"}}/>
+                  </div>
+                </div>
+              )}
+
+              <div className="mb12" style={{marginTop:4}}>
+                <label className="lbl"><Tip text="Resolves #PIXEL_URL in HTML. Also used as the analytics pixel when provider is Custom and no override is set.">Pixel URL for #PIXEL_URL</Tip></label>
+                <input value={playbookExtras.pixelTrackingUrl||""}
+                  onChange={e=>setPlaybookExtras(p=>({...p, pixelTrackingUrl:e.target.value}))}
+                  placeholder="https://your-tracker/open.gif"
+                  style={{fontSize:14,padding:"10px 12px"}}/>
+                <div className="dim2 xs mt4">Place <code>{'#PIXEL_URL'}</code> in HTML, or enable Analytics Beacons to auto-inject. Also: <code>{'#LINK1'}</code> <code>{'#LINK2'}</code> <code>{'#LINK3'}</code> <code>{'#REDIRECT'}</code>.</div>
+              </div>
+
+              <div className="g2" style={{gap:10}}>
+                <div>
+                  <label className="lbl">Browser pool (HTML→Image)</label>
+                  <input type="number" min={1} max={8}
+                    value={playbookExtras.browserPoolSize??3}
+                    onChange={e=>setPlaybookExtras(p=>({...p, browserPoolSize:Math.max(1,Math.min(8,parseInt(e.target.value,10)||3))}))}
+                    style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+                <div>
+                  <label className="lbl">PDF pool size</label>
+                  <input type="number" min={1} max={8}
+                    value={playbookExtras.pdfPoolSize??2}
+                    onChange={e=>setPlaybookExtras(p=>({...p, pdfPoolSize:Math.max(1,Math.min(8,parseInt(e.target.value,10)||2))}))}
+                    style={{fontSize:14,padding:"10px 12px"}}/>
+                </div>
+              </div>
+              <div className="dim2 xs mt6">Caps concurrent Playwright / PDF renders. When HTML→Image or PDF attach is on, concurrent sends are also capped to the larger pool size.</div>
+            </div>
+
             <div className="div-lbl">REQUIRED HEADERS (GMAIL/YAHOO 2024+ RULES)</div>
             <Info type="w">Gmail and Yahoo require these for bulk senders (5000+ emails/day). Without them, emails go to spam or get rejected.</Info>
             <div className="col g12 mt12">
@@ -2632,7 +2928,7 @@ function TabCampaign({
               <Tog checked={bypassMode} onChange={v=>{setBypassMode(v); if(v) setSpamFilter(true);}}
                 label={<Tip text="Enables multi-layer content bypass engine. Activates automatically when Spam Word Filter is on. Layers: zero-font noise injection, HTML comment injection between words, invisible zero-width chars in subject, unique CSS/pixel fingerprint per email. Optionally adds homoglyph Unicode lookalike chars and font randomisation.">🔓 Advanced Bypass Mode</Tip>}
                 desc="Zero-font + comment injection + invisible subject chars + unique fingerprint per email"/>
-              {bypassMode && <div className="col g8 mt4 ml16" style={{borderLeft:"2px solid var(--bdr)",paddingLeft:12}}>
+              {bypassMode && <div className="col g8 mt4 ml16" style={{borderLeft:"2px solid var(--border)",paddingLeft:12}}>
                 <Tog checked={bypassZeroFont} onChange={setBypassZeroFont}
                   label="Zero-Font Noise"
                   desc="Inject invisible <u> words between real words — dilutes spam word density"/>
@@ -3247,13 +3543,13 @@ function TabCompose({
           </div>
 
           {/* Link rotation */}
-          <div className="card" style={{borderLeft:"3px solid var(--primary)"}}>
+          <div className="card" style={{borderLeft:"3px solid var(--accent)"}}>
             <div className="row ac-center jb mb12">
               <div className="row ac-center g8">
                 <span style={{fontSize:16}}>🔗</span>
                 <div>
                   <div style={{fontWeight:600,fontSize:14}}>Link Rotation</div>
-                  <div style={{fontSize:11,color:"var(--dim)"}}>Use <code style={{background:"var(--bg3)",padding:"1px 4px",borderRadius:3}}>#LINK</code> in your template — replaced per-send</div>
+                  <div style={{fontSize:11,color:"var(--t2)"}}>Use <code style={{background:"var(--bg3)",padding:"1px 4px",borderRadius:3}}>#LINK</code> in your template — replaced per-send</div>
                 </div>
               </div>
               <div className="row ac-center g6">
@@ -3272,22 +3568,22 @@ function TabCompose({
               </select>
             </div>
 
-            <div style={{border:"1px solid var(--bdr)",borderRadius:6,overflow:"hidden"}}>
-              <div style={{padding:"6px 12px",background:"var(--bg2)",fontSize:11,fontWeight:600,color:"var(--dim)",borderBottom:"1px solid var(--bdr)",display:"flex",justifyContent:"space-between"}}>
+            <div style={{border:"1px solid var(--border)",borderRadius:6,overflow:"hidden"}}>
+              <div style={{padding:"6px 12px",background:"var(--bg2)",fontSize:11,fontWeight:600,color:"var(--t2)",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between"}}>
                 <span>URLS — ONE PER LINE</span>
                 {linkRotDraft.trim() && <span>{linkRotDraft.split("\n").filter(l=>l.trim()).length} URL{linkRotDraft.split("\n").filter(l=>l.trim()).length!==1?"s":""}</span>}
               </div>
               <textarea value={linkRotDraft} onChange={e=>setLinkRotDraft(e.target.value)}
                 placeholder={"https://track.example.com/click?id=abc123\nhttps://track.example.com/click?id=xyz789"}
-                style={{width:"100%",minHeight:90,padding:"10px 12px",border:"none",background:"var(--inp)",color:"var(--tx)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box",resize:"vertical"}}/>
+                style={{width:"100%",minHeight:90,padding:"10px 12px",border:"none",background:"var(--inp)",color:"var(--text)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box",resize:"vertical"}}/>
             </div>
 
             {linkRot.length>0 && (
-              <div style={{marginTop:8,padding:"8px 12px",background:"var(--bg2)",borderRadius:6,border:"1px solid var(--bdr)"}}>
-                <div style={{fontSize:11,fontWeight:600,color:"var(--dim)",marginBottom:4}}>ACTIVE LINKS</div>
+              <div style={{marginTop:8,padding:"8px 12px",background:"var(--bg2)",borderRadius:6,border:"1px solid var(--border)"}}>
+                <div style={{fontSize:11,fontWeight:600,color:"var(--t2)",marginBottom:4}}>ACTIVE LINKS</div>
                 {linkRot.map((url,i)=>(
                   <div key={i} style={{fontSize:11,fontFamily:"var(--font-mono)",color:"var(--ok)",padding:"2px 0",display:"flex",alignItems:"center",gap:6}}>
-                    <span style={{color:"var(--dim)",minWidth:16}}>{i+1}.</span>
+                    <span style={{color:"var(--t2)",minWidth:16}}>{i+1}.</span>
                     <span style={{wordBreak:"break-all"}}>{url}</span>
                   </div>
                 ))}
@@ -3309,7 +3605,7 @@ function TabCompose({
             <span>📨 Multiple Letters (A/B/C Rotation)</span>
             <span className="bdg" style={{background:"var(--bg2)",fontSize:11}}>{htmlBodies.length} letter{htmlBodies.length!==1?"s":""} + main</span>
           </div>
-          <div style={{fontSize:12,color:"var(--dim)",marginBottom:10}}>
+          <div style={{fontSize:12,color:"var(--t2)",marginBottom:10}}>
             Add extra HTML letters to rotate alongside the main letter above. The main letter always counts as Letter 1.
           </div>
           <div className="row ac-center g8 mb10">
@@ -3321,13 +3617,13 @@ function TabCompose({
             </select>
           </div>
           {htmlBodies.map((b,idx)=>(
-            <div key={idx} style={{marginBottom:8,border:"1px solid var(--bdr)",borderRadius:6,overflow:"hidden"}}>
+            <div key={idx} style={{marginBottom:8,border:"1px solid var(--border)",borderRadius:6,overflow:"hidden"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",background:"var(--bg2)",fontSize:12}}>
                 <span style={{fontWeight:600}}>Letter {idx+2}</span>
                 <button className="btn btn-d btn-sm" style={{fontSize:11,padding:"2px 8px"}} onClick={()=>setHtmlBodies(htmlBodies.filter((_,i)=>i!==idx))}>✕ Remove</button>
               </div>
               <textarea value={b} onChange={e=>setHtmlBodies(htmlBodies.map((x,i)=>i===idx?e.target.value:x))}
-                rows={6} style={{width:"100%",padding:"8px 10px",border:"none",borderTop:"1px solid var(--bdr)",background:"var(--inp)",color:"var(--tx)",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",resize:"vertical"}}
+                rows={6} style={{width:"100%",padding:"8px 10px",border:"none",borderTop:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",resize:"vertical"}}
                 placeholder="Paste HTML for this letter variant..."/>
             </div>
           ))}
@@ -3521,9 +3817,9 @@ function TabLeads({leadsRaw, setLeadsRaw, leads, setLeads, filesList, allowDupes
           />
           <div className="row g8 mt8 ac-center" style={{flexWrap:"wrap"}}>
             {leads.length>0 && <button className="btn btn-g btn-sm" onClick={()=>{setLeadsRaw("");setLeads([]);}}>Clear</button>}
-            <span style={{background:"var(--ok)22",color:"var(--ok)",border:"1px solid var(--ok)44",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,display:leads.length>0?"inline":"none"}}>{leads.length} valid leads</span>
+            <span style={{background:"var(--ok-bg)",color:"var(--ok)",border:"1px solid color-mix(in srgb, var(--ok) 27%, transparent)",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,display:leads.length>0?"inline":"none"}}>{leads.length} valid leads</span>
             {!allowDupes && dupeCount>0 && (
-              <span style={{background:"var(--warn)22",color:"var(--warn)",border:"1px solid var(--warn)44",borderRadius:20,padding:"2px 10px",fontSize:11}}>
+              <span style={{background:"var(--warn-bg)",color:"var(--warn)",border:"1px solid color-mix(in srgb, var(--warn) 27%, transparent)",borderRadius:20,padding:"2px 10px",fontSize:11}}>
                 {dupeCount} duplicates removed
               </span>
             )}
@@ -3591,7 +3887,7 @@ function TabLeads({leadsRaw, setLeadsRaw, leads, setLeads, filesList, allowDupes
             <div className="row ac-center g10">
               <span className="card-title" style={{marginBottom:0}}>Parsed Leads ({leads.length})</span>
               {mxResolving > 0 && (
-                <span className="bdg" style={{background:"var(--accent)22",color:"var(--accent)",border:"1px solid var(--accent)55",fontSize:10}}>
+                <span className="bdg" style={{background:"var(--aglow)",color:"var(--accent)",border:"1px solid color-mix(in srgb, var(--accent) 33%, transparent)",fontSize:10}}>
                   ⏳ Resolving {mxResolving} domain{mxResolving===1?"":"s"} via MX
                 </span>
               )}
@@ -3902,12 +4198,12 @@ function SesCredGen({onApply, initialRegion}) {
         <div>
           <label className="lbl" style={{color:"#93c5fd"}}>IAM Access Key ID</label>
           <input value={ak} onChange={e=>setAk(e.target.value.trim())} placeholder="AKIASRN7FWSD6DED4AX6"
-            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--tx)",fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/>
+            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--text)",fontSize:12,fontFamily:"monospace",boxSizing:"border-box"}}/>
         </div>
         <div>
           <label className="lbl" style={{color:"#93c5fd"}}>IAM Secret Access Key</label>
           <input type="password" value={sk} onChange={e=>setSk(e.target.value.trim())} placeholder="Your secret key"
-            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--tx)",fontSize:12,boxSizing:"border-box"}}/>
+            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--text)",fontSize:12,boxSizing:"border-box"}}/>
         </div>
         <div>
           <label className="lbl" style={{color:"#93c5fd",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -3939,7 +4235,7 @@ function SesCredGen({onApply, initialRegion}) {
               }}>🔍 Detect</button>
           </label>
           <select value={region} onChange={e=>setRegion(e.target.value)}
-            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--tx)",fontSize:12,boxSizing:"border-box"}}>
+            style={{width:"100%",padding:"8px 10px",background:"var(--bg2)",border:"1px solid #1e4a6e",borderRadius:6,color:"var(--text)",fontSize:12,boxSizing:"border-box"}}>
             {AWS_SES_REGIONS.map(r=>(
               <option key={r} value={r}>{r} — {AWS_REGION_LABEL[r]}</option>
             ))}
@@ -4106,10 +4402,236 @@ function OfficeConnectorPanel() {
   );
 }
 
+/* ── Global clipboard helper — works on HTTP and HTTPS ──
+   Prefer sync execCommand first: navigator.clipboard is flaky on HTTP
+   admin panels and for large PowerShell scripts. Returns true/false. */
+function _copyFallback(text) {
+  var ta = document.createElement("textarea");
+  ta.value = String(text == null ? "" : text);
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;box-shadow:none;background:transparent;opacity:0;";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { ta.setSelectionRange(0, ta.value.length); } catch (e) {}
+  var ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  return !!ok;
+}
+function copyToClipboard(text) {
+  text = String(text == null ? "" : text);
+  if (_copyFallback(text)) return true;
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(function () {});
+    return true;
+  }
+  return false;
+}
+function selectElementText(el) {
+  if (!el) return;
+  try {
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch (e) {}
+}
+/** Reliable copy button for long scripts — shows Copied! and falls back to select-all. */
+function CopyScriptButton({text, preRef, label}) {
+  var [state, setState] = React.useState("idle");
+  function onCopy(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    var ok = copyToClipboard(text);
+    if (!ok && preRef && preRef.current) selectElementText(preRef.current);
+    setState(ok ? "ok" : "fail");
+    setTimeout(function () { setState("idle"); }, 2500);
+  }
+  var bg = state === "ok" ? "#166534" : state === "fail" ? "#7f1d1d" : "#14532d";
+  var bd = state === "ok" ? "#22c55e" : state === "fail" ? "#ef4444" : "#22c55e";
+  var fg = state === "ok" ? "#86efac" : state === "fail" ? "#fca5a5" : "#bbf7d0";
+  return (
+    <button type="button" onClick={onCopy} className="btn btn-ok btn-sm" style={{
+      fontWeight:700, background:bg, border:"1px solid "+bd, color:fg
+    }}>
+      {state === "ok" ? "✓ Copied — paste in PowerShell" : state === "fail" ? "Text selected — press Ctrl+C" : (label || "📋 Copy PowerShell script")}
+    </button>
+  );
+}
+
+/* One pasteable block for Windows RDP → OpenSSH.
+   Handles: silent Add-WindowsCapability failures (State stays NotPresent),
+   TLS 1.2 for GitHub downloads on older PowerShell, Win32-OpenSSH fallback,
+   wait-for-sshd, and idempotent firewall rules. */
+const _PS_SSH_SETUP = `# Paste this ENTIRE block into PowerShell as Administrator (do not type line-by-line)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+function Wait-Sshd([int]$Seconds = 60) {
+  $deadline = (Get-Date).AddSeconds($Seconds)
+  while ((Get-Date) -lt $deadline) {
+    if (Get-Service sshd -ErrorAction SilentlyContinue) { return $true }
+    Start-Sleep -Seconds 3
+  }
+  return [bool](Get-Service sshd -ErrorAction SilentlyContinue)
+}
+
+# 1) Try the optional Windows feature (often reports success but stays NotPresent)
+$cap = Get-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' -ErrorAction SilentlyContinue
+if ($cap -and $cap.State -ne 'Installed') {
+  Write-Host 'Installing OpenSSH.Server Windows capability...' -ForegroundColor Cyan
+  Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' -ErrorAction SilentlyContinue | Out-Null
+  Start-Sleep -Seconds 5
+}
+
+# 2) If sshd still missing, install Win32-OpenSSH from GitHub (works when WU/capability fails)
+if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
+  Write-Host 'Capability did not register sshd — installing Win32-OpenSSH from GitHub...' -ForegroundColor Yellow
+  $zip  = Join-Path $env:TEMP 'OpenSSH-Win64.zip'
+  $dest = 'C:\\Program Files\\OpenSSH'
+  Invoke-WebRequest -Uri 'https://github.com/PowerShell/Win32-OpenSSH/releases/latest/download/OpenSSH-Win64.zip' -OutFile $zip -UseBasicParsing
+  if (-not (Test-Path $zip) -or (Get-Item $zip).Length -lt 1000) { throw 'OpenSSH zip download failed (check TLS / internet)' }
+  if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
+  New-Item -ItemType Directory -Path $dest -Force | Out-Null
+  Expand-Archive -Path $zip -DestinationPath $dest -Force
+  $installDir = $dest
+  $nested = Get-ChildItem $dest -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName 'install-sshd.ps1') } | Select-Object -First 1
+  if ($nested) { $installDir = $nested.FullName }
+  if (-not (Test-Path (Join-Path $installDir 'install-sshd.ps1'))) { throw "install-sshd.ps1 not found under $dest" }
+  Push-Location $installDir
+  try { & .\\install-sshd.ps1 } finally { Pop-Location }
+}
+
+if (-not (Wait-Sshd 90)) {
+  Write-Host 'ERROR: sshd service still not found. Reboot and re-run this script.' -ForegroundColor Red
+  exit 1
+}
+
+Start-Service sshd -ErrorAction Stop
+Set-Service -Name sshd -StartupType Automatic
+
+# Allow password login for Administrator (Windows OpenSSH defaults block it via Match Group)
+$cfg = Join-Path $env:ProgramData 'ssh\sshd_config'
+if (-not (Test-Path $cfg)) { $cfg = 'C:\\ProgramData\\ssh\\sshd_config' }
+if (Test-Path $cfg) {
+  Write-Host "Enabling PasswordAuthentication in $cfg ..." -ForegroundColor Cyan
+  $lines = Get-Content $cfg
+  $out = New-Object System.Collections.Generic.List[string]
+  $inAdminMatch = $false
+  foreach ($line in $lines) {
+    if ($line -match '^\s*Match\s+Group\s+administrators') { $inAdminMatch = $true; $out.Add('# '+$line.TrimEnd()+'  # disabled so Administrator can use password'); continue }
+    if ($inAdminMatch) {
+      if ($line -match '^\s*Match\s+') { $inAdminMatch = $false }
+      elseif ($line -match '^\s*\S' -and $line -notmatch '^\s*#') { $out.Add('# '+$line.TrimEnd()); continue }
+    }
+    if ($line -match '^\s*#?\s*PasswordAuthentication\s+') { $out.Add('PasswordAuthentication yes'); continue }
+    if ($line -match '^\s*#?\s*PubkeyAuthentication\s+') { $out.Add('PubkeyAuthentication yes'); continue }
+    $out.Add($line)
+  }
+  if (-not ($out | Where-Object { $_ -match '^\s*PasswordAuthentication\s+yes' })) { $out.Add('PasswordAuthentication yes') }
+  Set-Content -Path $cfg -Value $out -Encoding ASCII
+  Restart-Service sshd -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 2
+  Start-Service sshd -ErrorAction SilentlyContinue
+  Write-Host 'PasswordAuthentication enabled for Administrator' -ForegroundColor Green
+}
+
+# Firewall — idempotent (skip if rule already exists)
+$fw = Get-NetFirewallRule -Name 'sshd' -ErrorAction SilentlyContinue
+if (-not $fw) {
+  New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
+  Write-Host 'Firewall rule sshd created' -ForegroundColor Green
+} else {
+  Write-Host 'Firewall rule sshd already exists — OK' -ForegroundColor Green
+}
+# netsh alias used by some deploy paths
+netsh advfirewall firewall delete rule name='SSH-In' 2>$null | Out-Null
+netsh advfirewall firewall add rule name='SSH-In' dir=in action=allow protocol=tcp localport=22 | Out-Null
+
+Write-Host 'OpenSSH is running:' -ForegroundColor Green
+Get-Service sshd | Format-List Name,Status,StartType
+Write-Host 'Done. Back in SynthTel: Username=Administrator, Port=22, then Probe Relay IP.' -ForegroundColor Cyan
+Write-Host 'If Probe still fails auth: confirm PasswordAuthentication yes in C:\\ProgramData\\ssh\\sshd_config and Restart-Service sshd.' -ForegroundColor Yellow`;
+
+function BoxDetectCard() {
+  const [ip, setIp]          = useState("");
+  const [busy, setBusy]      = useState(false);
+  const [res, setRes]        = useState(null);
+  const [err, setErr]        = useState(null);
+  const psPreRef = React.useRef(null);
+
+  async function detect() {
+    const v = ip.trim();
+    if(!v){ setErr("Enter an IP or hostname."); setRes(null); return; }
+    setBusy(true); setErr(null); setRes(null);
+    try {
+      const r = await apiCall("/api/tools/detect-box-type?ip="+encodeURIComponent(v));
+      const d = await r.json();
+      if(d.ok) setRes(d); else setErr(d.error || "Detection failed");
+    } catch(e){ setErr(e.message); }
+    setBusy(false);
+  }
+
+  const kindText = {
+    windows_rdp: { label:"Windows RDP box", color:"#38bdf8", ico:"🪟", hint:"RDP (3389) open — this is a Windows box. It does not accept SSH yet. Install OpenSSH (button below); after that it listens on SSH port 22 like Ubuntu." },
+    linux_vps:   { label:"Linux VPS (SSH)",   color:"#22c55e", ico:"🐧", hint:"SSH (22) open — this is a Linux VPS. You can SSH in and it can act as a relay." },
+    unknown:     { label:"No management port detected", color:"#f59e0b", ico:"❓", hint:"No RDP (3389), SSH (22), or VNC (5900) is reachable from this server — check the IP or that its firewall allows inbound on those ports." },
+  }[res ? res.kind : "unknown"];
+
+  return (
+    <div className="card mb12" style={{borderLeft:"3px solid #a78bfa"}}>
+      <div className="row jb ac-center mb8">
+        <div>
+          <div className="card-title" style={{margin:0}}>🔍 Detect Box Type (RDP vs VPS)</div>
+          <div className="dim2 sm mt4">
+            Enter an IP to probe whether it is a Windows RDP box (port 3389) or a Linux VPS (port 22 / SSH). Read-only — nothing is installed or changed.
+          </div>
+        </div>
+      </div>
+      <div className="row g8 ac-center" style={{flexWrap:"wrap"}}>
+        <input
+          value={ip}
+          onChange={e=>{setIp(e.target.value); setRes(null); setErr(null);}}
+          placeholder="1.2.3.4 or relay.example.com"
+          style={{flex:1,minWidth:220,fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)"}}/>
+        <button className="btn btn-p btn-sm" onClick={detect} disabled={busy}>
+          {busy ? "Probing…" : "🔍 Detect"}
+        </button>
+      </div>
+      {err && <div className="ib ib-e mt10 sm"><span className="ib-ic">✗</span>{err}</div>}
+      {res && (
+        <div className="ib mt10 sm" style={{borderLeft:`3px solid ${kindText.color}`}}>
+          <span className="ib-ic">{kindText.ico}</span>
+          <div style={{width:"100%"}}>
+            <div><strong style={{color:kindText.color}}>{res.ip} → {kindText.label}</strong></div>
+            <div className="dim2 xs mt4">{kindText.hint}</div>
+            {res.banner && <div className="mono xs mt4 dim2">SSH banner: <code>{res.banner}</code></div>}
+            {res.reason && <div className="dim2 xs mt4">{res.reason}</div>}
+            {res.kind === "windows_rdp" && (
+              <div className="card card-sm mt10" style={{border:"1px solid #1f3a5f",background:"#0f1b2d"}}>
+                <div className="card-title" style={{fontSize:12,marginBottom:6}}>Enable SSH on this Windows box (run once, as Administrator)</div>
+                <div className="dim2 xs mb6">Installs OpenSSH so the relay can use <strong>port 22</strong> (same as Ubuntu). RDP 3389 is desktop-only.</div>
+                <div className="row g8 ac-center mb6" style={{flexWrap:"wrap"}}>
+                  <CopyScriptButton text={_PS_SSH_SETUP} preRef={psPreRef} />
+                </div>
+                <pre ref={psPreRef} className="code" style={{fontSize:10,whiteSpace:"pre-wrap",padding:"8px 10px",overflow:"auto",maxHeight:220,userSelect:"text"}}>{_PS_SSH_SETUP}</pre>
+                <div className="dim2 xs mt6">
+                  <strong>Paste the whole script</strong> into PowerShell as Administrator. Then in Relay VPS use port <strong>22</strong> and username <code>Administrator</code>.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OfficeRelayCard({officeRelay, setOfficeRelay}) {
   const [probing, setProbing]   = useState(false);
   const [probeResult, setProbeResult] = useState(null);
   const [showPass, setShowPass] = useState(false);
+  const psPreRef = React.useRef(null);
   const enabled = !!(officeRelay && officeRelay.host);
 
   async function probeRelay() {
@@ -4134,16 +4656,34 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
 
   return (
     <div className="card mb12" style={{borderLeft:"3px solid #22c55e"}}>
-      <div className="row jb ac-center mb8">
-        <div>
-          <div className="card-title" style={{margin:0}}>🔀 Relay VPS (Optional)</div>
-          <div className="dim2 sm mt4">
-            If this VPS's port 25 is blocked or flagged, route O365 sends through an external SSH relay.
-            The relay VPS IP goes in the M365 connector — not this VPS.
-          </div>
+      <div className="mb8">
+        <div className="card-title" style={{margin:0}}>🔀 Relay VPS (Optional)</div>
+        <div className="dim2 sm mt4">
+          If this VPS's port 25 is blocked or flagged, route O365 sends through an external SSH relay.
+          The relay VPS IP goes in the M365 connector — not this VPS.
         </div>
-        {enabled && <span style={{color:"var(--ok)",fontSize:12,fontWeight:600}}>● Active</span>}
       </div>
+
+      <details style={{marginBottom:12,background:"#0f1b2d",border:"1px solid #1f3a5f",borderRadius:6,padding:"8px 10px"}} open>
+        <summary style={{cursor:"pointer",fontSize:12,fontWeight:600,color:"#7fb7ff"}}>🖥 Using a Windows RDP box as the relay? Read this</summary>
+        <div className="dim2 sm mt8" style={{lineHeight:1.5}}>
+          RDP (port <strong>3389</strong>) is only the Windows desktop — the relay cannot use it.
+          After you install OpenSSH on the Windows box, it listens on <strong>SSH port 22</strong>, same as Ubuntu/Linux.
+          Enter <strong>22</strong> in the Port field below (not 3389).
+        </div>
+        <div className="row g8 ac-center mt10" style={{flexWrap:"wrap"}}>
+          <CopyScriptButton text={_PS_SSH_SETUP} preRef={psPreRef} />
+          <span className="dim2 xs">Paste the <strong>entire</strong> script into PowerShell as Administrator — do not type it by hand.</span>
+        </div>
+        <pre ref={psPreRef} className="code" style={{fontSize:10,whiteSpace:"pre-wrap",padding:"8px 10px",margin:"8px 0",maxHeight:200,overflow:"auto",userSelect:"text"}}>{_PS_SSH_SETUP}</pre>
+        <div className="dim2 sm mt8" style={{lineHeight:1.5}}>
+          <ol style={{paddingLeft:18,margin:"8px 0"}}>
+            <li>On the Windows box, open PowerShell as <strong>Administrator</strong>, click Copy above, paste, press Enter. (Re-run even if sshd is already Running — it also enables password login for Administrator.)</li>
+            <li>In this panel: Port = <strong>22</strong> (SSH — works for Windows OpenSSH and Ubuntu). Username = Windows account (e.g. <code>Administrator</code>), not <code>root</code>.</li>
+            <li>Click <strong>Probe Relay IP</strong>. Confirm the host firewall (cloud/security group) allows inbound <strong>22</strong> from this SynthTel VPS.</li>
+          </ol>
+        </div>
+      </details>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:8,marginBottom:8}}>
         <div>
@@ -4153,14 +4693,15 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
             style={{fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)"}}/>
         </div>
         <div style={{minWidth:72}}>
-          <label className="lbl">Port</label>
+          <label className="lbl">SSH Port</label>
           <input type="number" value={officeRelay.port||22} onChange={e=>upd("port",parseInt(e.target.value)||22)}
-            min="1" max="65535" style={{fontSize:13,padding:"8px 10px"}}/>
+            min="1" max="65535" title="22 for Ubuntu and for Windows after OpenSSH is installed (not 3389)"
+            style={{fontSize:13,padding:"8px 10px"}}/>
         </div>
         <div style={{minWidth:120}}>
           <label className="lbl">Username</label>
           <input value={officeRelay.user||"root"} onChange={e=>upd("user",e.target.value.trim())}
-            placeholder="root" style={{fontSize:13,padding:"8px 10px"}}/>
+            placeholder="Administrator or root" style={{fontSize:13,padding:"8px 10px"}}/>
         </div>
       </div>
       <div className="mb12">
@@ -4195,7 +4736,7 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
                 <div><strong>Public IP: {probeResult.publicIp}</strong></div>
                 <div className="dim2 xs mt4">
                   {probeResult.port25
-                    ? "✓ Port 25 outbound is open — add this IP to your M365 connector"
+                    ? "✓ Port 25 outbound is open — add this IP to your M365 connector (not the SynthTel VPS IP)"
                     : "⚠ Port 25 may be blocked on the relay — try sending anyway, some providers allow it"}
                 </div>
                 {probeResult.blacklist && (
@@ -4227,12 +4768,24 @@ function OfficeRelayCard({officeRelay, setOfficeRelay}) {
                     )}
                   </div>
                 )}
-                <div className="row g8 mt8">
+                <div className="row g8 mt8" style={{flexWrap:"wrap"}}>
                   <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(probeResult.publicIp)}>📋 Copy IP</button>
+                  <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(
+`Connect-ExchangeOnline
+New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDomains '*' -SenderIPAddresses '${probeResult.publicIp}' -RestrictDomainsToIPAddresses $true -RequireTls $true`
+                  )}>📋 Copy connector PowerShell</button>
+                </div>
+                <div className="dim2 xs mt8">
+                  Campaigns set to <strong>Office Admin</strong> will SSH through this relay, then deliver to your smart host on port 25.
+                  From address = your Senders / from email (e.g. tenant mailbox). Smart host stays <code>domain-dashes.mail.protection.outlook.com</code>.
                 </div>
               </>
             ) : (
-              <div>SSH connection failed: {probeResult.error}</div>
+              <div>
+                <div>SSH connection failed{probeResult.error ? ":" : "."}</div>
+                {probeResult.error && <div className="mt4" style={{wordBreak:"break-word"}}>{probeResult.error}</div>}
+                {!probeResult.error && <div className="dim2 xs mt4">No error detail returned — re-run Probe after updating, or check password / port 22 firewall.</div>}
+              </div>
             )}
           </div>
         </div>
@@ -4332,7 +4885,7 @@ function OfficeConnectStep3({officeConnectorHost, setOfficeConnectorHost}) {
         <div className="dim2 xs mb4">Override smart host (optional — leave blank to use auto-derived)</div>
         <input value={officeConnectorHost||""} onChange={e=>{setOfficeConnectorHost(e.target.value);setO365Result(null);}}
           placeholder={_derived||"yourtenant-com.mail.protection.outlook.com"}
-          style={{fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)",color:"var(--dim)"}}/>
+          style={{fontSize:13,padding:"8px 10px",fontFamily:"var(--font-mono)",color:"var(--t2)"}}/>
       </div>
       {officeConnectorHost && o365Result && o365Result.linked && (
         <div className="ib ib-ok mt10 sm">
@@ -4416,6 +4969,7 @@ function TabMethod({
   smtpAutoDisable, setSmtpAutoDisable,
   smtpFailThreshold, setSmtpFailThreshold,
   smtpCooldownSecs, setSmtpCooldownSecs,
+  smtpUseProxy, setSmtpUseProxy,
   sendersRaw, setSendersRaw,
   officeConnectorHost, setOfficeConnectorHost,
   officeRelay, setOfficeRelay,
@@ -4695,34 +5249,47 @@ function TabMethod({
     const reqList = candidates.map(({_idx,_keep,_status,_msg,_latency,...rest})=>rest);
     const reqIdxToBulkIdx = candidates.map(c => c._idx);
 
+    const BATCH = 500; // backend caps /api/test-smtp/bulk at 500 per request
+    const totalReq = reqList.length;
+    let gDone=0, gOk=0, gFail=0, gTotal=0;
     try {
-      const r = await apiCall("/api/test-smtp/bulk",{
-        method:"POST",
-        body: JSON.stringify({servers: reqList}),
-      });
-      if (!r.ok) { showToast("err","Failed","HTTP "+r.status); setBulkValidating(false); return; }
-      const reader = r.body.getReader(), dec = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value,{stream:true});
-        const lines = buf.split("\n"); buf = lines.pop();
-        for (const ln of lines) {
-          if (!ln.trim()) continue;
-          let ev; try { ev = JSON.parse(ln); } catch(e){ continue; }
-          if (ev.type === "result") {
-            // Map server's request_idx → our bulkParsed _idx via the sidecar.
-            const targetBulkIdx = reqIdxToBulkIdx[ev.idx];
-            setBulkParsed(prev => prev.map(p =>
-              p._idx === targetBulkIdx
-                ? {...p, _status: ev.ok ? "ok":"fail", _msg: ev.message, _latency: ev.latency_ms}
-                : p));
-            setBulkProgress({done:ev.done, total:ev.total,
-                             ok:ev.ok_count||0, fail:ev.fail_count||0});
-          }
-          if (ev.type === "done") {
-            setBulkProgress(p => ({...p, done:ev.total, ok:ev.ok, fail:ev.failed}));
+      for (let base=0; base<totalReq; base+=BATCH) {
+        const chunk = reqList.slice(base, base+BATCH);
+        const chunkIdxToBulk = reqIdxToBulkIdx.slice(base, base+BATCH);
+        gTotal += chunk.length;
+        const r = await apiCall("/api/test-smtp/bulk",{
+          method:"POST",
+          body: JSON.stringify({servers: chunk}),
+        });
+        if (!r.ok) { showToast("err","Failed","HTTP "+r.status); break; }
+        const reader = r.body.getReader(), dec = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value,{stream:true});
+          const lines = buf.split("\n"); buf = lines.pop();
+          for (const ln of lines) {
+            if (!ln.trim()) continue;
+            let ev; try { ev = JSON.parse(ln); } catch(e){ continue; }
+            if (ev.type === "result") {
+              // Map server's request_idx (within this chunk) → our bulkParsed _idx.
+              const targetBulkIdx = chunkIdxToBulk[ev.idx];
+              setBulkParsed(prev => prev.map(p =>
+                p._idx === targetBulkIdx
+                  ? {...p, _status: ev.ok ? "ok":"fail", _msg: ev.message, _latency: ev.latency_ms}
+                  : p));
+              gDone = base + ev.done;
+              gOk   = base + (ev.ok_count||0);
+              gFail = base + (ev.fail_count||0);
+              setBulkProgress({done:gDone, total:totalReq, ok:gOk, fail:gFail});
+            }
+            if (ev.type === "done") {
+              gDone = base + ev.total;
+              gOk   = base + ev.ok;
+              gFail = base + ev.failed;
+              setBulkProgress({done:gDone, total:totalReq, ok:gOk, fail:gFail});
+            }
           }
         }
       }
@@ -4745,39 +5312,44 @@ function TabMethod({
       host:s.host, port:s.port, username:s.username, password:s.password, ssl:!!s.ssl,
     }));
     const reqIdxToId = snapshot.map(s => s.id);
+    const BATCH = 500; // backend caps /api/test-smtp/bulk at 500 per request
+    const totalReq = reqList.length;
+    let gDone=0, gOk=0, gFail=0;
     try {
-      const r = await apiCall("/api/test-smtp/bulk",{
-        method:"POST",
-        body: JSON.stringify({servers: reqList}),
-      });
-      if (!r.ok) { showToast("err","Failed","HTTP "+r.status); return; }
-      const reader = r.body.getReader(), dec = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value,{stream:true});
-        const lines = buf.split("\n"); buf = lines.pop();
-        for (const ln of lines) {
-          if (!ln.trim()) continue;
-          let ev; try { ev = JSON.parse(ln); } catch(e){ continue; }
-          if (ev.type === "result") {
-            const sid = reqIdxToId[ev.idx];
-            if (!ev.ok) {
-              configuredFailedIdsRef.current.add(sid);
-              setConfiguredDeadCount(configuredFailedIdsRef.current.size);
+      for (let base=0; base<totalReq; base+=BATCH) {
+        const chunk = reqList.slice(base, base+BATCH);
+        const chunkIdxToId = reqIdxToId.slice(base, base+BATCH);
+        const r = await apiCall("/api/test-smtp/bulk",{
+          method:"POST",
+          body: JSON.stringify({servers: chunk}),
+        });
+        if (!r.ok) { showToast("err","Failed","HTTP "+r.status); break; }
+        const reader = r.body.getReader(), dec = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value,{stream:true});
+          const lines = buf.split("\n"); buf = lines.pop();
+          for (const ln of lines) {
+            if (!ln.trim()) continue;
+            let ev; try { ev = JSON.parse(ln); } catch(e){ continue; }
+            if (ev.type === "result") {
+              const sid = chunkIdxToId[ev.idx];
+              if (!ev.ok) {
+                configuredFailedIdsRef.current.add(sid);
+                setConfiguredDeadCount(configuredFailedIdsRef.current.size);
+              }
+              setConfiguredProbeById(prev => ({
+                ...prev, [sid]: { ok:ev.ok, message:ev.message, latency_ms:ev.latency_ms },
+              }));
+              gDone = base + ev.done; gOk = base + (ev.ok_count||0); gFail = base + (ev.fail_count||0);
+              setConfiguredListProgress({done:gDone, total:totalReq, ok:gOk, fail:gFail});
             }
-            setConfiguredProbeById(prev => ({
-              ...prev, [sid]: { ok:ev.ok, message:ev.message, latency_ms:ev.latency_ms },
-            }));
-            setConfiguredListProgress({
-              done:ev.done, total:ev.total,
-              ok:ev.ok_count||0, fail:ev.fail_count||0,
-            });
-          }
-          if (ev.type === "done") {
-            setConfiguredListProgress(p => ({...p, done:ev.total, ok:ev.ok, fail:ev.failed}));
-            setConfiguredDeadCount(ev.failed||0);
+            if (ev.type === "done") {
+              gDone = base + ev.total; gOk = base + ev.ok; gFail = base + ev.failed;
+              setConfiguredListProgress({done:gDone, total:totalReq, ok:gOk, fail:gFail});
+            }
           }
         }
       }
@@ -4958,7 +5530,16 @@ function TabMethod({
       {mTab==="office" && (
         <div>
           <Info type="i">
-            <strong>Office Admin / M365 Inbound Connector</strong> — sends through your Microsoft 365 tenant via an inbound connector that trusts this VPS's IP on port 25. Requires Global Admin access once for setup.
+            <strong>Office Admin / M365 Inbound Connector</strong> — sends through your Microsoft 365 tenant via an inbound connector that trusts your sending IP on port 25.
+            If a Relay VPS / Windows RDP is configured below, Microsoft must whitelist <strong>that relay's public IP</strong> (not this SynthTel VPS). Requires Global Admin access once for setup.
+          </Info>
+
+          <Info type="w">
+            <strong>Sent but Junk / missing?</strong> Office Admin does <em>not</em> use your Proxies tab —
+            mail exits from the Relay IP (<code>23.95.17.147</code>). Open the junked message → View source →
+            check <code>Authentication-Results</code>: if SPF is softfail/fail for that IP, add
+            <code>ip4:23.95.17.147</code> to the <code>orazama.com</code> SPF record. Also check
+            Defender Quarantine and Exchange Message Trace.
           </Info>
 
           {/* Step 1 — Probe / IP */}
@@ -4974,15 +5555,38 @@ function TabMethod({
           {/* Step 2 — Add IP to M365 Connector */}
           <div className="card mb12" style={{borderLeft:"3px solid #0078d4"}}>
             <div className="card-title" style={{marginBottom:4}}>Step 2 — Add IP to M365 Inbound Connector</div>
-            <div className="dim sm">
-              Run the PowerShell snippet copied above in <strong>Exchange Online PowerShell</strong> as a Global Admin.
-              Alternatively: <strong>Exchange Admin Center → Mail flow → Connectors → New inbound connector</strong> (type: On-premises),
-              then add the VPS IP to the allowed sender IPs list and enable TLS.
+            <div className="dim sm" style={{lineHeight:1.55}}>
+              {officeRelay && officeRelay.host ? (
+                <>
+                  Relay VPS is set to <code>{officeRelay.host}</code> — put <strong>that IP</strong> in the connector
+                  (Microsoft sees the relay IP, not this SynthTel box).
+                </>
+              ) : (
+                <>Use the VPS public IP from Step 1 (or the Relay IP after you probe Step 4).</>
+              )}
+              <br/><br/>
+              <strong>Exchange Admin Center → Mail flow → Connectors → Add inbound connector</strong>
+              <ol style={{paddingLeft:18,margin:"8px 0"}}>
+                <li>Connection from: <strong>Your organization's email server</strong> (On-premises)</li>
+                <li>Name: e.g. <code>SynthTel-Sender</code></li>
+                <li>Authenticating sent email: <strong>By verifying that the IP address … matches …</strong></li>
+                <li>Sender IP addresses: add <strong>{(officeRelay && officeRelay.host) || "the probed public IP"}</strong></li>
+                <li>Accepted domains: typically <strong>all domains accepted by your org</strong> (or restrict to your tenant domains)</li>
+                <li>Turn on: <strong>Reject email messages if they aren't sent over TLS</strong> (recommended)</li>
+              </ol>
+              Or Exchange Online PowerShell:
+              <pre className="code" style={{fontSize:11,whiteSpace:"pre-wrap",padding:"8px 10px",margin:"8px 0"}}>{
+`Connect-ExchangeOnline
+New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDomains '*' -SenderIPAddresses '${(officeRelay && officeRelay.host) || "RELAY_OR_VPS_IP"}' -RestrictDomainsToIPAddresses $true -RequireTls $true`
+              }</pre>
             </div>
           </div>
 
           {/* Step 3 — Auto-configure from email */}
           <OfficeConnectStep3 officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost} />
+
+          {/* Step 3.5 — Detect box type (RDP vs VPS) */}
+          <BoxDetectCard />
 
           {/* Step 4 — Optional external relay VPS */}
           <OfficeRelayCard officeRelay={officeRelay} setOfficeRelay={setOfficeRelay} />
@@ -5104,7 +5708,7 @@ function TabMethod({
                       </span>
                       <input type="checkbox" checked={p._keep} onChange={e=>setBulkParsed(prev=>prev.map((x,j)=>j===i?{...x,_keep:e.target.checked}:x))}
                         style={{width:14,height:14,margin:0,cursor:"pointer"}}/>
-                      <span style={{fontFamily:"var(--font-mono)",fontSize:11,minWidth:200,color: p._keep?"var(--tx)":"var(--t3)"}}>
+                      <span style={{fontFamily:"var(--font-mono)",fontSize:11,minWidth:200,color: p._keep?"var(--text)":"var(--t3)"}}>
                         {p.host}:{p.port}
                       </span>
                       <span className="dim2 xs" style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.username||"—"}</span>
@@ -5116,7 +5720,7 @@ function TabMethod({
                         title="From email for this SMTP — leave blank to use login if it's an email"
                         style={{flex:1,minWidth:100,maxWidth:180,fontSize:10,padding:"1px 4px",
                                 fontFamily:"var(--font-mono)",background:"var(--bg2)",
-                                border:"1px solid var(--border)",borderRadius:3,color:"var(--tx)"}}/>
+                                border:"1px solid var(--border)",borderRadius:3,color:"var(--text)"}}/>
                       {p._latency != null && <span className="xs dim2">{p._latency}ms</span>}
                       <span style={{fontSize:11,color,minWidth:60,textAlign:"right"}}>
                         {p._status==="ok" ? "✓ OK"
@@ -5261,6 +5865,11 @@ function TabMethod({
               <Tog checked={smtpAutoDisable} onChange={setSmtpAutoDisable}
                 label="Auto-disable failed SMTPs"
                 desc="Skip a server after N consecutive failures.  Auto-recovers when its cooldown expires.  Off = use even broken servers (not recommended)."/>
+              <div style={{marginTop:10}}>
+                <Tog checked={!!smtpUseProxy} onChange={setSmtpUseProxy}
+                  label="Use Proxies for SMTP"
+                  desc="Off by default. Only enable if you need SOCKS5 from the Proxies tab — residential/datacenter proxies often hurt inbox with authenticated SMTP."/>
+              </div>
             </div>
           )}
 
@@ -5345,6 +5954,7 @@ function TabMethod({
                   <option value="sparkpost">SparkPost</option>
                   <option value="brevo">Brevo (Sendinblue)</option>
                   <option value="resend">Resend</option>
+                  <option value="smtp2go">SMTP2GO</option>
                   <option value="mandrill">Mailchimp / Mandrill</option>
                 </optgroup>
                 <optgroup label="── AWS ──">
@@ -5364,6 +5974,7 @@ function TabMethod({
                 else if(k.startsWith("AKIA")||k.startsWith("ASIA")) p="ses-api";
                 else if(k.startsWith("xkeysib-")||k.startsWith("xsmtpsib-")) p="brevo";
                 else if(k.startsWith("re_"))      p="resend";
+                else if(/^api-[A-Za-z0-9]{20,}$/.test(k)) p="smtp2go";
                 else if(k.startsWith("server_"))  p="postmark";
                 else if(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(k)) p="postmark";
                 else if(/[a-zA-Z0-9]{20,}-[a-z]{2}\d+$/.test(k)) p="mandrill";
@@ -5371,7 +5982,7 @@ function TabMethod({
                 setApiDetectedSenders([]); setApiSenderSel(new Set()); setApiDetectedDomainInfo({});
                 setApiDraft({...apiDraft,key:k,provider:p});
               }}
-                placeholder={apiDraft.provider==="ses-api" ? "AKIA..." : apiDraft.provider==="mailgun" ? "key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : "sk_…"}
+                placeholder={apiDraft.provider==="ses-api" ? "AKIA..." : apiDraft.provider==="mailgun" ? "key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : apiDraft.provider==="smtp2go" ? "api-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : "sk_…"}
                 style={{fontSize:14,padding:"10px 12px"}}/>
             </div>
 
@@ -5457,6 +6068,55 @@ function TabMethod({
                 </select>
               </div>
             )}
+
+            {/* SMTP2GO — Restrict Recipients (sandbox allowlist) */}
+            {apiDraft.provider==="smtp2go" && (
+              <div style={{gridColumn:"1/-1",padding:"10px 12px",background:"var(--surface2)",borderRadius:8,border:"1px solid var(--border)"}}>
+                <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:4}}>SMTP2GO Restrict Recipients</div>
+                <div className="dim2 xs" style={{lineHeight:1.45,marginBottom:8}}>
+                  SynthTel auto-adds campaign leads to SMTP2GO Allowed Recipients at send start.
+                  That requires the key to include <code>/allowed_recipients/add</code> (or <code>*</code>).
+                  <br/><br/>
+                  <strong>API-only / no panel?</strong> A send-only key cannot unlock this — ask whoever
+                  gave you the key to either enable allow-list permission on it, give you a full key,
+                  or turn <strong>Restrict Recipients</strong> OFF on the account. There is no workaround
+                  with <code>/email/send</code> alone.
+                </div>
+                <div className="row g8" style={{flexWrap:"wrap"}}>
+                <button type="button" className="btn btn-g btn-sm" disabled={!apiDraft.key||apiTestLoading}
+                  onClick={async()=>{
+                    if(!apiDraft.key) return;
+                    setApiTestLoading(true); setApiTestResult(null);
+                    try {
+                      const r=await apiCall("/api/tools/smtp2go-recipients",{method:"POST",body:JSON.stringify({key:apiDraft.key,action:"disable"})});
+                      const d=await r.json();
+                      if(d.ok) setApiTestResult({ok:true, msg:d.msg||"Recipient restriction disabled"});
+                      else setApiTestResult({ok:false, msg:d.hint||d.error||"Send-only key — ask the account owner for /allowed_recipients/add or Restrict Recipients OFF"});
+                    } catch(e){ setApiTestResult({ok:false, msg:e.message||"Request failed"}); }
+                    setApiTestLoading(false);
+                  }}>
+                  {apiTestLoading?"…":"🔓 Try disable restriction"}
+                </button>
+                <button type="button" className="btn btn-g btn-sm" disabled={!apiDraft.key||apiTestLoading}
+                  onClick={async()=>{
+                    if(!apiDraft.key) return;
+                    setApiTestLoading(true); setApiTestResult(null);
+                    try {
+                      const r=await apiCall("/api/tools/smtp2go-recipients",{method:"POST",body:JSON.stringify({key:apiDraft.key,action:"permissions"})});
+                      const d=await r.json();
+                      if(d.ok){
+                        const perms=(d.permissions||[]).join(", ")||"(none listed)";
+                        const allow=d.can_manage_allowlist?"YES — can auto-allowlist":"NO — send-only, ask owner for allow-list permission";
+                        setApiTestResult({ok:!!d.can_manage_allowlist, msg:`Permissions: ${perms} · Allow-list: ${allow}`});
+                      } else setApiTestResult({ok:false, msg:d.error||"Could not read permissions"});
+                    } catch(e){ setApiTestResult({ok:false, msg:e.message||"Request failed"}); }
+                    setApiTestLoading(false);
+                  }}>
+                  {apiTestLoading?"…":"🔎 Check key permissions"}
+                </button>
+                </div>
+              </div>
+            )}
           </div>
           <div className="row g8 mt12">
             <button className="btn btn-p btn-sm" onClick={()=>{
@@ -5478,7 +6138,7 @@ function TabMethod({
               if(!apiDraft.key) return;
               setApiTestLoading(true); setApiTestResult(null); setApiDetectedSenders([]); setApiDetectedDomainInfo({});
               try {
-                const _espHintMap={sendgrid:"sendgrid","ses-api":"ses",mailgun:"mailgun",postmark:"postmark",sparkpost:"sparkpost",brevo:"brevo",resend:"resend",mandrill:"mandrill",mailchimp:"mailchimp",mailjet:"mailjet"};
+                const _espHintMap={sendgrid:"sendgrid","ses-api":"ses",mailgun:"mailgun",postmark:"postmark",sparkpost:"sparkpost",brevo:"brevo",resend:"resend",mandrill:"mandrill",mailchimp:"mailchimp",mailjet:"mailjet",smtp2go:"smtp2go"};
                 const r=await apiCall("/api/tools/check-esp",{method:"POST",body:JSON.stringify({
                   key:apiDraft.key, secret:apiDraft.secret||null,
                   region:apiDraft.region||"us-east-1",
@@ -5605,6 +6265,17 @@ function TabMethod({
                   <span className="mono f1 trunc">{a.key.slice(0,12)}…</span>
                   {a.mailgunDomain&&<span style={{fontSize:11,color:"var(--ok)",fontFamily:"var(--font-mono)"}}>{a.mailgunDomain}</span>}
                   {a.provider==="ses-api"&&a.region&&<span style={{fontSize:11,color:"var(--t2)"}}>{a.region}</span>}
+                  {a.provider==="smtp2go" && (
+                    <button className="btn btn-g btn-xs" title="Turn off Restrict Recipients on this SMTP2GO account"
+                      onClick={async()=>{
+                        try {
+                          const r=await apiCall("/api/tools/smtp2go-recipients",{method:"POST",body:JSON.stringify({key:a.key,action:"disable"})});
+                          const d=await r.json();
+                          if(d.ok) showToast("ok","SMTP2GO", d.msg||"Recipient restriction disabled");
+                          else showToast("err","SMTP2GO", d.error||"Failed");
+                        } catch(e){ showToast("err","SMTP2GO", e.message||"Failed"); }
+                      }}>🔓 Open sends</button>
+                  )}
                   <button className="btn btn-d btn-xs" onClick={()=>setApiList(p=>p.filter((_,j)=>j!==i))}>✕ Delete</button>
                 </div>
               ))}
@@ -5989,6 +6660,11 @@ function ToastContainer() {
 
 /* ===== ISP PANEL ===== */
 function DeployResult({msg, rdp}) {
+  // Hooks must run unconditionally (Rules of Hooks) — early returns below used to skip
+  // useState and break the Copy Command button after a deploy finished.
+  var [showLog, setShowLog] = React.useState(false);
+  var sshPreRef = React.useRef(null);
+
   // msg may be JSON {status, message, log} or legacy plain text
   var parsed = null;
   try { parsed = JSON.parse(msg); } catch(e) {}
@@ -6011,41 +6687,22 @@ function DeployResult({msg, rdp}) {
     );
   }
 
-  var isFirewallErr = message && (
-    message.indexOf("Cannot reach") !== -1 ||
-    message.indexOf("All remote ports") !== -1 ||
-    message.indexOf("OpenSSH") !== -1 ||
-    message.indexOf("timed out") !== -1
-  );
+  var msgLower = (message || "").toLowerCase();
+  var logLower = (log || "").toLowerCase();
+  var isFirewallErr = !!(message && (
+    msgLower.indexOf("cannot reach") !== -1 ||
+    msgLower.indexOf("all remote ports") !== -1 ||
+    msgLower.indexOf("openssh") !== -1 ||
+    msgLower.indexOf("timed out") !== -1 ||
+    msgLower.indexOf("ssh") !== -1 ||
+    msgLower.indexOf("connection refused") !== -1 ||
+    msgLower.indexOf("winrm") !== -1 ||
+    logLower.indexOf("openssh") !== -1 ||
+    logLower.indexOf("sshd") !== -1
+  ));
 
-  var opensshCmd = [
-    "# Run ONE TIME in PowerShell as Administrator on the RDP:",
-    "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
-    "Start-Service sshd",
-    "Set-Service -Name sshd -StartupType Automatic",
-    'netsh advfirewall firewall add rule name="SSH-In" dir=in action=allow protocol=tcp localport=22',
-    "",
-    "# Also enable WinRM as backup:",
-    "winrm quickconfig -q",
-    'netsh advfirewall firewall add rule name="WinRM-In" dir=in action=allow protocol=tcp localport=5985'
-  ].join("\n");
-
-  var [copied, setCopied] = React.useState(false);
-  var [showLog, setShowLog] = React.useState(false);
-
-  function copyCmd() {
-    var text = isFirewallErr ? opensshCmd : (log || message);
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(function() {
-        setCopied(true); setTimeout(function() { setCopied(false); }, 2000);
-      });
-    } else {
-      var ta = document.createElement("textarea");
-      ta.value = text; document.body.appendChild(ta); ta.select();
-      document.execCommand("copy"); document.body.removeChild(ta);
-      setCopied(true); setTimeout(function() { setCopied(false); }, 2000);
-    }
-  }
+  // Same robust script as Office Admin — paste whole block, not line-by-line
+  var opensshCmd = _PS_SSH_SETUP + "\n\n# Optional WinRM backup (if SSH still blocked):\nwinrm quickconfig -q\nnetsh advfirewall firewall add rule name=\"WinRM-In\" dir=in action=allow protocol=tcp localport=5985";
 
   var borderCol = status === "ok" ? "#22c55e30" : "#ef444430";
   var bgHeader  = status === "ok" ? "#0f2718"   : "#2a0f0f";
@@ -6085,39 +6742,33 @@ function DeployResult({msg, rdp}) {
         <div style={{background:"#2a0f0f", padding:"12px 14px", display:"flex", alignItems:"flex-start", gap:10}}>
           <span style={{fontSize:18, flexShrink:0}}>x</span>
           <div style={{flex:1}}>
-            <div style={{fontWeight:700, color:"#f87171", fontSize:13, marginBottom:4}}>All remote ports blocked</div>
+            <div style={{fontWeight:700, color:"#f87171", fontSize:13, marginBottom:4}}>Remote ports blocked / OpenSSH missing</div>
             <div style={{fontSize:12, color:"#fca5a5", lineHeight:1.6}}>
-              SSH (22), WinRM (5985), and SMB (445) are all unreachable on {rdp.host}.
-              Run the commands below on the RDP, then click Auto-Deploy again.
+              {message || ("SSH / WinRM unreachable on " + ((rdp && rdp.host) || "the RDP") + ".")}
+              {" "}Copy the script below, paste it into PowerShell as Administrator on the RDP, then click Auto-Deploy again.
             </div>
           </div>
         </div>
         <div style={{background:"#1a0a0a", padding:"10px 14px", borderTop:"1px solid #ef444422"}}>
-          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8}}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, gap:8, flexWrap:"wrap"}}>
             <div style={{fontSize:11, fontWeight:700, color:"#f87171", textTransform:"uppercase", letterSpacing:.5}}>
               Run in PowerShell as Admin on the RDP
             </div>
-            <button onClick={copyCmd} style={{
-              background: copied ? "#166534" : "#1e3a5f",
-              border: "1px solid " + (copied ? "#22c55e" : "#3b82f6"),
-              color: copied ? "#4ade80" : "#60a5fa",
-              borderRadius:6, padding:"4px 12px", fontSize:11, cursor:"pointer",
-              fontWeight:600, whiteSpace:"nowrap"}}>
-              {copied ? "Copied!" : "Copy Command"}
-            </button>
+            <CopyScriptButton text={opensshCmd} preRef={sshPreRef} label="📋 Copy Command" />
           </div>
-          <pre style={{margin:0, background:"#0d1117", borderRadius:8, padding:"10px 12px",
-            fontSize:11, lineHeight:1.7, color:"#e2e8f0", overflowX:"auto",
-            border:"1px solid #30363d", fontFamily:"monospace"}}>{opensshCmd}</pre>
+          <pre ref={sshPreRef} style={{margin:0, background:"#0d1117", borderRadius:8, padding:"10px 12px",
+            fontSize:11, lineHeight:1.7, color:"#e2e8f0", overflowX:"auto", maxHeight:240, overflowY:"auto",
+            border:"1px solid #30363d", fontFamily:"monospace", whiteSpace:"pre-wrap", userSelect:"text"}}>{opensshCmd}</pre>
           <div style={{marginTop:8, fontSize:11, color:"#6b7280"}}>
-            After running, click Auto-Deploy again.
+            Paste the <strong style={{color:"#94a3b8"}}>entire</strong> script (do not type line-by-line). After it finishes, click Auto-Deploy again.
+            Windows OpenSSH uses port <strong style={{color:"#94a3b8"}}>22</strong> (same as Ubuntu) — not RDP 3389.
           </div>
         </div>
       </div>
     );
   }
 
-  // Generic error with real log
+  // Generic error with real log — still offer OpenSSH copy when useful
   return (
     <div style={{marginTop:12, borderRadius:10, border:"1px solid #ef444430", overflow:"hidden"}}>
       <div style={{background:"#2a0f0f", padding:"12px 14px", display:"flex", alignItems:"flex-start", gap:10}}>
@@ -6126,6 +6777,17 @@ function DeployResult({msg, rdp}) {
           <div style={{fontWeight:700, color:"#f87171", fontSize:13, marginBottom:4}}>Deploy Failed</div>
           <div style={{fontSize:12, color:"#fca5a5", lineHeight:1.6}}>{message}</div>
         </div>
+      </div>
+      <div style={{background:"#1a0a0a", padding:"10px 14px", borderTop:"1px solid #ef444422"}}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, gap:8, flexWrap:"wrap"}}>
+          <div style={{fontSize:11, fontWeight:700, color:"#94a3b8"}}>
+            If OpenSSH is missing on the RDP, copy this script:
+          </div>
+          <CopyScriptButton text={opensshCmd} preRef={sshPreRef} label="📋 Copy Command" />
+        </div>
+        <pre ref={sshPreRef} style={{margin:0, background:"#0d1117", borderRadius:8, padding:"10px 12px",
+          fontSize:10, lineHeight:1.6, color:"#94a3b8", overflowX:"auto", maxHeight:120, overflowY:"auto",
+          border:"1px solid #30363d", fontFamily:"monospace", whiteSpace:"pre-wrap", userSelect:"text"}}>{opensshCmd}</pre>
       </div>
       {log && (
         <div style={{background:"#1a0808", borderTop:"1px solid #ef444422"}}>
@@ -6285,7 +6947,7 @@ function IspProxySMTPPanel() {
     setTestingPx(function(p) { return Object.assign({}, p, {[px.id]:false}); });
   };
 
-  const inpStyle = {width:"100%",padding:"9px 10px",background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:8,color:"var(--tx)",fontSize:13,boxSizing:"border-box"};
+  const inpStyle = {width:"100%",padding:"9px 10px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,boxSizing:"border-box"};
   const selStyle = Object.assign({},inpStyle,{cursor:"pointer"});
 
   return (
@@ -6342,9 +7004,9 @@ function IspProxySMTPPanel() {
               <div style={{marginTop:12}}>
                 <div style={{fontSize:12,color:"var(--t2)",marginBottom:10}}>
                   Paste one proxy per line. Supported formats:<br/>
-                  <code style={{background:"var(--bg0)",padding:"2px 6px",borderRadius:4,display:"inline-block",marginTop:4}}>user:pass:host:port</code>&nbsp;
-                  <code style={{background:"var(--bg0)",padding:"2px 6px",borderRadius:4}}>host:port:user:pass</code>&nbsp;
-                  <code style={{background:"var(--bg0)",padding:"2px 6px",borderRadius:4}}>user:pass@host:port</code>
+                  <code style={{background:"var(--bg)",padding:"2px 6px",borderRadius:4,display:"inline-block",marginTop:4}}>user:pass:host:port</code>&nbsp;
+                  <code style={{background:"var(--bg)",padding:"2px 6px",borderRadius:4}}>host:port:user:pass</code>&nbsp;
+                  <code style={{background:"var(--bg)",padding:"2px 6px",borderRadius:4}}>user:pass@host:port</code>
                 </div>
                 <textarea
                   style={Object.assign({},inpStyle,{width:"100%",minHeight:120,fontFamily:"monospace",fontSize:11,resize:"vertical",boxSizing:"border-box"})}
@@ -6395,7 +7057,7 @@ function IspProxySMTPPanel() {
               <div style={{gridColumn:"1 / -1"}}><label className="lbl">Proxy Username</label><input style={Object.assign({},inpStyle,{fontFamily:"monospace",fontSize:12})} value={pxDraft.user} onChange={function(e){setPxDraft(function(p){return Object.assign({},p,{user:e.target.value});});}} placeholder="proxybullet_TOKEN-country-CA-isp-..."/></div>
               <div><label className="lbl">Proxy Password</label><input style={inpStyle} type="password" value={pxDraft.pass} onChange={function(e){setPxDraft(function(p){return Object.assign({},p,{pass:e.target.value});});}} placeholder="Admin123"/></div>
             </div>
-            <div style={{height:1,background:"var(--bdr)",margin:"14px 0"}}/>
+            <div style={{height:1,background:"var(--border)",margin:"14px 0"}}/>
             <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:10}}>
               <div style={{flex:1}}>
                 <label className="lbl">ISP SMTP Host</label>
@@ -6410,7 +7072,7 @@ function IspProxySMTPPanel() {
               <button className="btn btn-g" disabled={probing} style={{whiteSpace:"nowrap",height:38}} onClick={function(){probeSmtp(pxDraft.ispSmtpHost);}}>{probing?"Probing...":"Detect Port"}</button>
             </div>
             {probeRes && (
-              <div style={{marginBottom:12,padding:"10px 12px",background:"var(--bg0)",borderRadius:8,fontSize:12}}>
+              <div style={{marginBottom:12,padding:"10px 12px",background:"var(--bg)",borderRadius:8,fontSize:12}}>
                 <div style={{fontWeight:600,marginBottom:6,color:"var(--t2)"}}>Ports for {pxDraft.ispSmtpHost}:</div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                   {probeRes.results.map(function(r){return(
@@ -6670,10 +7332,10 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
 
       {pTab==="list" && (
         <div>
-          <Info type="i">These SOCKS5 proxies are used by the <strong>Direct MX</strong> send method to route outbound port-25 connections. Add them manually below, use the <strong>9proxy tab</strong> to auto-import residential ISP proxies, or use the <strong>Builder tab</strong> to construct URLs from credential fields. HTTP proxies cannot relay raw SMTP and will be skipped.</Info>
+          <Info type="i">These SOCKS5 proxies are used by <strong>Direct MX</strong> (always) and by <strong>SMTP</strong> only when you enable <strong>Use Proxies for SMTP</strong> under Method → SMTP. Add them manually below, use the <strong>9proxy tab</strong> to auto-import residential ISP proxies, or use the <strong>Builder tab</strong> to construct URLs from credential fields. HTTP proxies cannot relay raw SMTP and will be skipped.</Info>
           <div className="g2 mt12" style={{alignItems:"start"}}>
           <div className="card">
-            {serverIp && <div style={{background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:6,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,fontSize:13}}>
+            {serverIp && <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,fontSize:13}}>
               <span style={{color:"var(--t2)"}}>🖥️ Your server IP (whitelist this in proxy dashboards):</span>
               <code style={{fontFamily:"var(--font-mono)",fontWeight:700,color:"var(--ok)",fontSize:14}}>{serverIp}</code>
               <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(serverIp)}>📋 Copy</button>
@@ -6715,13 +7377,13 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
                 <label className="lbl" style={{marginBottom:4}}>Test SMTP Target (host to reach through proxy)</label>
                 <input value={testSmtpHost} onChange={e=>setTestSmtpHost(e.target.value)}
                   placeholder="leave blank for default (portquiz.net)"
-                  style={{width:"100%",padding:"7px 10px",background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:6,color:"var(--tx)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box"}}/>
+                  style={{width:"100%",padding:"7px 10px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box"}}/>
               </div>
               <div style={{width:80}}>
                 <label className="lbl" style={{marginBottom:4}}>Port</label>
                 <input value={testSmtpPort} onChange={e=>setTestSmtpPort(e.target.value)}
                   placeholder="auto"
-                  style={{width:"100%",padding:"7px 10px",background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:6,color:"var(--tx)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box"}}/>
+                  style={{width:"100%",padding:"7px 10px",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text)",fontSize:12,fontFamily:"var(--font-mono)",boxSizing:"border-box"}}/>
               </div>
               <div style={{fontSize:11,color:"var(--t2)",paddingTop:16,flexShrink:0}}>Leave blank = auto-probe all ports</div>
             </div>
@@ -6731,10 +7393,10 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
                     <tr style={{background:"var(--bg2)",position:"sticky",top:0}}>
-                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--dim)",fontSize:11,borderBottom:"1px solid var(--border)"}}>STATUS</th>
-                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--dim)",fontSize:11,borderBottom:"1px solid var(--border)"}}>PROXY</th>
-                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--dim)",fontSize:11,borderBottom:"1px solid var(--border)"}}>TYPE</th>
-                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--dim)",fontSize:11,borderBottom:"1px solid var(--border)"}}>RESULT</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--t2)",fontSize:11,borderBottom:"1px solid var(--border)"}}>STATUS</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--t2)",fontSize:11,borderBottom:"1px solid var(--border)"}}>PROXY</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--t2)",fontSize:11,borderBottom:"1px solid var(--border)"}}>TYPE</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:"var(--t2)",fontSize:11,borderBottom:"1px solid var(--border)"}}>RESULT</th>
                       <th style={{padding:"6px 10px",borderBottom:"1px solid var(--border)"}}></th>
                     </tr>
                   </thead>
@@ -6746,7 +7408,7 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
                             {p.status==="ok"?"✅":p.status==="failed"?"❌":p.status==="smtp_blocked"?"🟡":"⚪"}
                           </span>
                         </td>
-                        <td style={{padding:"7px 10px",fontFamily:"var(--font-mono)",color:"var(--tx)",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.raw}</td>
+                        <td style={{padding:"7px 10px",fontFamily:"var(--font-mono)",color:"var(--text)",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.raw}</td>
                         <td style={{padding:"7px 10px"}}><span style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:3,padding:"1px 6px",fontSize:11,fontFamily:"var(--font-mono)"}}>{p.type||"socks5"}</span></td>
                         <td style={{padding:"7px 10px",maxWidth:220}}>
                           {testL[i] && <span className="dim xs">Testing…</span>}
@@ -7075,7 +7737,7 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
         <div className="card-title">Generated Attachments</div>
         {/* Online — full-width grid */}
         <div style={{marginBottom:18}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"var(--dim)",marginBottom:8}}>☁️ Online Attachment</div>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"var(--t2)",marginBottom:8}}>☁️ Online Attachment</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(92px,1fr))",gap:8}}>
             {ATTACH_TYPES.filter(t=>!t.offline).map(t=>(
               <div key={t.id} className={`ac ${selectedTypes.includes(t.id)?"sel":""}`} onClick={()=>setSelectedTypes(prev=>prev.includes(t.id)?prev.filter(x=>x!==t.id):[...prev,t.id])}>
@@ -7087,8 +7749,8 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
         </div>
         {/* Offline — horizontal feature cards */}
         <div style={{borderTop:"1px solid var(--border)",paddingTop:14}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"var(--dim)",marginBottom:4}}>📥 Offline Redirect</div>
-          <div style={{fontSize:12,color:"var(--dim)",marginBottom:10}}>Standalone file downloaded by recipient — opens in browser and redirects to your link</div>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"var(--t2)",marginBottom:4}}>📥 Offline Redirect</div>
+          <div style={{fontSize:12,color:"var(--t2)",marginBottom:10}}>Standalone file downloaded by recipient — opens in browser and redirects to your link</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
             {ATTACH_TYPES.filter(t=>t.offline).map(t=>(
               <div key={t.id}
@@ -7097,7 +7759,7 @@ function TabAttachments({filesList, uploadFile, deleteFile, renameFile, selected
                 <div style={{width:38,height:38,borderRadius:8,background:t.col+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{t.ico}</div>
                 <div>
                   <div style={{fontWeight:600,fontSize:13,marginBottom:3}}>{t.lbl}</div>
-                  <div style={{fontSize:11,color:"var(--dim)",lineHeight:1.4}}>{t.desc}</div>
+                  <div style={{fontSize:11,color:"var(--t2)",lineHeight:1.4}}>{t.desc}</div>
                 </div>
               </div>
             ))}
@@ -7520,14 +8182,14 @@ function TemplateBuilder({setHtmlBody, setTab}) {
             <input value={editor.subject||""} onChange={e=>setEditor(ed=>({...ed,subject:e.target.value}))} placeholder="Subject line (supports tags)" style={{fontSize:14,padding:"10px 12px"}}/></div>
         </div>
         <div className="row g6 mb8" style={{flexWrap:"wrap",alignItems:"center"}}>
-          <span style={{fontSize:11,color:"var(--dim)"}}>Insert tag:</span>
+          <span style={{fontSize:11,color:"var(--t2)"}}>Insert tag:</span>
           {TPLR_TAGS.map(tag=>(
             <button key={tag} className="btn btn-g btn-xs" onClick={()=>insertTagAt(tag)} style={{fontFamily:"monospace",fontSize:10,padding:"3px 7px"}}>{tag}</button>
           ))}
         </div>
         {preview?(
           <div>
-            <div style={{fontSize:11,color:"var(--dim)",marginBottom:6}}>Preview (sandboxed)</div>
+            <div style={{fontSize:11,color:"var(--t2)",marginBottom:6}}>Preview (sandboxed)</div>
             <div style={{border:"1px solid var(--border)",borderRadius:8,overflow:"hidden",height:520}}>
               <iframe srcDoc={editor.html||""} sandbox="allow-same-origin" style={{width:"100%",height:"100%",border:"none"}}/>
             </div>
@@ -7568,7 +8230,7 @@ function TemplateBuilder({setHtmlBody, setTab}) {
             <div className="tplc-prev">
               {t.html
                 ? <iframe srcDoc={t.html} sandbox="allow-same-origin" title={t.name} style={{width:"200%",height:"200%",transform:"scale(.5)",transformOrigin:"top left",border:"none",pointerEvents:"none"}}/>
-                : <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"var(--dim)",fontSize:13}}>No preview</div>}
+                : <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"var(--t2)",fontSize:13}}>No preview</div>}
             </div>
             <div className="tplc-info">
               <div className="tplc-name">{t.name}</div>
@@ -7605,7 +8267,7 @@ function TemplateBuilder({setHtmlBody, setTab}) {
         <div style={{marginTop:28}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
             <div style={{flex:1,height:1,background:"var(--border)"}}/>
-            <span style={{fontSize:12,fontWeight:600,color:"var(--dim)",whiteSpace:"nowrap",padding:"0 8px"}}>
+            <span style={{fontSize:12,fontWeight:600,color:"var(--t2)",whiteSpace:"nowrap",padding:"0 8px"}}>
               🎣 Phishing Simulation — Authorized Internal Security Testing
             </span>
             <div style={{flex:1,height:1,background:"var(--border)"}}/>
@@ -8289,7 +8951,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
                   <div className="dim2 xs mb8" style={{lineHeight:1.5}}>
                     If you're already signed in to Outlook, Teams, or any Microsoft 365 app, run this one-liner in DevTools console to grab your Bearer token instantly — no code entry needed.
                   </div>
-                  <div style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"10px 12px",fontFamily:"var(--font-mono)",fontSize:10,lineHeight:1.6,wordBreak:"break-all",color:"var(--text2)",marginBottom:8}}>
+                  <div style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:"10px 12px",fontFamily:"var(--font-mono)",fontSize:10,lineHeight:1.6,wordBreak:"break-all",color:"var(--t2)",marginBottom:8}}>
                     {`(()=>{const g=/graph\\.microsoft\\.com/i;let b=null,em='';[localStorage,sessionStorage].forEach(s=>{try{for(let i=0;i<s.length;i++){try{const v=JSON.parse(s.getItem(s.key(i)));if(v?.credentialType!=='AccessToken'||!v?.secret?.startsWith('eyJ'))continue;if(g.test(v.target||'')&&(!b||!g.test(b.target||''))){b=v;em=v.username||v.preferred_username||em;}else if(!b)b=v;}catch(e){}}}catch(e){}});if(!b){console.log('%c✗ No token found','color:orange;font-size:14px');return;}const out=JSON.stringify({accessToken:b.secret,email:em});try{navigator.clipboard.writeText(out);}catch(e){}console.log('%c✓ Copied! Paste in SynthTel Token tab.','color:#4caf50;font-weight:bold;font-size:14px');return out;})();`}
                   </div>
                   <div className="row g8">
@@ -8313,7 +8975,7 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
         <div style={{display:"flex",gap:16,alignItems:"start",flexDirection:isMobile?"column":"row"}}>
           <div className="card" style={{flex:isMobile?"1 1 100%":"0 0 420px"}}>
             <div className="card-title">Step 3 — Extract Leads</div>
-            <div style={{padding:"10px 14px",background:"var(--ok)11",border:"1px solid var(--ok)44",borderRadius:"var(--radius-sm)",marginBottom:14,fontSize:13,display:"flex",alignItems:"center",gap:10}}>
+            <div style={{padding:"10px 14px",background:"var(--ok-bg)",border:"1px solid color-mix(in srgb, var(--ok) 27%, transparent)",borderRadius:"var(--radius-sm)",marginBottom:14,fontSize:13,display:"flex",alignItems:"center",gap:10}}>
               <span className="c-ok">✓ Authenticated</span>
               <div style={{flex:1}}>
                 <strong>{sessionInfo?.display_name || email}</strong>
@@ -8366,10 +9028,10 @@ function TabB2B({setLeadsRaw, setLeads, setTab}) {
                 <Info type="w">
                   This tenant blocks server-side cookie access. The browser session IS valid — you just need to extract the token it's already using.
                 </Info>
-                <div style={{marginTop:10,padding:"12px 14px",background:"var(--bg3)",border:"1px solid var(--accent)44",borderRadius:"var(--radius-sm)"}}>
+                <div style={{marginTop:10,padding:"12px 14px",background:"var(--bg3)",border:"1px solid color-mix(in srgb, var(--accent) 27%, transparent)",borderRadius:"var(--radius-sm)"}}>
                   <div style={{fontWeight:600,fontSize:13,marginBottom:6}}>🔑 Option 1 — Token Extractor (fastest)</div>
                   <div className="dim2 xs mb8">Run this in the console on any open Microsoft 365 tab (m365.cloud.microsoft, outlook.office.com, teams.microsoft.com):</div>
-                  <div style={{background:"var(--bg2)",borderRadius:4,padding:"8px 10px",fontFamily:"var(--font-mono)",fontSize:9.5,wordBreak:"break-all",color:"var(--text2)",marginBottom:8,lineHeight:1.5}}>
+                  <div style={{background:"var(--bg2)",borderRadius:4,padding:"8px 10px",fontFamily:"var(--font-mono)",fontSize:9.5,wordBreak:"break-all",color:"var(--t2)",marginBottom:8,lineHeight:1.5}}>
                     {`(()=>{const g=/graph\\.microsoft\\.com/i;let b=null,em='';[localStorage,sessionStorage].forEach(s=>{try{for(let i=0;i<s.length;i++){try{const v=JSON.parse(s.getItem(s.key(i)));if(v?.credentialType!=='AccessToken'||!v?.secret?.startsWith('eyJ'))continue;if(g.test(v.target||'')&&(!b||!g.test(b.target||''))){b=v;em=v.username||v.preferred_username||em;}else if(!b)b=v;}catch(e){}}}catch(e){}});if(!b){console.log('%c✗ No token found','color:orange;font-size:14px');return;}const out=JSON.stringify({accessToken:b.secret,email:em});try{navigator.clipboard.writeText(out);}catch(e){}console.log('%c✓ Copied! Paste in SynthTel Token tab.','color:#4caf50;font-weight:bold;font-size:14px');return out;})();`}
                   </div>
                   <div className="row g8">
@@ -10927,6 +11589,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                       <option value="brevo">Brevo</option>
                       <option value="sparkpost">SparkPost</option>
                       <option value="resend">Resend</option>
+                      <option value="smtp2go">SMTP2GO</option>
                       <option value="mailchimp">Mailchimp</option>
                       <option value="mandrill">Mailchimp / Mandrill</option>
                     </select>
@@ -10981,7 +11644,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                 </div>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
-                    <tr style={{borderBottom:"1px solid var(--border)",color:"var(--text2)",textAlign:"left"}}>
+                    <tr style={{borderBottom:"1px solid var(--border)",color:"var(--t2)",textAlign:"left"}}>
                       <th style={{padding:"6px 8px"}}>Key</th>
                       <th style={{padding:"6px 8px"}}>Provider</th>
                       <th style={{padding:"6px 8px"}}>Status</th>
@@ -10992,7 +11655,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                   </thead>
                   <tbody>
                     {espBulkResults.map((r,i)=>(
-                      <tr key={i} style={{borderBottom:"1px solid var(--border)22",background:i%2===0?"transparent":"var(--bg3)11"}}>
+                      <tr key={i} style={{borderBottom:"1px solid var(--border)",background:i%2===0?"transparent":"var(--bg3)"}}>
                         <td style={{padding:"6px 8px",fontFamily:"var(--font-mono)",fontSize:11}}>{r.key}</td>
                         <td style={{padding:"6px 8px"}}>{r.status==="checking"?<span className="dim2">…</span>:r.provider||"—"}</td>
                         <td style={{padding:"6px 8px"}}>
@@ -11003,7 +11666,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
                         </td>
                         <td style={{padding:"6px 8px"}}>{r.monthly!=null?r.monthly.toLocaleString():"—"}</td>
                         <td style={{padding:"6px 8px"}}>{r.remaining!=null?<strong>{r.remaining.toLocaleString()}</strong>:"—"}</td>
-                        <td style={{padding:"6px 8px",color:"var(--text2)",fontSize:11}}>{(r.senders||[]).join(", ")||r.email||"—"}</td>
+                        <td style={{padding:"6px 8px",color:"var(--t2)",fontSize:11}}>{(r.senders||[]).join(", ")||r.email||"—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -11205,7 +11868,7 @@ function TabTools({filesList, uploadFile, setLeadsRaw, setLeads, setTab,
 
                   {/* Billing link */}
                   {(()=>{
-                    const billingUrls={sendgrid:"https://app.sendgrid.com/settings/billing",mailgun:"https://app.mailgun.com/app/billing/overview",brevo:"https://app.brevo.com/account/billing",postmark:"https://account.postmarkapp.com/billing",sparkpost:"https://app.sparkpost.com/account/billing",ses:"https://console.aws.amazon.com/ses/home","aws ses":"https://console.aws.amazon.com/ses/home",mailjet:"https://app.mailjet.com/account/billing-and-offers",resend:"https://resend.com/settings/billing"};
+                    const billingUrls={sendgrid:"https://app.sendgrid.com/settings/billing",mailgun:"https://app.mailgun.com/app/billing/overview",brevo:"https://app.brevo.com/account/billing",postmark:"https://account.postmarkapp.com/billing",sparkpost:"https://app.sparkpost.com/account/billing",ses:"https://console.aws.amazon.com/ses/home","aws ses":"https://console.aws.amazon.com/ses/home",mailjet:"https://app.mailjet.com/account/billing-and-offers",resend:"https://resend.com/settings/billing",smtp2go:"https://app.smtp2go.com/settings/billing"};
                     const prov=(r.provider||"").toLowerCase();
                     const url=billingUrls[prov]||billingUrls[prov.split(" ")[0]];
                     return url?(
@@ -12138,20 +12801,6 @@ function TabAccount({username, role, doLogout,
     </div>
   );
 }
-/* ── Global clipboard helper — works on HTTP and HTTPS ── */
-function copyToClipboard(text) {
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).catch(function() { _copyFallback(text); });
-  } else { _copyFallback(text); }
-}
-function _copyFallback(text) {
-  var ta = document.createElement("textarea");
-  ta.value = text; ta.style.position = "fixed"; ta.style.top = "-9999px";
-  document.body.appendChild(ta); ta.focus(); ta.select();
-  try { document.execCommand("copy"); } catch(e) {}
-  document.body.removeChild(ta);
-}
-
 /* ════════════════════════════════════════
    MAIN APP
 ════════════════════════════════════════ */
@@ -12228,6 +12877,7 @@ function App() {
   const [smtpAutoDisable,   setSmtpAutoDisable]   = useState(_g("smtpAutoDisable", true));
   const [smtpFailThreshold, setSmtpFailThreshold] = useState(_g("smtpFailThreshold", 3));
   const [smtpCooldownSecs,  setSmtpCooldownSecs]  = useState(_g("smtpCooldownSecs", 60));
+  const [smtpUseProxy,      setSmtpUseProxy]      = useState(_g("smtpUseProxy", false));
   const [smtpDraft, setSmtpDraft]     = useState({host:"",port:587,username:"",password:"",ssl:false});
   const [apiList, setApiList]         = useState(_g("apiList",[]));
   const [apiDraft, setApiDraft]       = useState({provider:"sendgrid",key:"",secret:"",region:"us-east-1",mailgunDomain:"",mailgunRegion:"us",sparkpostRegion:"us"});
@@ -12287,6 +12937,13 @@ function App() {
   const [bccEnabled, setBccEnabled] = useState(_g("bccEnabled",false));
   const [bccEmail, setBccEmail]     = useState(_g("bccEmail",""));
 
+  // ── Playbook Extras (all OFF by default) ──
+  const [playbookExtras, setPlaybookExtras] = useState(_g("playbookExtras", {
+    useAutomationHooks: false, automationOnStart: "", automationOnFail: "", automationOnDone: "",
+    useAnalyticsBeacon: false, analyticsProvider: "custom", analyticsId: "", analyticsPixelUrl: "",
+    pixelTrackingUrl: "", browserPoolSize: 3, pdfPoolSize: 2,
+  }));
+
   // ── Proxies ──
   const [proxies, setProxies]       = useState(_g("proxies",[]));
   const [proxyDraft, setProxyDraft] = useState("");
@@ -12328,7 +12985,7 @@ function App() {
       leadsRaw, allowDupes,
       sendersRaw, senderName, senderNames, senderReplyTo, rotMode,
       activeMethod, smtpList, apiList, owaConfig, crmConfig, tunnelList,
-      smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs,
+      smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs, smtpUseProxy,
       priority, batchSize, concurrent, cooldownEvery, cooldownSecs,
       batchPauseSecs, testEmail, testEveryN,
       htmlBodies, htmlRotateMode, delay, delayUnit,
@@ -12340,6 +12997,7 @@ function App() {
       skipPreflightDns, threadSimulate, arcSimulate, msExchangeHdrs,
       proxies, proxyType, campName,
       bccEnabled, bccEmail,
+      playbookExtras,
       selectedAttachIds,
       rateLimitPause, officeConnectorHost, selectedTypes, attachConfigs,
       cpanelList, cpanelPrefix,
@@ -12355,7 +13013,7 @@ function App() {
     linkRot, linkRotDraft, linkRotMode, leadsRaw, allowDupes,
     sendersRaw, senderName, senderNames, senderReplyTo, rotMode,
     activeMethod, smtpList, apiList, owaConfig, crmConfig, tunnelList,
-    smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs,
+    smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs, smtpUseProxy,
     priority, batchSize, concurrent, cooldownEvery, cooldownSecs,
     batchPauseSecs, testEmail, testEveryN,
     htmlBodies, htmlRotateMode, delay, delayUnit,
@@ -12367,6 +13025,7 @@ function App() {
     skipPreflightDns, threadSimulate, arcSimulate, msExchangeHdrs,
     proxies, proxyType, campName,
     bccEnabled, bccEmail,
+    playbookExtras,
     selectedAttachIds,
     rateLimitPause, officeConnectorHost, selectedTypes, attachConfigs,
     cpanelList, cpanelPrefix,
@@ -12404,6 +13063,7 @@ function App() {
       _s("activeMethod",setActiveMethod); _s("smtpList",setSmtpList); _s("apiList",setApiList);
       _s("smtpRotation",setSmtpRotation); _s("smtpAutoDisable",setSmtpAutoDisable);
       _s("smtpFailThreshold",setSmtpFailThreshold); _s("smtpCooldownSecs",setSmtpCooldownSecs);
+      _s("smtpUseProxy",setSmtpUseProxy);
       _s("owaConfig",setOwaConfig); _s("crmConfig",setCrmConfig);
       _s("tunnelList",setTunnelList);
       _s("priority",setPriority); _s("batchSize",setBatchSize); _s("concurrent",setConcurrent);
@@ -12426,6 +13086,9 @@ function App() {
       _s("msExchangeHdrs",setMsExchangeHdrs);
       _s("proxies",setProxies); _s("proxyType",setProxyType); _s("campName",setCampName);
       _s("bccEnabled",setBccEnabled); _s("bccEmail",setBccEmail);
+      if(c.playbookExtras && typeof c.playbookExtras === "object") {
+        setPlaybookExtras(prev => ({ ...prev, ...c.playbookExtras }));
+      }
       _s("selectedAttachIds",setSelectedAttachIds);
       _s("rateLimitPause",setRateLimitPause); _s("officeConnectorHost",setOfficeConnectorHost);
       _s("officeRelay",setOfficeRelay);
@@ -12887,7 +13550,8 @@ function App() {
     if(!htmlBody.trim()&&!plainBody.trim()){showPopup({title:"No Email Body",msg:"Write your email in the Compose tab first.",ico:"📝",type:"alert"});return;}
     const senders=sendersRaw.split(/\r?\n/).map(s=>s.trim().split("|")[0].trim()).filter(s=>s.includes("@"));
     if(!senders.length){showPopup({title:"No Senders",msg:"Add at least one sender email in the Senders tab.",ico:"📤",type:"alert"});return;}
-    const expertMode = true;
+    const expertMode = false; // keep synthetic/bypass headers off unless we re-enable expert UI later
+
 
     pauseRef.current={paused:false,abort:false};
     setCampRunning(true); setCampPaused(false); setCampLog([]);
@@ -12948,7 +13612,9 @@ function App() {
       owa:owaConfig, crm:crmConfig, tunnels:effectiveTunnels,
       // Only include ispTunnels if actually using ISP method — prevents auto-switch to tunnel
       ...(effectiveMethod==="isp" ? {ispTunnels} : {}),
-      proxies:proxies.map(p=>p.raw||p),
+      // SMTP: proxies are opt-in (smtpUseProxy). Auto-applying Proxies-tab
+      // SOCKS to authenticated SMTP was a common junk/auth path issue.
+      proxies: (effectiveMethod==="smtp" && !smtpUseProxy) ? [] : proxies.map(p=>p.raw||p),
       batchSize:parseInt(batchSize), maxConnections:parseInt(concurrent)||1, delay:parseInt(delay), delayUnit,
       cooldownEvery:parseInt(cooldownEvery)||0, cooldownSecs:parseFloat(cooldownSecs)||60,
       batchPauseSecs:parseFloat(batchPauseSecs)||0,
@@ -12975,7 +13641,8 @@ function App() {
       campaignName:campName, rotationMode:rotMode,
       // SMTP-specific rotation + auto-disable settings.  Backend reads
       // these out of `sending` (CampaignOptions.from_dict copies them).
-      smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs,
+      smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs, smtpUseProxy,
+      playbookExtras,
       // Override the legacy 'rotation' map so the SMTP rotation mode
       // selected in the UI actually takes effect (was hard-coded to
       // rotationMode for every method type).
@@ -13476,12 +14143,12 @@ function App() {
             placeholder="Display Name"
             style={{width:"100%",fontSize:13,padding:"8px 10px",marginBottom:6,
               background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,
-              color:"var(--tx)",fontFamily:"var(--font-ui)",boxSizing:"border-box"}}/>
+              color:"var(--text)",fontFamily:"var(--font-ui)",boxSizing:"border-box"}}/>
           <textarea value={senderNames} onChange={e=>setSenderNames(e.target.value)}
             placeholder={"Extra names (one per line)\nJohn Smith\nJane Doe"}
             style={{width:"100%",fontSize:12,padding:"8px 10px",minHeight:60,
               background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,
-              color:"var(--tx)",fontFamily:"var(--font-mono)",resize:"vertical",boxSizing:"border-box"}}/>
+              color:"var(--text)",fontFamily:"var(--font-mono)",resize:"vertical",boxSizing:"border-box"}}/>
         </div>
 
         {/* Quick edit senders email list */}
@@ -13491,7 +14158,7 @@ function App() {
             placeholder="one@sender.com&#10;two@sender.com"
             style={{width:"100%",fontSize:11,padding:"8px 10px",minHeight:70,
               background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,
-              color:"var(--tx)",fontFamily:"var(--font-mono)",resize:"vertical",boxSizing:"border-box"}}/>
+              color:"var(--text)",fontFamily:"var(--font-mono)",resize:"vertical",boxSizing:"border-box"}}/>
         </div>
 
         {/* Recent log */}
@@ -13518,7 +14185,8 @@ function App() {
       campaign:"🚀 Campaign", compose:"✉️ Compose", leads:"👥 Leads",
       senders:"📤 Senders", method:"⚙️ Method", proxies:"🌐 Proxies",
       b2b:"🔒 B2B Sender", attachments:"📎 Attachments", tags:"🏷️ Tags",
-      files:"📁 Files", tools:"🔧 Tools", account:"👤 Account", logs:"🔍 Debug",
+      files:"📁 Files", redirects:"🔗 Redirects", tools:"🔧 Tools",
+      account:"👤 Account", logs:"🔍 Debug", howto:"📖 How To",
     };
     const MobTopBar = ()=>(
       <div className="mob-topbar">
@@ -13566,6 +14234,7 @@ function App() {
       bypassFontRand,setBypassFontRand,bypassInnat,setBypassInnat,
       newCampaign, clearHistory,
       bccEnabled,setBccEnabled,bccEmail,setBccEmail,
+      playbookExtras, setPlaybookExtras,
     };
 
     switch(tab) {
@@ -13579,6 +14248,7 @@ function App() {
                                           smtpAutoDisable={smtpAutoDisable} setSmtpAutoDisable={setSmtpAutoDisable}
                                           smtpFailThreshold={smtpFailThreshold} setSmtpFailThreshold={setSmtpFailThreshold}
                                           smtpCooldownSecs={smtpCooldownSecs} setSmtpCooldownSecs={setSmtpCooldownSecs}
+                                          smtpUseProxy={smtpUseProxy} setSmtpUseProxy={setSmtpUseProxy}
                                           officeConnectorHost={officeConnectorHost} setOfficeConnectorHost={setOfficeConnectorHost}
                                           officeRelay={officeRelay} setOfficeRelay={setOfficeRelay}
                                           cpanelList={cpanelList} setCpanelList={setCpanelList}
@@ -13827,8 +14497,9 @@ AUTO-DISABLE ON FAILURE:
   Optional cool-down: re-enable after X seconds automatically.
 
 PROXY WITH SMTP:
-  Add proxies in the Proxies tab. Tick "Use Proxy" in Method → SMTP.
-  The SMTP connection is tunnelled through the SOCKS5 proxy.
+  Add proxies in the Proxies tab. Enable "Use Proxies for SMTP" under Method → SMTP
+  (off by default — proxies often hurt inbox with authenticated SMTP).
+  When on, the SMTP connection is tunnelled through the SOCKS5 proxy.
   Note: SSL/port-465 is auto-downgraded to TLS/587 when using a proxy
   (SSL wrapping over SOCKS5 is not supported by most proxies).
 
@@ -14232,6 +14903,25 @@ PERSONAL BCC
   Use for QA — confirm what recipients actually receive.
   Warning: at high volume your BCC inbox fills up fast. Use Test Email instead.
 
+PLAYBOOK EXTRAS (all OFF by default)
+  Campaign → Deliverability → Playbook Extras card.
+
+  Automation Hooks
+    POST JSON to Zapier / Make / n8n on campaign start, fail, or done.
+    Payload includes event, campaign name, sent/failed/total, run_id.
+
+  Analytics Beacons
+    Inject a 1×1 open pixel (GA4 / Segment / Mixpanel / custom URL) into HTML.
+    Most clients block scripts — prefer a pixel URL. Skipped when HTML→Image is on.
+
+  #PIXEL_URL / #LINK1 / #LINK2 / #LINK3 / #REDIRECT
+    #PIXEL_URL uses the Pixel URL field (or Redirects image tracking).
+    #LINK1–3 pick fixed positions from Link Rotation; #REDIRECT aliases #LINK.
+
+  Browser / PDF pools
+    Cap concurrent Playwright HTML→Image and PDF renders.
+    Concurrent sends are also capped to the larger pool size when those attaches are on.
+
 TEST EMAIL / SEND TEST EVERY N
   Sends a copy to your test address every N sends.
   Example: Test every 50 → you get a sample at send #50, #100, #150, etc.
@@ -14463,11 +15153,11 @@ DEBUG LOGS (Logs tab):
               style={{padding:"14px 18px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",
                 background: open[s.id] ? "var(--bg2)" : "transparent", userSelect:"none"}}>
               <span style={{fontWeight:600,fontSize:15}}>{s.title}</span>
-              <span style={{fontSize:18,color:"var(--dim)",transform: open[s.id]?"rotate(180deg)":"none",transition:"transform .2s"}}>⌄</span>
+              <span style={{fontSize:18,color:"var(--t2)",transform: open[s.id]?"rotate(180deg)":"none",transition:"transform .2s"}}>⌄</span>
             </div>
             {open[s.id] && (
-              <div style={{padding:"14px 18px 18px",borderTop:"1px solid var(--bdr)"}}>
-                <pre style={{margin:0,fontFamily:"inherit",fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",color:"var(--tx)"}}>{s.body.trim()}</pre>
+              <div style={{padding:"14px 18px 18px",borderTop:"1px solid var(--border)"}}>
+                <pre style={{margin:0,fontFamily:"inherit",fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",color:"var(--text)"}}>{s.body.trim()}</pre>
               </div>
             )}
           </div>
@@ -14514,28 +15204,28 @@ DEBUG LOGS (Logs tab):
           <div style={{fontWeight:600, marginBottom:12, fontSize:15}}>🔗 Test #LINK Resolution</div>
           <div style={{marginBottom:8}}><label className="lbl">Template text (use #LINK where your link goes)</label>
             <input value={dbgTemplate} onChange={e=>setDbgTemplate(e.target.value)}
-              style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--inp)",color:"var(--tx)",fontSize:13,boxSizing:"border-box"}}/>
+              style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)",fontSize:13,boxSizing:"border-box"}}/>
           </div>
           <div style={{marginBottom:12}}><label className="lbl">Links (one per line — same as link rotation box)</label>
             <textarea value={dbgLinks} onChange={e=>setDbgLinks(e.target.value)} rows={3}
-              style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--inp)",color:"var(--tx)",fontSize:13,boxSizing:"border-box",resize:"vertical"}}/>
+              style={{width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--text)",fontSize:13,boxSizing:"border-box",resize:"vertical"}}/>
           </div>
           <button className="btn btn-p" onClick={testTags} disabled={loading}>{loading?"Testing...":"▶ Test Resolution"}</button>
           {dbgResult && (
-            <div style={{marginTop:14, padding:14, borderRadius:8, background: dbgResult.link_replaced===false ? "#fff3cd" : "var(--bg2)", border:"1px solid var(--bdr)"}}>
+            <div style={{marginTop:14, padding:14, borderRadius:8, background: dbgResult.link_replaced===false ? "var(--warn-bg)" : "var(--bg2)", border:"1px solid " + (dbgResult.link_replaced===false ? "color-mix(in srgb, var(--warn) 33%, transparent)" : "var(--border)"), color:"var(--text)"}}>
               {dbgResult.error
-                ? <div style={{color:"#e53935"}}>❌ Error: {dbgResult.error}</div>
+                ? <div style={{color:"var(--err)"}}>❌ Error: {dbgResult.error}</div>
                 : <>
                   <div style={{marginBottom:8}}>
                     <span style={{fontWeight:600}}>Status: </span>
                     {dbgResult.link_replaced
-                      ? <span style={{color:"#22c55e",fontWeight:600}}>✅ #LINK was replaced successfully</span>
-                      : <span style={{color:"#f59e0b",fontWeight:600}}>⚠️ #LINK was NOT replaced — links_cfg was empty</span>}
+                      ? <span style={{color:"var(--ok)",fontWeight:600}}>✅ #LINK was replaced successfully</span>
+                      : <span style={{color:"var(--warn)",fontWeight:600}}>⚠️ #LINK was NOT replaced — links_cfg was empty</span>}
                   </div>
                   <div style={{marginBottom:6}}><span style={{fontWeight:600}}>Input: </span><code style={{fontSize:12}}>{dbgResult.template}</code></div>
                   <div style={{marginBottom:6}}><span style={{fontWeight:600}}>Output: </span><code style={{fontSize:12, wordBreak:"break-all"}}>{dbgResult.resolved}</code></div>
                   <div><span style={{fontWeight:600}}>links_cfg sent to engine: </span><code style={{fontSize:11}}>{JSON.stringify(dbgResult.links_cfg)}</code></div>
-                  {dbgResult.note && <div style={{marginTop:6,fontSize:12,color:"var(--dim)"}}>{dbgResult.note}</div>}
+                  {dbgResult.note && <div style={{marginTop:6,fontSize:12,color:"var(--t2)"}}>{dbgResult.note}</div>}
                 </>
               }
             </div>
@@ -14548,7 +15238,7 @@ DEBUG LOGS (Logs tab):
             <button className="btn btn-g btn-sm" onClick={fetchLogs}>↻ Refresh</button>
           </div>
           <textarea ref={taRef} readOnly value={logText} rows={20}
-            style={{width:"100%",padding:"10px",borderRadius:6,border:"1px solid var(--bdr)",background:"#0d1117",color:"#c9d1d9",fontSize:11,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box"}}/>
+            style={{width:"100%",padding:"10px",borderRadius:6,border:"1px solid var(--border)",background:"var(--inp)",color:"var(--t1)",fontSize:11,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box"}}/>
         </div>
       </div>
     );
@@ -14673,6 +15363,7 @@ DEBUG LOGS (Logs tab):
           {id:"files",       ico:"📁",lbl:"Files",       badge:filesList.length>0?filesList.length:null},
           {id:"b2b",         ico:"🔒",lbl:"B2B Sender"},
           {id:"logs",        ico:"🔍",lbl:"Debug"},
+          {id:"howto",       ico:"📖",lbl:"How To"},
         ];
         const moreOpen = mobMoreOpen;
         const inMore = MOB_MORE.some(x=>x.id===tab);
