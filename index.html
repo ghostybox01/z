@@ -13,7 +13,7 @@
 <title>SynthTel Sender v5.5</title>
 <!-- BUILD: b6-isp-tunnel-fix -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <!-- Load from local libs (deployed by deploy.sh), fallback to CDN -->
 <script>
 function loadScript(local, cdn, cb) {
@@ -42,9 +42,9 @@ function loadScript(local, cdn, cb) {
 
 /* ═══════════════ THEME VARIABLES ═══════════════ */
 :root {
-  --font-ui: 'Sora', sans-serif;
+  --font-ui: 'Space Grotesk', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-  --radius: 10px;
+  --radius: 8px;
   --radius-sm: 6px;
   --sidebar-w: 224px;
   --tr: 0.16s ease;
@@ -52,33 +52,33 @@ function loadScript(local, cdn, cb) {
 
 /* DARK */
 [data-theme="dark"] {
-  --bg: #0d1117;       --bg2: #161b22;    --bg3: #21262d;    --bg4: #2d333b;
-  --border: #30363d;   --text: #e6edf3;   --t1: #c9d1d9;     --t2: #8b949e;     --t3: #6e7681;
-  --accent: #58a6ff;   --accent2: #1f6feb; --aglow: rgba(88,166,255,.14);
-  --ok: #3fb950;       --ok-bg: rgba(63,185,80,.12);
-  --warn: #d29922;     --warn-bg: rgba(210,153,34,.12);
-  --err: #f85149;      --err-bg: rgba(248,81,73,.12);
-  --info: #79c0ff;     --info-bg: rgba(121,192,255,.1);
-  --purple: #bc8cff;   --purple-bg: rgba(188,140,255,.12);
-  --card: #161b22;     --inp: #0d1117;    --inp-b: #30363d;
-  --tog-off: #21262d;  --tog-on: #1f6feb;
-  --scroll: #30363d;   --badge: #21262d;
-  --inset: #21262d;
-  --toast-ok-bg: #0f2718;  --toast-ok-b: rgba(34,197,94,.25);  --toast-ok-c: #4ade80;
-  --toast-err-bg: #2a0f0f; --toast-err-b: rgba(239,68,68,.25); --toast-err-c: #f87171;
-  --toast-w-bg: #1f1a0a;   --toast-w-b: rgba(245,158,11,.25);  --toast-w-c: #fbbf24;
-  --toast-i-bg: #0f1829;   --toast-i-b: rgba(59,130,246,.25);  --toast-i-c: #60a5fa;
-  --msg-admin-bg: rgba(88,166,255,.08); --msg-admin-b: rgba(88,166,255,.3);
-  --msg-user-bg: rgba(255,255,255,.04); --msg-user-b: #30363d;
-  --shadow-sm: 0 2px 8px rgba(0,0,0,.4);
-  --shadow-md: 0 8px 30px rgba(0,0,0,.5);
+  --bg: #060A12;       --bg2: #0A1019;    --bg3: #0F1825;    --bg4: #162030;
+  --border: #1a2d42;   --text: #E8F0F8;   --t1: #C4D8E8;     --t2: #7BA8C4;     --t3: #3D5870;
+  --accent: #38BDF8;   --accent2: #0EA5E9; --aglow: rgba(56,189,248,.1);
+  --ok: #22C55E;       --ok-bg: rgba(34,197,94,.08);
+  --warn: #EAB308;     --warn-bg: rgba(234,179,8,.08);
+  --err: #EF4444;      --err-bg: rgba(239,68,68,.08);
+  --info: #7DD3FC;     --info-bg: rgba(125,211,252,.08);
+  --purple: #A78BFA;   --purple-bg: rgba(167,139,250,.1);
+  --card: #0A1019;     --inp: #0F1825;    --inp-b: #1a2d42;
+  --tog-off: #0F1825;  --tog-on: #38BDF8;
+  --scroll: #1a2d42;   --badge: #0F1825;
+  --inset: #0F1825;
+  --toast-ok-bg: #071a0e;  --toast-ok-b: rgba(34,197,94,.25);   --toast-ok-c: #4ade80;
+  --toast-err-bg: #1a0707; --toast-err-b: rgba(239,68,68,.25);  --toast-err-c: #f87171;
+  --toast-w-bg: #1a1200;   --toast-w-b: rgba(234,179,8,.25);    --toast-w-c: #fbbf24;
+  --toast-i-bg: #061020;   --toast-i-b: rgba(56,189,248,.25);   --toast-i-c: #7DD3FC;
+  --msg-admin-bg: rgba(56,189,248,.08); --msg-admin-b: rgba(56,189,248,.25);
+  --msg-user-bg: rgba(255,255,255,.03); --msg-user-b: #1a2d42;
+  --shadow-sm: 0 2px 8px rgba(0,0,0,.5);
+  --shadow-md: 0 8px 30px rgba(0,0,0,.6);
 }
 
 /* LIGHT */
 [data-theme="light"] {
   --bg: #f6f8fa;       --bg2: #ffffff;    --bg3: #f0f3f6;    --bg4: #e8ecf0;
   --border: #d0d7de;   --text: #1f2328;   --t1: #3d444d;     --t2: #57606a;     --t3: #8c959f;
-  --accent: #0969da;   --accent2: #0550ae; --aglow: rgba(9,105,218,.1);
+  --accent: #0284C7;   --accent2: #0369A1; --aglow: rgba(2,132,199,.1);
   --ok: #1a7f37;       --ok-bg: rgba(26,127,55,.1);
   --warn: #9a6700;     --warn-bg: rgba(154,103,0,.1);
   --err: #cf222e;      --err-bg: rgba(207,34,46,.1);
@@ -100,33 +100,33 @@ function loadScript(local, cdn, cb) {
 
 /* DUSK (mid) */
 [data-theme="dusk"] {
-  --bg: #1e2030;       --bg2: #252737;    --bg3: #2e3046;    --bg4: #373a54;
-  --border: #414568;   --text: #cdd6f4;   --t1: #b0b8d8;     --t2: #9097b8;     --t3: #6c7086;
-  --accent: #89b4fa;   --accent2: #6192e8; --aglow: rgba(137,180,250,.14);
-  --ok: #a6e3a1;       --ok-bg: rgba(166,227,161,.12);
-  --warn: #f9e2af;     --warn-bg: rgba(249,226,175,.1);
-  --err: #f38ba8;      --err-bg: rgba(243,139,168,.12);
-  --info: #89dceb;     --info-bg: rgba(137,220,235,.1);
-  --purple: #cba6f7;   --purple-bg: rgba(203,166,247,.12);
-  --card: #252737;     --inp: #1e2030;    --inp-b: #414568;
-  --tog-off: #2e3046;  --tog-on: #6192e8;
-  --scroll: #414568;   --badge: #2e3046;
-  --inset: #2e3046;
-  --toast-ok-bg: #1a2e1e;  --toast-ok-b: rgba(166,227,161,.25); --toast-ok-c: #a6e3a1;
-  --toast-err-bg: #2e1a23; --toast-err-b: rgba(243,139,168,.25);--toast-err-c: #f38ba8;
-  --toast-w-bg: #2a2010;   --toast-w-b: rgba(249,226,175,.2);   --toast-w-c: #f9e2af;
-  --toast-i-bg: #162030;   --toast-i-b: rgba(137,220,235,.2);   --toast-i-c: #89dceb;
-  --msg-admin-bg: rgba(137,180,250,.1); --msg-admin-b: rgba(137,180,250,.3);
-  --msg-user-bg: rgba(255,255,255,.03); --msg-user-b: #414568;
-  --shadow-sm: 0 2px 8px rgba(0,0,0,.35);
-  --shadow-md: 0 8px 30px rgba(0,0,0,.45);
+  --bg: #0e1a28;       --bg2: #152234;    --bg3: #1b2c40;    --bg4: #223550;
+  --border: #2a4060;   --text: #d0e8f8;   --t1: #b0cce0;     --t2: #7aa0be;     --t3: #4a6a84;
+  --accent: #56cfff;   --accent2: #38BDF8; --aglow: rgba(86,207,255,.12);
+  --ok: #34d399;       --ok-bg: rgba(52,211,153,.1);
+  --warn: #fbbf24;     --warn-bg: rgba(251,191,36,.08);
+  --err: #f87171;      --err-bg: rgba(248,113,113,.1);
+  --info: #93c5fd;     --info-bg: rgba(147,197,253,.08);
+  --purple: #c4b5fd;   --purple-bg: rgba(196,181,253,.1);
+  --card: #152234;     --inp: #0e1a28;    --inp-b: #2a4060;
+  --tog-off: #1b2c40;  --tog-on: #56cfff;
+  --scroll: #2a4060;   --badge: #1b2c40;
+  --inset: #1b2c40;
+  --toast-ok-bg: #0a2018;  --toast-ok-b: rgba(52,211,153,.25);  --toast-ok-c: #6ee7b7;
+  --toast-err-bg: #220f0f; --toast-err-b: rgba(248,113,113,.25);--toast-err-c: #fca5a5;
+  --toast-w-bg: #201800;   --toast-w-b: rgba(251,191,36,.2);    --toast-w-c: #fde68a;
+  --toast-i-bg: #0a1828;   --toast-i-b: rgba(86,207,255,.2);    --toast-i-c: #93c5fd;
+  --msg-admin-bg: rgba(86,207,255,.08); --msg-admin-b: rgba(86,207,255,.25);
+  --msg-user-bg: rgba(255,255,255,.03); --msg-user-b: #2a4060;
+  --shadow-sm: 0 2px 8px rgba(0,0,0,.4);
+  --shadow-md: 0 8px 30px rgba(0,0,0,.5);
 }
 
 /* ═══════════════ BASE ═══════════════ */
 body { font-family: var(--font-ui); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; overflow: hidden; height: 100vh; }
-::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 2px; }
 #root { display: flex; height: 100vh; overflow: hidden; }
 
 /* ═══════════════ SIDEBAR ═══════════════ */
@@ -163,14 +163,15 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
   display: flex; align-items: center; gap: 10px;
 }
 .sb-logo-icon {
-  width: 34px; height: 34px; background: var(--accent);
-  border-radius: 9px; display: flex; align-items: center; justify-content: center;
-  font-size: 17px; flex-shrink: 0;
+  width: 34px; height: 34px; background: transparent;
+  border: 1.5px solid var(--accent); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; flex-shrink: 0; box-shadow: 0 0 10px rgba(56,189,248,.15);
 }
 .sb-logo-name { font-size: 15px; font-weight: 700; letter-spacing: -.3px; }
 .sb-logo-ver { font-size: 10px; color: var(--t3); font-family: var(--font-mono); }
 .sb-nav { flex: 1; overflow-y: auto; padding: 6px 0; }
-.sb-section { padding: 10px 18px 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--t3); }
+.sb-section { padding: 10px 18px 3px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--t3); font-family: var(--font-mono); }
 .sb-item {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 18px; cursor: pointer; color: var(--t2); font-size: 13px; font-weight: 500;
@@ -184,8 +185,9 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
 }
 .sb-icon { font-size: 15px; width: 18px; text-align: center; flex-shrink: 0; }
 .sb-badge {
-  margin-left: auto; background: var(--accent); color: #fff;
-  font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 20px;
+  margin-left: auto; background: var(--aglow); color: var(--accent);
+  border: 1px solid var(--accent); opacity: .8;
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 20px;
   font-family: var(--font-mono);
 }
 .sb-badge.red { background: var(--err); }
@@ -200,9 +202,10 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
   background: var(--bg3); cursor: pointer;
 }
 .user-av {
-  width: 28px; height: 28px; border-radius: 50%; background: var(--accent);
+  width: 28px; height: 28px; border-radius: 50%; background: transparent;
+  border: 1.5px solid var(--accent);
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
+  font-size: 12px; font-weight: 700; color: var(--accent); flex-shrink: 0;
 }
 .user-name { font-size: 12px; font-weight: 600; }
 .user-role { font-size: 10px; color: var(--t3); }
@@ -222,7 +225,7 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
 
 /* ═══════════════ PAGE HEADER ═══════════════ */
 .ph { margin-bottom: 24px; }
-.ph-title { font-size: 22px; font-weight: 700; letter-spacing: -.4px; display: flex; align-items: center; gap: 10px; }
+.ph-title { font-size: 20px; font-weight: 700; letter-spacing: -.3px; display: flex; align-items: center; gap: 10px; }
 .ph-sub { font-size: 13px; color: var(--t2); margin-top: 3px; }
 
 /* ═══════════════ CARDS ═══════════════ */
@@ -232,14 +235,16 @@ body { font-family: var(--font-ui); background: var(--bg); color: var(--text); f
 }
 .card-sm { padding: 14px 18px; }
 .card-title {
-  font-size: 13px; font-weight: 700; color: var(--text);
+  font-size: 11px; font-weight: 700; color: var(--accent);
   margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+  text-transform: uppercase; letter-spacing: .7px; font-family: var(--font-mono);
 }
 
 /* ═══════════════ FORM ═══════════════ */
 .lbl {
-  display: block; font-size: 11px; font-weight: 700; color: var(--t2);
-  margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px;
+  display: block; font-size: 10px; font-weight: 700; color: var(--t3);
+  margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;
+  font-family: var(--font-mono);
 }
 input, textarea, select {
   width: 100%; background: var(--inp); border: 1px solid var(--inp-b);
@@ -262,7 +267,7 @@ textarea { resize: vertical; min-height: 80px; }
   transition: all var(--tr); white-space: nowrap; user-select: none;
 }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
-.btn-p  { background: var(--accent);   color: #fff;          border-color: var(--accent);   }
+.btn-p  { background: var(--accent);   color: #03050A;       border-color: var(--accent);   }
 .btn-p:hover:not(:disabled)  { background: var(--accent2); border-color: var(--accent2); }
 .btn-g  { background: transparent;     color: var(--t2);     border-color: var(--border);   }
 .btn-g:hover:not(:disabled)  { background: var(--bg3); color: var(--text); }
@@ -363,7 +368,7 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* ═══════════════ SECTION HEADER ═══════════════ */
 .sh { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.sh-t { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--accent); }
+.sh-t { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); font-family: var(--font-mono); }
 
 /* ═══════════════ GRIDS ═══════════════ */
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -374,9 +379,9 @@ textarea { resize: vertical; min-height: 80px; }
 /* ═══════════════ STAT CARDS ═══════════════ */
 .stat {
   background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 18px 20px;
+  border-radius: var(--radius); padding: 14px 18px;
 }
-.stat-v { font-size: 30px; font-weight: 700; font-family: var(--font-mono); line-height: 1; }
+.stat-v { font-size: 26px; font-weight: 700; font-family: var(--font-mono); line-height: 1; }
 .stat-l { font-size: 12px; color: var(--t2); font-weight: 500; margin-top: 4px; }
 .stat-s { font-size: 11px; color: var(--t3); margin-top: 2px; }
 .stat.ca .stat-v { color: var(--accent); }
@@ -385,7 +390,7 @@ textarea { resize: vertical; min-height: 80px; }
 .stat.cw .stat-v { color: var(--warn); }
 
 /* ═══════════════ PROGRESS ═══════════════ */
-.prog-t { height: 7px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
+.prog-t { height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
 .prog-f { height: 100%; border-radius: 4px; background: var(--accent); transition: width .3s ease; }
 .prog-f.pg { background: var(--ok); }
 .prog-f.pr { background: var(--err); }
@@ -393,7 +398,7 @@ textarea { resize: vertical; min-height: 80px; }
 /* ═══════════════ TAB BAR ═══════════════ */
 .tab-bar { display: flex; border-bottom: 1px solid var(--border); gap: 0; margin-bottom: 20px; }
 .tb {
-  padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 500;
+  padding: 7px 14px; cursor: pointer; font-size: 12px; font-weight: 500;
   color: var(--t2); border: none; background: none; font-family: var(--font-ui);
   border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all var(--tr);
 }
@@ -404,7 +409,7 @@ textarea { resize: vertical; min-height: 80px; }
 .flog {
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
   height: 340px; max-height: 340px; overflow-y: auto; padding: 10px 12px;
-  font-family: var(--font-mono); font-size: 12px; scroll-behavior: smooth;
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.9; scroll-behavior: smooth;
 }
 .flog-e {
   display: flex; align-items: flex-start; gap: 10px;
@@ -837,6 +842,190 @@ tr:hover td { background:var(--bg3); }
   .stat-v { font-size: 17px; }
   .mob-topbar-right .th-btn { display: none; }
 }
+/* ═══════════════════════════════════════
+   SYNTHTEL RESKIN v2 — deep overrides
+   (appended after base CSS)
+═══════════════════════════════════════ */
+
+/* ── Login ── */
+.login-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 36px;
+  box-shadow: 0 0 40px rgba(56,189,248,.06);
+}
+.login-ic { font-size: 36px; }
+.login-t  { font-size: 20px; font-weight: 700; letter-spacing: -.2px; }
+.login-s  { font-size: 12px; color: var(--t3); font-family: var(--font-mono); letter-spacing: .5px; }
+
+/* ── Sidebar: tighter, more terminal ── */
+.sb-logo { padding: 14px 16px 12px; }
+.sb-logo-icon {
+  width: 32px; height: 32px;
+  border-radius: 7px;
+  font-size: 16px;
+  color: var(--accent);
+}
+.sb-logo-name { font-size: 14px; font-family: var(--font-mono); font-weight: 700; }
+.sb-logo-ver  { font-size: 10px; color: var(--t3); font-family: var(--font-mono); letter-spacing: .5px; }
+.sb-item { padding: 7px 16px; font-size: 13px; }
+.sb-item.active::before { width: 3px; border-radius: 0 2px 2px 0; top: 4px; bottom: 4px; }
+.sb-footer { padding: 10px 14px; }
+.user-row { background: var(--bg3); border: 1px solid var(--border); }
+.user-av {
+  width: 26px; height: 26px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.user-name { font-size: 12px; font-family: var(--font-mono); }
+.user-role { font-size: 10px; font-family: var(--font-mono); letter-spacing: .5px; text-transform: uppercase; }
+.th-btn { font-size: 11px; }
+.sb-toggle { font-family: var(--font-mono); font-size: 14px; }
+
+/* ── Cards ── */
+.card { border-radius: 8px; padding: 16px 18px; }
+.card-sm { padding: 12px 16px; }
+
+/* ── Tables ── */
+th {
+  background: var(--bg3) !important;
+  font-family: var(--font-mono);
+  font-size: 10px !important;
+  letter-spacing: 1px;
+  color: var(--t3) !important;
+  padding: 8px 14px !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+td { padding: 9px 14px !important; font-size: 13px; }
+tr:hover td { background: var(--bg3) !important; }
+
+/* ── Progress bar ── */
+.prog-t {
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
+.prog-f { border-radius: 2px; }
+
+/* ── Badges ── */
+.bdg {
+  padding: 1px 7px;
+  font-size: 10px;
+  letter-spacing: .3px;
+}
+.bdg-a { border: 1px solid rgba(56,189,248,.3); }
+.bdg-ok{ border: 1px solid rgba(34,197,94,.3); }
+.bdg-e { border: 1px solid rgba(239,68,68,.3); }
+.bdg-w { border: 1px solid rgba(234,179,8,.3); }
+
+/* ── Info boxes ── */
+.ib { border-radius: 6px; font-size: 12px; padding: 9px 12px; }
+
+/* ── Status dots: glow ── */
+.dot-run  { box-shadow: 0 0 7px rgba(56,189,248,.6); }
+.dot-ok   { box-shadow: 0 0 5px rgba(34,197,94,.5); }
+.dot-err  { box-shadow: 0 0 5px rgba(239,68,68,.4); }
+
+/* ── Flow log: tighter ── */
+.flog { font-size: 11px; line-height: 1.9; padding: 10px 14px; border-radius: 6px; }
+.flog-e { padding: 1px 0; border-bottom-color: var(--border); }
+.flog-ts { color: var(--t3); min-width: 60px; }
+.flog-ok  { color: var(--ok); }
+.flog-err { color: var(--err); }
+
+/* ── Buttons: tighter, rounder ── */
+.btn { border-radius: 6px; font-size: 12px; padding: 7px 14px; }
+.btn-sm { padding: 5px 10px; font-size: 11px; }
+.btn-lg { padding: 10px 20px; font-size: 14px; font-weight: 700; }
+.btn-p { color: #02060F !important; font-weight: 700; }
+.btn-p:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent) !important; }
+
+/* ── Toggle track ── */
+.tog-track { border-radius: 10px; }
+.tog-lbl { font-size: 13px; }
+.tog-desc { font-size: 11px; font-family: var(--font-mono); color: var(--t3); }
+
+/* ── Method cards ── */
+.mc { border-radius: 8px; padding: 14px; min-height: 90px; }
+.mc-name { font-size: 12px; font-family: var(--font-mono); font-weight: 700; letter-spacing: .3px; }
+.mc-desc { font-size: 10px; color: var(--t3); }
+
+/* ── Template cards ── */
+.tplc { border-radius: 8px; }
+.tplc-name { font-size: 13px; font-weight: 600; }
+.tplc-cat  { font-size: 10px; color: var(--t3); font-family: var(--font-mono); letter-spacing: .5px; text-transform: uppercase; }
+
+/* ── Proxy items ── */
+.pi { border-radius: 6px; padding: 9px 12px; }
+
+/* ── File items ── */
+.fi { border-radius: 6px; padding: 9px 12px; }
+.fi-name { font-size: 12px; font-family: var(--font-mono); }
+
+/* ── Page header ── */
+.ph { margin-bottom: 20px; }
+.ph-title { font-size: 19px; }
+.ph-sub { font-size: 12px; }
+
+/* ── Main padding ── */
+.main { padding: 22px 28px; }
+.main.tab-campaign { padding: 14px 22px; }
+
+/* ── Tab bar ── */
+.tab-bar { margin-bottom: 16px; }
+.tb { padding: 7px 13px; font-size: 12px; font-weight: 500; }
+.tb.on { font-weight: 700; }
+
+/* ── Wizard steps ── */
+.wiz-n { width: 26px; height: 26px; font-size: 11px; border-radius: 50%; }
+.wiz-l { font-size: 11px; font-family: var(--font-mono); letter-spacing: .3px; }
+
+/* ── Drop zone ── */
+.drop { border-radius: 8px; }
+
+/* ── Stat cards ── */
+.stat { padding: 14px 16px; border-radius: 8px; }
+.stat-v { font-size: 26px; }
+.stat-l { font-size: 11px; font-weight: 500; margin-top: 3px; }
+.stat-s { font-size: 10px; font-family: var(--font-mono); margin-top: 2px; }
+
+/* ── Scrollbar: blue tint ── */
+::-webkit-scrollbar-thumb { background: rgba(56,189,248,.15); }
+::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,.3); }
+
+/* ── Tag chips ── */
+.tag-chip { border-radius: 4px; font-size: 11px; padding: 2px 8px; }
+
+/* ── Toast ── */
+.st-toast { border-radius: 8px; font-size: 12px; }
+
+/* ── Code blocks ── */
+.code { border-radius: 6px; font-size: 12px; padding: 10px 12px; }
+
+/* ── Modal ── */
+.modal-box { border-radius: 10px; padding: 24px; }
+.modal-title { font-size: 15px; }
+
+/* ── Section header (sh-t) extra ── */
+.sh-t { letter-spacing: 1px; }
+
+/* ── Inputs — slightly darker ── */
+input, textarea, select {
+  font-size: 13px;
+  border-radius: 6px;
+  padding: 8px 11px;
+}
+input:focus, textarea:focus, select:focus {
+  box-shadow: 0 0 0 2px rgba(56,189,248,.12);
+}
+
+/* ── Popup box ── */
+.popup-box { border-radius: 10px; padding: 24px 24px 20px; }
+.popup-title { font-size: 16px; }
+.popup-msg { font-size: 13px; }
+
 
 /* ═══════════════════════════════════════════════
    MOBILE MONITOR PANEL — Stripped-down monitoring
