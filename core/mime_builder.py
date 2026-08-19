@@ -1339,15 +1339,11 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     except Exception:
         pass
 
-    # X-Mailer: ISP mode should have one (real users use Outlook/Thunderbird).
-    # Relay/ESP mode should NOT have one (real ESPs don't set X-Mailer).
-    if not msg.get("X-Mailer") and is_isp_mode:
-        msg["X-Mailer"] = random.choice([
-            "Microsoft Outlook 16.0.17928.20114",
-            "Microsoft Outlook 16.0.17126.20190",
-            "Mozilla Thunderbird 128.6.0",
-        ])
-    elif not msg.get("X-Mailer") and dlv.get("xMailer") and dlv.get("xMailer") != "none":
+    # X-Mailer: only meaningful in ISP mode where the sending path resembles
+    # a real MUA submission. In SMTP relay / ESP / API mode the Received header
+    # chain reveals the real origin (AWS SES, SendGrid, etc.) so claiming Outlook
+    # is a detectable forgery that increases spam score.
+    if not msg.get("X-Mailer") and is_isp_mode and dlv.get("xMailer") and dlv.get("xMailer") != "none":
         _xm_default = dlv.get("xMailer", "none")
         if _xm_default == "random":
             msg["X-Mailer"] = random.choice(list(X_MAILERS.values()))
@@ -1459,6 +1455,20 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
         unsub_parts = []
         unsub_url   = (dlv.get("unsubUrl") or "").replace("#EMAIL", lead_email)
         unsub_email = dlv.get("unsubEmail") or ""
+        # Only use the URL if its domain matches the sending domain.
+        # A List-Unsubscribe pointing to an unrelated domain (e.g. office.com
+        # when sending from remedi.my) is a strong spam signal — filters treat
+        # it as a phishing/spoofed unsub link.
+        if unsub_url and from_domain:
+            try:
+                from urllib.parse import urlparse as _urlparse
+                _unsub_host = _urlparse(unsub_url).hostname or ""
+                _unsub_domain = ".".join(_unsub_host.rsplit(".", 2)[-2:])
+                _from_base = ".".join(from_domain.rsplit(".", 2)[-2:])
+                if _unsub_domain.lower() != _from_base.lower():
+                    unsub_url = ""  # domain mismatch — skip URL
+            except Exception:
+                pass
         if unsub_url:
             unsub_parts.append(f"<{unsub_url}>")
         if unsub_email:
@@ -1927,6 +1937,18 @@ def build_message(
     if inject_unsub and dlv.get("listUnsub"):
         unsub_url   = (dlv.get("unsubUrl") or "").replace("#EMAIL", lead_email)
         unsub_email = dlv.get("unsubEmail") or ""
+        # Validate URL domain matches from domain before injecting footer.
+        # A footer linking to an unrelated domain is a spam signal.
+        if unsub_url and from_domain:
+            try:
+                from urllib.parse import urlparse as _up2
+                _uh = _up2(unsub_url).hostname or ""
+                _ud = ".".join(_uh.rsplit(".", 2)[-2:])
+                _fd = ".".join(from_domain.rsplit(".", 2)[-2:])
+                if _ud.lower() != _fd.lower():
+                    unsub_url = ""
+            except Exception:
+                pass
         working_html = _inject_unsub_footer(
             working_html, unsub_url, unsub_email, lead_email
         )
