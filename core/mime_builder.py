@@ -1938,6 +1938,7 @@ def build_message(
                 log.debug("[mime_builder] dataURI embed failed: %s", _emb_err)
 
     # ── Prepare plain text ──
+    _explicit_plain = bool(plain)  # True only when caller supplied real plain text
     working_plain = plain or _strip_html(working_html)
     if not working_plain:
         working_plain = subject or "(no content)"
@@ -2149,22 +2150,22 @@ def build_message(
     else:
         # Build inner alternative part
         alt_part = MIMEMultipart("alternative")
-        # Use us-ascii for plain part when possible — avoids base64, uses 7bit/QP
-        try:
-            working_plain.encode("ascii")
-            alt_part.attach(MIMEText(working_plain, "plain", "us-ascii"))
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            alt_part.attach(MIMEText(working_plain, "plain", "utf-8"))
-        # HTML part — force quoted-printable encoding (what real MUAs use)
-        # base64 HTML is a minor spam signal; QP is the standard
-        from email.mime.text import MIMEText as _MT
-        from email import charset as _cs
-        _html_cs = _cs.Charset("utf-8")
-        _html_cs.header_encoding = _cs.QP
-        _html_cs.body_encoding   = _cs.QP
-        _html_part = _MT.__new__(_MT)
-        _html_part.__init__(working_html, "html")
-        _html_part.set_charset(_html_cs)
+        # Only include a plain text part when the caller explicitly supplied one.
+        # An auto-stripped plain text alongside HTML is a bulk-mail fingerprint —
+        # legitimate single-part HTML emails (transactional, notification) omit it.
+        if _explicit_plain:
+            try:
+                working_plain.encode("ascii")
+                alt_part.attach(MIMEText(working_plain, "plain", "us-ascii"))
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                alt_part.attach(MIMEText(working_plain, "plain", "utf-8"))
+        # HTML part — base64 encoded, matching how legitimate ESPs (SES, Mailchimp) encode HTML
+        from email.mime.base import MIMEBase as _MB
+        from email import encoders as _enc
+        import base64 as _b64
+        _html_part = _MB("text", "html", charset="utf-8")
+        _html_part.set_payload(_b64.b64encode(working_html.encode("utf-8")).decode("ascii"))
+        _html_part["Content-Transfer-Encoding"] = "base64"
         alt_part.attach(_html_part)
 
         if has_attachments:
