@@ -1325,13 +1325,6 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
 
     # X-Entity-Ref-ID removed — not used by real MUAs, fingerprints bulk senders
 
-    # ── 2. Per-recipient uniqueness token ─────────────────────────────────────
-    # Embedding recipient-keyed token prevents bulk-send fingerprinting.
-    # Filters check if message content is identical across many recipients.
-    _uniq_token = hashlib.sha256(
-        f"{lead_email}|{from_email}|{now.isoformat()}".encode()
-    ).hexdigest()[:16]
-    # X-Mailer-Hash removed — non-standard header, fingerprints bulk senders
 
     # ── 3. MIME boundary randomisation ────────────────────────────────────────
     # Python's email library reuses predictable boundary patterns that are
