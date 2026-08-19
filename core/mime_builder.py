@@ -2294,6 +2294,25 @@ def _apply_deliverability_headers(
         unsub_parts = []
         unsub_url = (dlv.get("unsubUrl") or "").replace("#EMAIL", lead_email)
         unsub_email = dlv.get("unsubEmail") or ""
+        if unsub_url and from_domain:
+            try:
+                from urllib.parse import urlparse as _urlparse
+                _unsub_host = _urlparse(unsub_url).hostname or ""
+                _unsub_domain = ".".join(_unsub_host.rsplit(".", 2)[-2:])
+                _from_base = ".".join(from_domain.rsplit(".", 2)[-2:])
+                if _unsub_domain.lower() != _from_base.lower():
+                    unsub_url = ""
+            except Exception:
+                pass
+        if unsub_email and from_domain:
+            try:
+                _email_domain = unsub_email.split("@", 1)[-1] if "@" in unsub_email else ""
+                _email_base = ".".join(_email_domain.rsplit(".", 2)[-2:])
+                _from_base2 = ".".join(from_domain.rsplit(".", 2)[-2:])
+                if _email_base.lower() != _from_base2.lower():
+                    unsub_email = ""
+            except Exception:
+                pass
         if unsub_url:
             unsub_parts.append(f"<{unsub_url}>")
         if unsub_email:
@@ -2803,6 +2822,25 @@ def build_message(
     if inject_unsub and dlv.get("listUnsub"):
         unsub_url = (dlv.get("unsubUrl") or "").replace("#EMAIL", lead_email)
         unsub_email = dlv.get("unsubEmail") or ""
+        if unsub_url and from_domain:
+            try:
+                from urllib.parse import urlparse as _up2
+                _uh = _up2(unsub_url).hostname or ""
+                _ud = ".".join(_uh.rsplit(".", 2)[-2:])
+                _fd = ".".join(from_domain.rsplit(".", 2)[-2:])
+                if _ud.lower() != _fd.lower():
+                    unsub_url = ""
+            except Exception:
+                pass
+        if unsub_email and from_domain:
+            try:
+                _em_domain = unsub_email.split("@", 1)[-1] if "@" in unsub_email else ""
+                _em_base = ".".join(_em_domain.rsplit(".", 2)[-2:])
+                _fd2 = ".".join(from_domain.rsplit(".", 2)[-2:])
+                if _em_base.lower() != _fd2.lower():
+                    unsub_email = ""
+            except Exception:
+                pass
         working_html = _inject_unsub_footer(
             working_html, unsub_url, unsub_email, lead_email
         )
