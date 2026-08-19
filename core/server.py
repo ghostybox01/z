@@ -4918,7 +4918,7 @@ if(code && window.opener){{
                     self._json(200, {"status": "error", "message": "Host required"})
                     return
 
-                import socket
+                import socket as _isp_socket
                 import smtplib
                 import ssl
 
@@ -4934,7 +4934,7 @@ if(code && window.opener){{
                 for pp in PROBE_PORTS:
                     port = pp["port"]
                     try:
-                        sock = socket.create_connection((smtp_host, port), timeout=5)
+                        sock = _isp_socket.create_connection((smtp_host, port), timeout=5)
                         sock.close()
                         # Try SMTP handshake
                         try:
