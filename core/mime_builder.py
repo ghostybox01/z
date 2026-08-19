@@ -39,7 +39,6 @@ import uuid
 import html as html_lib
 import random
 import string
-import hashlib
 import tempfile
 import subprocess
 import mimetypes
@@ -1935,7 +1934,9 @@ def build_message(
     if inject_unsub and dlv.get("listUnsub"):
         unsub_url   = (dlv.get("unsubUrl") or "").replace("#EMAIL", lead_email)
         unsub_email = dlv.get("unsubEmail") or ""
-        working_html = _inject_unsub_footer(working_html, unsub_url, unsub_email, lead_email)
+        working_html = _inject_unsub_footer(
+            working_html, unsub_url, unsub_email, lead_email
+        )
 
     # ── Build attachment parts first (may need to modify html for QR/ZIP) ──
     attachment_parts = []
