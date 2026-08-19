@@ -8720,6 +8720,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                 return
             try:
                 import ipaddress as _ipaddress
+                import socket as _ts_sock
 
                 # Reject bare IPv6 literals before gethostbyname (which raises OSError for them)
                 try:
@@ -8738,7 +8739,7 @@ ss -tlnp | grep -q ':{socks_port} ' && echo DEPLOY_OK || echo DEPLOY_FAIL
                         return
                 except ValueError:
                     pass  # not an IP literal — proceed to DNS lookup
-                _resolved = socket.gethostbyname(host)
+                _resolved = _ts_sock.gethostbyname(host)
                 _ip = _ipaddress.ip_address(_resolved)
                 if _ip.is_private or _ip.is_loopback or _ip.is_link_local:
                     self._json(
