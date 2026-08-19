@@ -2194,6 +2194,12 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     }
     servers = pool_map.get(method, opts.smtps) or []
 
+    # SES detection — enforce minimum 1.1s between sends to stay within default 1 msg/sec limit
+    _using_ses = any(
+        ".amazonaws.com" in (s.get("host") or "").lower()
+        for s in servers if isinstance(s, dict)
+    ) if servers else False
+
     # ISP/tunnel info — use correct label for what the user actually configured
     if method == "tunnel":
         _is_isp_direct = any(t.get("proxyHost") for t in opts.tunnels if t.get("tunnelType") == "isp")
@@ -3169,6 +3175,14 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                             if not _sleep_interruptible(pause, campaign_uid):
                                 stopped = True
                                 break
+                        elif _using_ses:
+                            # SES submission throttle — back off longer since the
+                            # limit is on our sending rate, not recipient-side
+                            pause = random.uniform(30, 60)
+                            yield {"type":"pause","msg":f"⏸ SES rate limit — cooling down {pause:.0f}s"}
+                            if not _sleep_interruptible(pause, campaign_uid):
+                                stopped = True
+                                break
                         else:
                             pause = random.uniform(15, 45)
                             yield {"type":"pause","msg":f"⏸ Rate limit on {lead_domain} — cooling down {pause:.0f}s"}
@@ -3206,6 +3220,14 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                             break
                     elif base_delay>0:
                         if not _sleep_interruptible(base_delay, campaign_uid):
+                            stopped = True
+                            break
+                    # SES enforces a 1 msg/sec default sending rate — add the
+                    # gap between the user's base_delay and our minimum so we
+                    # never exceed it regardless of what the user configured.
+                    if _using_ses and base_delay < 1.1:
+                        _ses_gap = 1.1 - base_delay
+                        if not _sleep_interruptible(_ses_gap, campaign_uid):
                             stopped = True
                             break
                     if dlv.get("domainThrottle"):
