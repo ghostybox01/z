@@ -39,7 +39,6 @@ import uuid
 import html as html_lib
 import random
 import string
-import hashlib
 import subprocess
 import mimetypes
 from datetime import datetime, timezone, timedelta
@@ -2807,50 +2806,6 @@ def build_message(
         working_html = _inject_unsub_footer(
             working_html, unsub_url, unsub_email, lead_email
         )
-
-    # ── Per-recipient multi-point uniqueness — matches Supermailer / Mailwizz approach ──
-    # Professional bulk senders scatter uniqueness at 3+ independent positions so
-    # content fingerprinting fails at every layer (top comment, bottom div, plain text).
-    # A single marker at the bottom can itself become a detectable pattern.
-    if working_html or working_plain:
-        _uhash = hashlib.sha256(f"{lead_email}|{from_email}".encode()).hexdigest()
-        _tok_a = _uhash[:8]  # top marker
-        _tok_b = _uhash[8:16]  # bottom marker
-        _tok_c = _uhash[16:24]  # plain text marker
-
-        if working_html:
-            # Point 1 — invisible HTML comment immediately after <body> open tag
-            _top_cmt = f"<!--r:{_tok_a}-->"
-            if re.search(r"<body[^>]*>", working_html, re.I):
-                working_html = re.sub(
-                    r"(<body(?:[^>]*)>)",
-                    rf"\1{_top_cmt}",
-                    working_html,
-                    count=1,
-                    flags=re.I,
-                )
-            else:
-                working_html = _top_cmt + working_html
-
-            # Point 2 — zero-size hidden div before </body> (or appended)
-            _bot_div = (
-                f'<div style="display:none;font-size:1px;line-height:1px;'
-                f'max-height:0;max-width:0;opacity:0;overflow:hidden"><!--m:{_tok_b}--></div>'
-            )
-            if re.search(r"</body>", working_html, re.I):
-                working_html = re.sub(
-                    r"</body>", f"{_bot_div}</body>", working_html, count=1, flags=re.I
-                )
-            else:
-                working_html += _bot_div
-
-        # Point 3 — zero-width non-joiner injected into plain text at a hash-derived
-        # position.  Invisible to readers, breaks content-hash fingerprinting of the
-        # plain text part (which filters check independently of HTML).
-        if working_plain:
-            _zwnj = "‌"
-            _pt_pos = int(_tok_c[:4], 16) % max(1, len(working_plain))
-            working_plain = working_plain[:_pt_pos] + _zwnj + working_plain[_pt_pos:]
 
     # ── Build attachment parts first (may need to modify html for QR/ZIP) ──
     attachment_parts = []
