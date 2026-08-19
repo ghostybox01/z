@@ -561,13 +561,13 @@ def _parse_smtp_error(error: Exception, lead_email: str = "") -> str:
 
     if any(x in err for x in [
         "too many", "rate limit", "throttl", "exceeded the rate",
-        "too many connections", "4.7.0", "try again later",
+        "too many connections", "4.7.0", "try again later", "try after",
         "service busy", "resources temporarily unavailable",
-        "exceeded sending",
+        "exceeded sending", "unusual sending activity", "sending activity detected",
     ]):
         if domain in MS_RATE_DOMAINS:
             return f"MICROSOFT RATE LIMIT — too fast for {domain}. Rotate IP or increase delay"
-        return "RATE LIMITED — server throttling your sends. Slow down or rotate IP"
+        return "RATE LIMITED — sender account throttled by relay. Rotate sender or wait before retrying"
 
     if any(x in err for x in [
         "spf", "dkim", "dmarc", "unauthenticated",
@@ -1070,7 +1070,9 @@ def _is_rate_limit(error_str: str) -> bool:
     e = error_str.lower()
     return any(x in e for x in [
         "too many", "rate limit", "throttl", "4.7.0",
-        "try again later", "service busy", "resources temporarily unavailable",
+        "try again later", "try after", "service busy",
+        "resources temporarily unavailable",
+        "unusual sending activity", "sending activity detected",
     ])
 
 
