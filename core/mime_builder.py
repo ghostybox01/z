@@ -1469,6 +1469,15 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
                     unsub_url = ""  # domain mismatch — skip URL
             except Exception:
                 pass
+        if unsub_email and from_domain:
+            try:
+                _em_domain = unsub_email.split("@", 1)[-1] if "@" in unsub_email else ""
+                _em_base = ".".join(_em_domain.rsplit(".", 2)[-2:])
+                _from_base2 = ".".join(from_domain.rsplit(".", 2)[-2:])
+                if _em_base.lower() != _from_base2.lower():
+                    unsub_email = ""
+            except Exception:
+                pass
         if unsub_url:
             unsub_parts.append(f"<{unsub_url}>")
         if unsub_email:
@@ -1947,6 +1956,15 @@ def build_message(
                 _fd = ".".join(from_domain.rsplit(".", 2)[-2:])
                 if _ud.lower() != _fd.lower():
                     unsub_url = ""
+            except Exception:
+                pass
+        if unsub_email and from_domain:
+            try:
+                _em2_domain = unsub_email.split("@", 1)[-1] if "@" in unsub_email else ""
+                _em2_base = ".".join(_em2_domain.rsplit(".", 2)[-2:])
+                _fd2 = ".".join(from_domain.rsplit(".", 2)[-2:])
+                if _em2_base.lower() != _fd2.lower():
+                    unsub_email = ""
             except Exception:
                 pass
         working_html = _inject_unsub_footer(
