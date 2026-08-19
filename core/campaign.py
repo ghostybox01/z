@@ -499,10 +499,29 @@ def _sleep_interruptible(seconds: float, uid) -> bool:
 
 
 def _parse_smtp_error(error: Exception, lead_email: str = "") -> str:
+    import re as _re
+
+    # SMTPRecipientsRefused wraps the actual SMTP response as bytes inside a
+    # dict repr, e.g. {'user@gmail.com': (550, b'5.7.0 ...')}.  The wrapper
+    # string "RECIPIENT REFUSED by [key]: ..." always contains "refused by",
+    # which would blindly trigger POLICY BLOCK regardless of the real cause.
+    # Decode the actual server message so keyword checks fire on the real text.
+    _smtp_raw = ""
+    try:
+        import smtplib as _smtplib
+        _cause = getattr(error, "__cause__", None)
+        if isinstance(_cause, _smtplib.SMTPRecipientsRefused):
+            for _raddr, (_rcode, _rmsg) in (_cause.recipients or {}).items():
+                _rmsg_str = _rmsg.decode("utf-8", errors="replace") if isinstance(_rmsg, bytes) else str(_rmsg)
+                _smtp_raw = f"({_rcode}, {_rmsg_str})"
+                error = Exception(_smtp_raw)
+                break
+    except Exception:
+        pass
+
     err = str(error).lower()
     domain = lead_email.split("@")[-1] if "@" in lead_email else ""
 
-    import re as _re
     smtp_code = ""
     m = _re.search(r"\((\d{3}),", str(error))
     if m:
@@ -568,7 +587,9 @@ def _parse_smtp_error(error: Exception, lead_email: str = "") -> str:
         "content filter", "message rejected", "refused by",
         "administratively denied", "mailbox policy", "5.7.0",
     ]):
-        return "POLICY BLOCK — recipient org/mailbox policy rejected message"
+        _raw = str(error)[:180].strip()
+        _detail = f" ({_raw})" if _raw else ""
+        return f"POLICY BLOCK — recipient org/mailbox policy rejected message{_detail}"
 
     if any(x in err for x in ["mailbox full", "over quota", "storage exceeded", "5.2.2"]):
         return f"MAILBOX FULL — {lead_email} inbox is over quota"
