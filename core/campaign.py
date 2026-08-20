@@ -567,6 +567,8 @@ def _parse_smtp_error(error: Exception, lead_email: str = "") -> str:
     ]):
         if domain in MS_RATE_DOMAINS:
             return f"MICROSOFT RATE LIMIT — too fast for {domain}. Rotate IP or increase delay"
+        if "daily message quota" in err or "daily quota" in err or "daily sending quota" in err:
+            return "RATE LIMITED — SES daily sending quota exceeded. Request a limit increase in AWS Console or wait until quota resets."
         return "RATE LIMITED — sender account throttled by relay. Rotate sender or wait before retrying"
 
     if any(x in err for x in [
