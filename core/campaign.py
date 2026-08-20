@@ -2639,6 +2639,13 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         es = (err_str or "").lower()
         if any(x in es for x in ("auth", "535", "530", "credentials", "username")):
             h["fails"] += 5    # treat as terminal
+        # Relay account suspension (Zoho/SES "unusual sending activity") —
+        # the whole relay account is throttled for hours, not just one send.
+        # Kill the server immediately with a 4-hour cooldown.
+        if "account throttled by relay" in es or "unusual sending activity" in es:
+            h["dead"] = True
+            h["cooldown_until"] = time.time() + 14400  # 4-hour cooldown
+            return True
         if h["fails"] >= SMTP_FAIL_THRESHOLD:
             over = h["fails"] - SMTP_FAIL_THRESHOLD
             backoff = SMTP_COOLDOWN_SECS * (2 ** min(over, 6))
@@ -2959,8 +2966,12 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                             else:
                                 just_died = _record_smtp_fail(_picked_srv, err or "")
                                 if just_died:
-                                    yield {"type": "warn",
-                                           "msg": f"⚠ SMTP {_smtp_key(_picked_srv)} disabled — {SMTP_FAIL_THRESHOLD} consecutive fails (cooldown {int(SMTP_COOLDOWN_SECS)}s+, doubles each retry)"}
+                                    if "account throttled by relay" in (err or "").lower() or "unusual sending activity" in (err or "").lower():
+                                        yield {"type": "warn",
+                                               "msg": f"⚠ SMTP {_smtp_key(_picked_srv)} disabled — relay account suspended (4h cooldown). Rotate to a different SMTP account."}
+                                    else:
+                                        yield {"type": "warn",
+                                               "msg": f"⚠ SMTP {_smtp_key(_picked_srv)} disabled — {SMTP_FAIL_THRESHOLD} consecutive fails (cooldown {int(SMTP_COOLDOWN_SECS)}s+, doubles each retry)"}
                     except Exception:
                         pass
 
@@ -3192,6 +3203,10 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                         # If rateLimitPause is False, skip the cooldown and just log the failure
                         if not dlv.get("rateLimitPause", True):
                             pass  # already logged as fail above — just move on
+                        elif "account throttled by relay" in (err or "").lower():
+                            # Relay account suspended — SMTP server already killed with 4h cooldown.
+                            # No pause needed; next lead auto-routes to a live server.
+                            yield {"type": "warn", "msg": "⚠ Relay account suspended — SMTP server on 4h cooldown, continuing without pause"}
                         elif lead_domain in MS_RATE_DOMAINS:
                             pause = random.uniform(90, 180)
                             yield {"type":"pause","msg":f"⏸ Microsoft rate limit on {lead_domain} — cooling down {pause:.0f}s (MS needs ~2min)"}

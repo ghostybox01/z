@@ -347,6 +347,10 @@ def _open_connection(
     """
     enc  = (encryption or "TLS").upper()
     port = int(port or (465 if enc == "SSL" else 587))
+    # Port 587 is always STARTTLS, never direct SSL.  Auto-correct misconfigured
+    # ssl=True + port=587 combos — otherwise smtplib.SMTP_SSL fails with WRONG_VERSION_NUMBER.
+    if enc == "SSL" and port == 587:
+        enc = "TLS"
 
     # ── Compute EHLO domain before connection so it's available everywhere ──
     _eff_ehlo = _get_ehlo_domain(from_domain or "", ehlo_domain or "")
