@@ -209,22 +209,61 @@ COLOR_NAMES = [
 ]
 
 FAKE_COMPANIES = [
+    # Tech / SaaS
     "TechFlow Inc", "DataSphere", "NexaCore", "CloudVista", "SynapseAI",
     "QuantumLeap", "ByteForge", "CodeNova", "PixelMint", "VortexLabs",
-    "Nextera Solutions", "Pinnacle Systems", "Horizon Labs", "Apex Dynamics",
-    "Zenith Corp", "Atlas Technologies", "Summit Partners", "Nova Industries",
-    "Vertex Global", "Prism Analytics", "Sterling Ventures", "Eclipse Software",
-    "Meridian Group", "Cascade Digital", "Orbital Systems", "Luminary Tech",
-    "Archway Solutions", "Cipher Labs", "Mosaic Partners", "Fulcrum Global",
+    "Orbital Systems", "Luminary Tech", "Cipher Labs", "Cascade Digital",
+    "Ironclad Software", "Beacon Analytics", "Stratum Cloud", "Axiom Technologies",
+    "Cohere Systems", "Lattice Platforms", "Helix AI", "Threadline Tech",
+    "Gridlock Solutions", "Relay Networks", "Conduit Software", "Mosaic Platforms",
+    "Foundry Digital", "Slate Analytics", "Cobalt Systems", "Flint Technology",
+    # Finance / Consulting
+    "Nextera Solutions", "Pinnacle Systems", "Apex Dynamics", "Zenith Corp",
+    "Atlas Technologies", "Summit Partners", "Sterling Ventures", "Meridian Group",
+    "Fulcrum Global", "Archway Solutions", "Mosaic Partners", "Vertex Global",
+    "Crestwood Capital", "Ironbridge Advisors", "Ridgeline Partners", "Keystone Group",
+    "Clearwater Capital", "Northgate Advisors", "Evergreen Consulting", "Bridgestone Partners",
+    "Whitmore & Associates", "Greystone Capital", "Harborview Investments", "Oakmont Group",
+    # Healthcare / Biotech
+    "Prism Analytics", "Eclipse Software", "Nova Industries", "Horizon Labs",
+    "MedCore Solutions", "BioNova Inc", "HealthPath Systems", "Vitalis Medical",
+    "Caduceus Health", "Meridian Biotech", "Stratus Diagnostics", "Veridian Health",
+    # Retail / Consumer
+    "BlueRidge Retail", "Sundial Brands", "Cornerstone Commerce", "Riviera Group",
+    "Artisan Direct", "Pinnacle Brands", "Vantage Consumer", "Brightfield Group",
+    # Manufacturing / Logistics
+    "Irongate Manufacturing", "Steelpoint Industries", "Crossroads Logistics",
+    "Harbourline Shipping", "Summit Fabrication", "Bedrock Industries",
+    "Sterling Manufacturing", "Crestline Logistics", "Bridgeway Distribution",
 ]
 
 FAKE_NAMES_FIRST = [
+    # Male — common US/international
     "James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph",
-    "Thomas", "Charles", "Mary", "Patricia", "Jennifer", "Linda", "Barbara",
-    "Elizabeth", "Susan", "Jessica", "Sarah", "Karen", "Christopher", "Daniel",
-    "Matthew", "Anthony", "Donald", "Emily", "Amanda", "Melissa", "Stephanie",
-    "Ashley", "Emma", "Olivia", "Noah", "Liam", "Ava", "Isabella", "Sophia",
-    "Lucas", "Mason", "Ethan", "Alexander", "Benjamin", "Logan", "Jackson",
+    "Thomas", "Charles", "Christopher", "Daniel", "Matthew", "Anthony", "Donald",
+    "Mark", "Paul", "Steven", "Andrew", "Kenneth", "Kevin", "Brian", "George",
+    "Timothy", "Ronald", "Edward", "Jason", "Jeffrey", "Ryan", "Jacob",
+    "Gary", "Nicholas", "Eric", "Jonathan", "Stephen", "Larry", "Justin",
+    "Scott", "Brandon", "Benjamin", "Samuel", "Raymond", "Frank", "Gregory",
+    "Alexander", "Patrick", "Jack", "Dennis", "Jerry", "Tyler", "Aaron",
+    "Jose", "Adam", "Henry", "Nathan", "Douglas", "Zachary", "Peter",
+    "Kyle", "Noah", "Ethan", "Jeremy", "Walter", "Harold", "Jordan",
+    "Austin", "Logan", "Mason", "Lucas", "Oliver", "Elijah", "Aiden",
+    "Liam", "Caleb", "Owen", "Carter", "Luke", "Gabriel", "Isaiah",
+    "Marcus", "Adrian", "Dominic", "Ian", "Derek", "Trevor", "Shane",
+    # Female — common US/international
+    "Mary", "Patricia", "Jennifer", "Linda", "Barbara", "Elizabeth", "Susan",
+    "Jessica", "Sarah", "Karen", "Lisa", "Nancy", "Betty", "Margaret",
+    "Sandra", "Ashley", "Dorothy", "Kimberly", "Emily", "Donna", "Michelle",
+    "Carol", "Amanda", "Melissa", "Deborah", "Stephanie", "Rebecca", "Sharon",
+    "Laura", "Cynthia", "Kathleen", "Amy", "Angela", "Shirley", "Anna",
+    "Brenda", "Pamela", "Emma", "Nicole", "Helen", "Samantha", "Katherine",
+    "Christine", "Debra", "Rachel", "Carolyn", "Janet", "Catherine", "Maria",
+    "Olivia", "Ava", "Isabella", "Sophia", "Mia", "Charlotte", "Amelia",
+    "Harper", "Evelyn", "Abigail", "Madison", "Ella", "Scarlett", "Grace",
+    "Chloe", "Victoria", "Riley", "Aria", "Lily", "Zoey", "Natalie",
+    "Hannah", "Lillian", "Addison", "Aubrey", "Ellie", "Stella", "Hazel",
+    "Skylar", "Peyton", "Aurora", "Savannah", "Brooklyn", "Maya", "Leah",
 ]
 
 FAKE_NAMES_LAST = [
@@ -234,6 +273,21 @@ FAKE_NAMES_LAST = [
     "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
     "Walker", "Young", "Allen", "King", "Wright", "Scott", "Torres", "Nguyen",
     "Hill", "Flores", "Green", "Adams", "Nelson", "Baker", "Hall", "Rivera",
+    "Campbell", "Mitchell", "Carter", "Roberts", "Phillips", "Evans", "Turner",
+    "Parker", "Collins", "Edwards", "Stewart", "Flores", "Morris", "Murphy",
+    "Cook", "Rogers", "Morgan", "Peterson", "Cooper", "Reed", "Bailey",
+    "Bell", "Gomez", "Kelly", "Howard", "Ward", "Cox", "Diaz", "Richardson",
+    "Wood", "Watson", "Brooks", "Bennett", "Gray", "James", "Reyes", "Hughes",
+    "Price", "Myers", "Long", "Foster", "Sanders", "Ross", "Morales", "Powell",
+    "Sullivan", "Russell", "Ortiz", "Jenkins", "Gutierrez", "Perry", "Butler",
+    "Barnes", "Fisher", "Henderson", "Coleman", "Simmons", "Patterson", "Jordan",
+    "Reynolds", "Hamilton", "Graham", "Kim", "Gonzales", "Alexander", "Ramos",
+    "Wallace", "Griffin", "West", "Cole", "Hayes", "Bryant", "Herrera", "Gibson",
+    "Ellis", "Tran", "Medina", "Aguilar", "Stevens", "Murray", "Ford", "Castro",
+    "Marshall", "Owens", "Harrison", "Fernandez", "McDonald", "Woods", "Washington",
+    "Kennedy", "Wells", "Vargas", "Henry", "Chen", "Freeman", "Webb", "Tucker",
+    "Guzman", "Burns", "Crawford", "Olson", "Simpson", "Porter", "Hunter", "Gordon",
+    "Mendez", "Silva", "Shaw", "Snyder", "Mason", "Dixon", "Munoz", "Rose",
 ]
 
 RANDOM_WORDS = [
@@ -273,11 +327,38 @@ LOREM_LONG = (
 )
 
 JOB_TITLES = [
-    "CEO", "CTO", "CFO", "COO", "VP of Sales", "VP of Marketing", "VP of Engineering",
-    "Director of Operations", "Director of Finance", "Senior Manager", "Project Manager",
-    "Software Engineer", "Senior Developer", "Product Manager", "Marketing Manager",
-    "Sales Manager", "Account Executive", "Business Analyst", "Data Scientist",
-    "UX Designer", "DevOps Engineer", "Security Analyst", "Solutions Architect",
+    # C-Suite
+    "CEO", "CTO", "CFO", "COO", "CMO", "CIO", "CISO", "CPO", "CRO",
+    # VP level
+    "VP of Sales", "VP of Marketing", "VP of Engineering", "VP of Finance",
+    "VP of Operations", "VP of Product", "VP of Customer Success",
+    "VP of Business Development", "VP of Human Resources",
+    # Director level
+    "Director of Operations", "Director of Finance", "Director of Marketing",
+    "Director of Engineering", "Director of Sales", "Director of Product",
+    "Director of Customer Experience", "Director of IT", "Director of Strategy",
+    "Director of Business Development", "Director of Data Science",
+    # Manager level
+    "Senior Manager", "Project Manager", "Program Manager", "Product Manager",
+    "Marketing Manager", "Sales Manager", "Operations Manager", "IT Manager",
+    "Finance Manager", "HR Manager", "Account Manager", "Brand Manager",
+    "Social Media Manager", "Content Manager", "Customer Success Manager",
+    "Engineering Manager", "Regional Manager", "Category Manager",
+    # Individual contributors — Tech
+    "Software Engineer", "Senior Software Engineer", "Staff Engineer",
+    "Senior Developer", "Full Stack Developer", "Backend Engineer",
+    "Frontend Engineer", "Mobile Developer", "DevOps Engineer",
+    "Site Reliability Engineer", "Data Engineer", "ML Engineer",
+    "Security Engineer", "Cloud Architect", "Solutions Architect",
+    "Data Scientist", "Data Analyst", "Business Intelligence Analyst",
+    "QA Engineer", "Systems Administrator",
+    # Individual contributors — Business
+    "Account Executive", "Business Analyst", "Financial Analyst",
+    "Marketing Analyst", "Sales Representative", "Customer Success Specialist",
+    "UX Designer", "UX Researcher", "Graphic Designer", "Content Strategist",
+    "Copywriter", "SEO Specialist", "Recruiter", "HR Business Partner",
+    "Supply Chain Analyst", "Operations Analyst", "Procurement Specialist",
+    "Legal Counsel", "Compliance Officer", "Risk Analyst",
 ]
 
 DEPARTMENTS = [
@@ -287,15 +368,50 @@ DEPARTMENTS = [
 ]
 
 INDUSTRIES = [
-    "Technology", "Healthcare", "Finance", "Education", "Retail", "Manufacturing",
-    "Real Estate", "Consulting", "Media", "Transportation", "Energy", "Telecom",
-    "Insurance", "Government", "Non-profit", "Hospitality", "Legal", "Agriculture",
+    "Software & Technology", "SaaS", "Cybersecurity", "Artificial Intelligence",
+    "Cloud Computing", "Fintech", "Healthtech", "Edtech", "Proptech",
+    "Healthcare", "Pharmaceuticals", "Biotechnology", "Medical Devices",
+    "Financial Services", "Banking", "Investment Management", "Insurance",
+    "Private Equity", "Venture Capital", "Accounting & Audit",
+    "Retail & E-commerce", "Consumer Goods", "Fashion & Apparel", "Food & Beverage",
+    "Manufacturing", "Automotive", "Aerospace & Defense", "Industrial Equipment",
+    "Real Estate", "Construction", "Architecture & Design",
+    "Consulting", "Management Consulting", "Strategy & Advisory",
+    "Marketing & Advertising", "Media & Publishing", "Entertainment",
+    "Telecommunications", "Networking & Infrastructure",
+    "Energy & Utilities", "Oil & Gas", "Renewable Energy",
+    "Transportation & Logistics", "Supply Chain", "Shipping & Freight",
+    "Education & Training", "Higher Education", "E-learning",
+    "Legal Services", "Government & Public Sector", "Non-profit",
+    "Hospitality & Travel", "Tourism", "Agriculture & AgTech",
 ]
 
 DOMAIN_EXTENSIONS = [".com", ".io", ".co", ".net", ".org", ".ai", ".app", ".dev"]
 
 # Max characters allowed from a numeric/length argument in tags
 MAX_TAG_ARG = 512
+
+
+def _make_qr_img(url: str) -> str:
+    """Generate inline SVG QR code for url. Returns <img> tag or '' if segno not installed."""
+    if not url:
+        return ""
+    try:
+        import segno as _segno, io as _io, base64 as _b64
+        qr = _segno.make_qr(url, error="m")
+        buf = _io.BytesIO()
+        qr.save(buf, kind="svg", scale=5, xmldecl=False, svgns=True,
+                svgclass=None, omitsize=True, border=2)
+        svg = buf.getvalue()
+        b64 = _b64.b64encode(svg).decode()
+        return (
+            f'<img src="data:image/svg+xml;base64,{b64}" '
+            f'width="150" height="150" alt="" style="display:block;border:0">'
+        )
+    except ImportError:
+        return ""
+    except Exception:
+        return ""
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1004,6 +1120,10 @@ def _apply_regex_tags(s: str, ctx: dict) -> str:
             s = re.sub(r'#LINK1\b', lambda m: _link_n(1), s)
             s = re.sub(r'#LINK2\b', lambda m: _link_n(2), s)
             s = re.sub(r'#LINK3\b', lambda m: _link_n(3), s)
+            # #QRCODE — inline SVG QR of the first link (requires segno; silent no-op if absent)
+            if "#QRCODE" in s:
+                _qr_url = valid[0] if valid else ""
+                s = s.replace("#QRCODE", _make_qr_img(_qr_url))
 
     # ── Open-tracking pixel URL (#PIXEL_URL) ──
     pixel = (ctx.get("pixel_url") or "").strip()

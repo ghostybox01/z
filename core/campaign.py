@@ -2617,6 +2617,11 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     SMTP_FAIL_THRESHOLD  = int(sending.get("smtpFailThreshold", 3) or 3)
     SMTP_COOLDOWN_SECS   = float(sending.get("smtpCooldownSecs", 60) or 60)
     SMTP_AUTO_DISABLE    = bool(sending.get("smtpAutoDisable", True))
+    # Per-account send cap: after N successful sends, rest the server for M seconds
+    # before using it again.  Prevents daily quota exhaustion on relay accounts.
+    # smtpMaxSends=0 (default) = no cap.
+    SMTP_MAX_SENDS       = int(sending.get("smtpMaxSends", 0) or 0)
+    SMTP_SEND_CAP_REST   = float(sending.get("smtpSendCapRest", 300) or 300)
 
     def _smtp_key(srv):
         if not isinstance(srv, dict):
@@ -2626,8 +2631,11 @@ def run_campaign(opts: CampaignOptions) -> Generator:
     def _smtp_alive(srv) -> bool:
         if not SMTP_AUTO_DISABLE: return True
         h = _smtp_health.get(_smtp_key(srv))
-        if not h or not h.get("dead"): return True
-        return time.time() >= h.get("cooldown_until", 0)
+        if not h: return True
+        now = time.time()
+        if h.get("dead") and now < h.get("cooldown_until", 0): return False
+        if now < h.get("cap_until", 0): return False  # send-cap rest
+        return True
 
     def _record_smtp_fail(srv, err_str=""):
         if not SMTP_AUTO_DISABLE: return False
@@ -2657,15 +2665,22 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         return False
 
     def _record_smtp_ok(srv):
-        if not SMTP_AUTO_DISABLE: return
+        if not SMTP_AUTO_DISABLE: return False
         k = _smtp_key(srv)
-        if not k: return
-        h = _smtp_health.setdefault(k, {"fails":0,"success":0,"dead":False,"cooldown_until":0})
+        if not k: return False
+        h = _smtp_health.setdefault(k, {"fails":0,"success":0,"dead":False,"cooldown_until":0,"sends":0,"cap_until":0})
         h["success"] += 1
-        h["fails"] = max(0, h["fails"] - 1)
+        h["sends"]   = h.get("sends", 0) + 1
+        h["fails"]   = max(0, h["fails"] - 1)
         if h["fails"] < SMTP_FAIL_THRESHOLD and h["dead"]:
             h["dead"] = False
             h["cooldown_until"] = 0
+        # Send-cap: put the server on a short rest after SMTP_MAX_SENDS successes
+        if SMTP_MAX_SENDS > 0 and h["sends"] >= SMTP_MAX_SENDS:
+            h["cap_until"] = time.time() + SMTP_SEND_CAP_REST
+            h["sends"] = 0  # reset counter so it gets another SMTP_MAX_SENDS after rest
+            return True   # capped
+        return False
 
     # Resume support — skip already-processed leads
     effective_start = min(resume_from, total_cap)
@@ -2964,7 +2979,10 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                         _picked_srv = _pick(servers, srv_rot, i) if servers else None
                         if _picked_srv and isinstance(_picked_srv, dict):
                             if ok:
-                                _record_smtp_ok(_picked_srv)
+                                _capped = _record_smtp_ok(_picked_srv)
+                                if _capped:
+                                    yield {"type": "info",
+                                           "msg": f"📊 {_smtp_key(_picked_srv)} hit {SMTP_MAX_SENDS}-send cap — resting {SMTP_SEND_CAP_REST:.0f}s, rotating to next server"}
                             else:
                                 just_died = _record_smtp_fail(_picked_srv, err or "")
                                 if just_died:
