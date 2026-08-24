@@ -2637,6 +2637,11 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         if now < h.get("cap_until", 0): return False  # send-cap rest
         return True
 
+    def _smtp_score(srv) -> float:
+        """Reputation weight for weighted-random SMTP selection."""
+        h = _smtp_health.get(_smtp_key(srv), {})
+        return max(0.1, h.get("success", 0) * 1.0 - h.get("fails", 0) * 0.5 + 1.0)
+
     def _record_smtp_fail(srv, err_str=""):
         if not SMTP_AUTO_DISABLE: return False
         k = _smtp_key(srv)
@@ -2726,13 +2731,20 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 # expires soonest so we get back to sending fastest.
                 _live_srv = sorted(servers,
                     key=lambda s: _smtp_health.get(_smtp_key(s),{}).get("cooldown_until", 0))
-            return _pick(_live, sender_rot, i), _pick(_live_srv, srv_rot, i)
+            # Reputation-weighted random: servers with more successes get
+            # proportionally more traffic; degrades gracefully to round-robin.
+            if srv_rot == "random" and len(_live_srv) > 1:
+                _weights = [_smtp_score(s) for s in _live_srv]
+                _chosen_srv = random.choices(_live_srv, weights=_weights, k=1)[0]
+            else:
+                _chosen_srv = _pick(_live_srv, srv_rot, i)
+            return _pick(_live, sender_rot, i), _chosen_srv
         return _pick(_live, sender_rot, i), {}
 
     def _execute_send(work_item):
         """
         Run in a thread. Does ONLY the network IO — no state mutation.
-        Returns (i, lead, ok, err, via, resolved_sender, link_url).
+        Returns (i, lead, ok, err, via, resolved_sender, link_url, server).
         """
         i, lead, sender, server, subj, html, plain, link_url = work_item
         try:
@@ -2745,7 +2757,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
             )
         except Exception as exc:
             ok, err, via = False, f"network error: {exc}", ""
-        return (i, lead, ok, err, via, sender, link_url)
+        return (i, lead, ok, err, via, sender, link_url, server)
 
     try:
         _executor = ThreadPoolExecutor(max_workers=_workers)
@@ -2964,19 +2976,14 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 email_addr = (lead.get("email") or "").strip()
 
                 try:
-                    i_r, lead_r, ok, err, via, resolved_sender, link_url = fut.result()
+                    i_r, lead_r, ok, err, via, resolved_sender, link_url, _actual_srv = fut.result()
                 except Exception as exc:
-                    ok, err, via, resolved_sender, link_url = False, f"network error: {exc}", "", pre_sender, ""
+                    ok, err, via, resolved_sender, link_url, _actual_srv = False, f"network error: {exc}", "", pre_sender, "", None
 
                 # ── Track per-SMTP health (auto-disable on repeated fails) ──
-                # We can only track health for SMTP-style methods that
-                # actually picked from `servers`.  API/OWA/CRM still pick
-                # but their work_meta carries the picked server in
-                # _pick_sender_locked — easier to record health by
-                # re-picking the canonical server label from the via.
                 if method in ("smtp", "tunnel"):
                     try:
-                        _picked_srv = _pick(servers, srv_rot, i) if servers else None
+                        _picked_srv = _actual_srv if isinstance(_actual_srv, dict) and _actual_srv else None
                         if _picked_srv and isinstance(_picked_srv, dict):
                             if ok:
                                 _capped = _record_smtp_ok(_picked_srv)
