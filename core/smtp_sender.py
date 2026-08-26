@@ -551,25 +551,25 @@ class SmtpPool:
         if stats.disabled:
             raise Exception(f"SMTP server disabled [{key}]: {stats.disable_reason}")
 
-        if self.max_per_hour > 0 and stats.sends_this_hour() >= self.max_per_hour:
-            raise Exception(
-                f"SMTP hourly rate limit reached for [{key}]: "
-                f"{stats.sends_this_hour()}/{self.max_per_hour} this hour"
-            )
-
         entry = self._get_entry(key, smtp_cfg, ehlo_domain, proxy_cfg)
+
+        # Capture reply-to before the retry loop — del on attempt 0 would lose it on attempt 1
+        _reply_to_val = getattr(msg, '_synthtel_reply_to', None) or msg.get("Reply-To")
+        if msg.get("Reply-To"):
+            del msg["Reply-To"]
 
         for attempt in range(2):
             with entry.lock:
                 try:
-                    conn = self._get_live_conn(entry, key, stats)
+                    # Hourly cap check inside entry.lock so concurrent threads on the same
+                    # server key serialize and can't both slip past the limit simultaneously.
+                    if self.max_per_hour > 0 and stats.sends_this_hour() >= self.max_per_hour:
+                        raise Exception(
+                            f"SMTP hourly rate limit reached for [{key}]: "
+                            f"{stats.sends_this_hour()}/{self.max_per_hour} this hour"
+                        )
 
-                    # Check for Reply-To stored by mime_builder (kept off MIME
-                    # headers to avoid relay DKIM coverage / header inspection)
-                    _reply_to_val = getattr(msg, '_synthtel_reply_to', None) or msg.get("Reply-To")
-                    # Remove from MIME if present (we'll inject into raw bytes)
-                    if msg.get("Reply-To"):
-                        del msg["Reply-To"]
+                    conn = self._get_live_conn(entry, key, stats)
 
                     log.debug("[SmtpPool] %s: MAIL FROM=<%s> RCPT TO=<%s> Reply-To=%s",
                               key, from_email, to_email, _reply_to_val or "(none)")
@@ -674,7 +674,10 @@ class SmtpPool:
                     entry.connect_timeout, entry.data_timeout,
                 )
                 with entry.lock:
-                    entry.conn = new_conn
+                    if entry.conn is None:
+                        entry.conn = new_conn
+                    else:
+                        _safe_close(new_conn)  # another thread reconnected first; discard ours
             except smtplib.SMTPAuthenticationError as exc:
                 stats.disable(f"AUTH failed on reconnect: {exc.smtp_code}")
                 stats.record_fail()
@@ -1002,7 +1005,8 @@ def send_smtp(
     # Apply send_delay to the global pool if a delay was requested and no
     # explicit pool was passed (i.e. caller is using the per-campaign global pool)
     if send_delay > 0 and pool is None:
-        target_pool.send_delay = send_delay
+        with target_pool._lock:
+            target_pool.send_delay = send_delay
     via_used = send_via_pool(
         target_pool, smtp_cfg, msg, _env_from, to_email,
         ehlo_domain=ehlo, proxy_cfg=proxy_cfg,

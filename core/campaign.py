@@ -2720,17 +2720,25 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         """
         if pairs:
             pair = _pick(pairs, sender_rot, i)
-            return pair["sender"], pair["server"]
+            _pair_srv = pair.get("server", {})
+            if not isinstance(_pair_srv, dict) or not _pair_srv or _smtp_alive(_pair_srv):
+                return pair["sender"], _pair_srv
+            # Pair's assigned server is dead — try any alive server from the pool
+            _alt = [s for s in servers if _smtp_alive(s)] if servers else []
+            return pair["sender"], (_alt[0] if _alt else _pair_srv)
         _live = [s for s in opts.senders if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _dead_senders]
         if not _live:
             return None, None
         if servers:
             _live_srv = [s for s in servers if _smtp_alive(s)]
             if not _live_srv:
-                # All servers in cooldown — pick the one whose cooldown
-                # expires soonest so we get back to sending fastest.
+                # All dead — pick soonest to recover (respects both cooldown and cap_until)
                 _live_srv = sorted(servers,
-                    key=lambda s: _smtp_health.get(_smtp_key(s),{}).get("cooldown_until", 0))
+                    key=lambda s: max(
+                        _smtp_health.get(_smtp_key(s),{}).get("cooldown_until", 0),
+                        _smtp_health.get(_smtp_key(s),{}).get("cap_until", 0),
+                    ))
+                return _pick(_live, sender_rot, i), _live_srv[0]
             # Reputation-weighted random: servers with more successes get
             # proportionally more traffic; degrades gracefully to round-robin.
             if srv_rot == "random" and len(_live_srv) > 1:
@@ -2746,14 +2754,14 @@ def run_campaign(opts: CampaignOptions) -> Generator:
         Run in a thread. Does ONLY the network IO — no state mutation.
         Returns (i, lead, ok, err, via, resolved_sender, link_url, server).
         """
-        i, lead, sender, server, subj, html, plain, link_url = work_item
+        i, lead, sender, server, subj, html, plain, link_url, dead_proxies_snap = work_item
         try:
             ok, err, via = _send_one(
                 opts=opts, i=i, lead=lead, sender=sender,
                 server=server or {}, subject=subj,
                 html=html, plain=plain,
                 pool=pool, mx_ctx=mx_ctx,
-                dead_proxies=_dead_proxies,
+                dead_proxies=dead_proxies_snap,
             )
         except Exception as exc:
             ok, err, via = False, f"network error: {exc}", ""
@@ -2783,6 +2791,7 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                 sender, server = _pick_sender_locked(i)
                 if sender is None:
                     return None  # no live senders
+                _dp_snap = frozenset(_dead_proxies)
 
             # ── Pick subject ──────────────────────────────────
             subj_raw = _pick(opts.subjects, sender_rot, i) or ""
@@ -2927,7 +2936,8 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                             pass  # fallback: leave tags unresolved
 
             fut = _executor.submit(_execute_send, (i, lead, resolved_sender, server,
-                                                    resolved_subject, resolved_html, resolved_plain, link_url))
+                                                    resolved_subject, resolved_html, resolved_plain, link_url,
+                                                    _dp_snap))
             return fut, resolved_sender, resolved_html, resolved_plain
 
         # Submit initial batch
@@ -2970,6 +2980,10 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                                return_when=_cf.FIRST_COMPLETED)
             if not done:
                 continue   # nothing finished this tick, re-check abort
+            # Rate-limit: process one future per tick so the inter-send sleep
+            # actually spaces sends rather than batching N sleeps then idling.
+            if _sends_per_sec() > 0 and len(done) > 1:
+                done = {next(iter(done))}
             for fut in done:
                 work_meta = _pending_futures.pop(fut)
                 i, lead, pre_sender, resolved_html, resolved_plain = work_meta
@@ -3037,7 +3051,8 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                             _dead_senders.add(_pol_dead)
                         _pol_cands = [s for s in opts.senders
                                       if (s.get("fromEmail","") if isinstance(s,dict) else s) not in _dead_senders]
-                        _pol_srv_pick = _pick(servers, srv_rot, i) if servers else {}
+                        _pol_alive = [s for s in servers if _smtp_alive(s)] if servers else []
+                        _pol_srv_pick = _pick(_pol_alive or servers, srv_rot, i) if servers else {}
                 for _pc in _pol_cands[:5]:
                         _pc_res = dict(_pc) if isinstance(_pc,dict) else {"fromEmail":_pc}
                         _pc_tag_ctx = build_context(lead=lead,sender=_pc_res,subject="",counter=i+1,links_cfg=opts.links_cfg)
@@ -3099,10 +3114,13 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                         _ac = dict(_cands[0]) if isinstance(_cands[0],dict) else {"fromEmail":_cands[0]}
                         _mxrt_used.add(_ac.get("fromEmail",""))
                         with _send_lock:
-                            # Prefer a server not yet tried this MXRT cycle
+                            # Prefer a server not yet tried this MXRT cycle, and alive
                             _srv_pool = [s for s in servers
                                          if (s.get("sshHost") or s.get("ispSmtpHost") or s.get("host","")) not in _mxrt_srv_used
+                                         and _smtp_alive(s)
                                         ] if servers else []
+                            if not _srv_pool:
+                                _srv_pool = [s for s in servers if _smtp_alive(s)] if servers else []
                             _mxrt_srv = _pick(_srv_pool or servers, srv_rot, i) if servers else {}
                             if _mxrt_srv:
                                 _mxrt_srv_used.add(_mxrt_srv.get("sshHost") or _mxrt_srv.get("ispSmtpHost") or _mxrt_srv.get("host",""))
@@ -3187,7 +3205,8 @@ def run_campaign(opts: CampaignOptions) -> Generator:
                                 _test_lead = {"email": test_email_addr,
                                               "name":  "Deliverability Test",
                                               "company": ""}
-                                _test_srv = _pick(servers, srv_rot, i) if servers else {}
+                                _test_alive = [s for s in servers if _smtp_alive(s)] if servers else []
+                                _test_srv = _pick(_test_alive or servers, srv_rot, i) if servers else {}
                                 _t_ok, _t_err, _t_via = _send_one(
                                     opts=opts, i=i, lead=_test_lead,
                                     sender=resolved_sender,

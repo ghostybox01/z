@@ -1330,12 +1330,12 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # Python's email library reuses predictable boundary patterns that are
     # known fingerprints for bulk mail. Patch to a MUA-style random boundary.
     try:
-        if hasattr(msg, "get_boundary") and msg.get_boundary():
-            _new_boundary = (
-                "----=_Part_" + _rand_digits(6) + "_" +
-                _rand_digits(10) + "." + _rand_digits(13)
-            )
-            msg.set_boundary(_new_boundary)
+        for _mb_part in msg.walk():
+            if _mb_part.get_content_maintype() == "multipart":
+                _mb_part.set_boundary(
+                    "----=_Part_" + _rand_digits(6) + "_" +
+                    _rand_digits(10) + "." + _rand_digits(13)
+                )
     except Exception:
         pass
 
@@ -1343,7 +1343,7 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
     # a real MUA submission. In SMTP relay / ESP / API mode the Received header
     # chain reveals the real origin (AWS SES, SendGrid, etc.) so claiming Outlook
     # is a detectable forgery that increases spam score.
-    if not msg.get("X-Mailer") and is_isp_mode and dlv.get("xMailer") and dlv.get("xMailer") != "none":
+    if not msg.get("X-Mailer") and dlv.get("xMailer") and dlv.get("xMailer") != "none":
         _xm_default = dlv.get("xMailer", "none")
         if _xm_default == "random":
             msg["X-Mailer"] = random.choice(list(X_MAILERS.values()))
@@ -1463,8 +1463,8 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
             try:
                 from urllib.parse import urlparse as _urlparse
                 _unsub_host = _urlparse(unsub_url).hostname or ""
-                _unsub_domain = ".".join(_unsub_host.rsplit(".", 2)[-2:])
-                _from_base = ".".join(from_domain.rsplit(".", 2)[-2:])
+                _unsub_domain = ".".join(_unsub_host.rsplit(".", 3)[-3:])
+                _from_base = ".".join(from_domain.rsplit(".", 3)[-3:])
                 if _unsub_domain.lower() != _from_base.lower():
                     unsub_url = ""  # domain mismatch — skip URL
             except Exception:
@@ -1472,8 +1472,8 @@ def _apply_deliverability_headers(msg, dlv, lead_email, from_email, from_domain,
         if unsub_email and from_domain:
             try:
                 _em_domain = unsub_email.split("@", 1)[-1] if "@" in unsub_email else ""
-                _em_base = ".".join(_em_domain.rsplit(".", 2)[-2:])
-                _from_base2 = ".".join(from_domain.rsplit(".", 2)[-2:])
+                _em_base = ".".join(_em_domain.rsplit(".", 3)[-3:])
+                _from_base2 = ".".join(from_domain.rsplit(".", 3)[-3:])
                 if _em_base.lower() != _from_base2.lower():
                     unsub_email = ""
             except Exception:
@@ -1953,8 +1953,8 @@ def build_message(
             try:
                 from urllib.parse import urlparse as _up2
                 _uh = _up2(unsub_url).hostname or ""
-                _ud = ".".join(_uh.rsplit(".", 2)[-2:])
-                _fd = ".".join(from_domain.rsplit(".", 2)[-2:])
+                _ud = ".".join(_uh.rsplit(".", 3)[-3:])
+                _fd = ".".join(from_domain.rsplit(".", 3)[-3:])
                 if _ud.lower() != _fd.lower():
                     unsub_url = ""
             except Exception:
@@ -1962,8 +1962,8 @@ def build_message(
         if unsub_email and from_domain:
             try:
                 _em2_domain = unsub_email.split("@", 1)[-1] if "@" in unsub_email else ""
-                _em2_base = ".".join(_em2_domain.rsplit(".", 2)[-2:])
-                _fd2 = ".".join(from_domain.rsplit(".", 2)[-2:])
+                _em2_base = ".".join(_em2_domain.rsplit(".", 3)[-3:])
+                _fd2 = ".".join(from_domain.rsplit(".", 3)[-3:])
                 if _em2_base.lower() != _fd2.lower():
                     unsub_email = ""
             except Exception:
@@ -2159,13 +2159,11 @@ def build_message(
                 alt_part.attach(MIMEText(working_plain, "plain", "us-ascii"))
             except (UnicodeEncodeError, UnicodeDecodeError):
                 alt_part.attach(MIMEText(working_plain, "plain", "utf-8"))
-        # HTML part — base64 encoded, matching how legitimate ESPs (SES, Mailchimp) encode HTML
-        from email.mime.base import MIMEBase as _MB
-        from email import encoders as _enc
-        import base64 as _b64
-        _html_part = _MB("text", "html", charset="utf-8")
-        _html_part.set_payload(_b64.b64encode(working_html.encode("utf-8")).decode("ascii"))
-        _html_part["Content-Transfer-Encoding"] = "base64"
+        # HTML part — quoted-printable (standard MUA/ESP encoding; base64 is a spam signal)
+        from email import charset as _ec
+        _html_cs = _ec.Charset("utf-8")
+        _html_cs.body_encoding = _ec.QP
+        _html_part = MIMEText(working_html, "html", _html_cs)
         alt_part.attach(_html_part)
 
         if has_attachments:
@@ -2262,11 +2260,23 @@ def build_message(
         # else: different domains — suppress Sender: to avoid "on behalf of" display
 
     # Date — RFC 2822 formatted, always set
-    msg["Date"] = formatdate(localtime=False)
+    import datetime as _dt
+    _tld = (from_domain.rsplit(".", 1)[-1] if from_domain else "").lower()
+    _tz_offsets = {"uk": 0, "ie": 0, "fr": 60, "de": 60, "nl": 60, "be": 60,
+                   "it": 60, "es": 60, "se": 60, "no": 60, "dk": 60, "fi": 120,
+                   "pl": 60, "in": 330, "au": 600, "nz": 720, "jp": 540,
+                   "cn": 480, "sg": 480, "my": 480, "ca": -300, "mx": -360,
+                   "br": -180, "ar": -180}
+    _offset_mins = _tz_offsets.get(_tld, random.choice([-300, -360, 0, 60]))
+    _tz = _dt.timezone(_dt.timedelta(minutes=_offset_mins))
+    msg["Date"] = _dt.datetime.now(_tz).strftime("%a, %d %b %Y %H:%M:%S %z")
 
     # Message-ID — stable, standards-based format with aligned domain.
     mid_domain = msg_id_domain or (dlv.get("msgIdDomain") if dlv.get("customMsgId") else None) or from_domain or ehlo
-    msg["Message-ID"] = make_msgid(domain=mid_domain)
+    import secrets as _sec, string as _str
+    _mid_chars = _str.ascii_uppercase + _str.digits
+    _mid_local = ''.join(_sec.choice(_mid_chars) for _ in range(32))
+    msg["Message-ID"] = f"<{_mid_local}@{mid_domain}>"
 
     # ── Received header (simulated MUA submission hop) ────────────────────────
     # Received header intentionally NOT injected.
