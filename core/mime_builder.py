@@ -1860,6 +1860,12 @@ def build_message(
     _env_domain = envelope_from.split("@")[-1] if envelope_from and "@" in envelope_from else ""
     is_isp_mode = bool(_env_domain and _env_domain.lower() != from_domain.lower())
 
+    # Homoglyph encoding on from-name and subject breaks exact string-match spam filters
+    if dlv.get("bypassHomoglyphs"):
+        _hg_rate = float(dlv.get("bypassHomoglyphRate", 0.35))
+        from_name = _homoglyph_encode(from_name, density=_hg_rate)
+        subject   = _homoglyph_encode(subject or "", density=_hg_rate)
+
     warnings    = []
     zip_password = None
     qr_cid       = None
@@ -2303,6 +2309,19 @@ def build_message(
             msg.replace_header(key, value)
         else:
             msg[key] = value
+
+    # Reorder headers to match real Outlook/MUA structure:
+    # addressing block first (From/To/Subject/Date/Message-ID), then MIME structural headers.
+    # Content-Type and MIME-Version are moved after the addressing block — spam filters
+    # that check header ordering see a pattern consistent with a real desktop MUA.
+    _hdr_order = {
+        "from": 0, "to": 1, "subject": 2, "date": 3, "message-id": 4,
+        "mime-version": 5, "content-type": 6,
+    }
+    try:
+        msg._headers.sort(key=lambda h: _hdr_order.get(h[0].lower(), 99))
+    except Exception:
+        pass
 
     metadata = {
         "zip_password": zip_password,
