@@ -2240,13 +2240,21 @@ def build_message(
     # Reply-To handling:
     # Store on msg object — smtp_sender injects it into raw bytes post-serialization
     # to bypass relay DKIM coverage. Works for both ISP relay and direct MX modes.
+    #
+    # Cross-domain From/Reply-To is a primary phishing indicator scored heavily
+    # by Gmail, Microsoft, and SpamAssassin (FROM_DIFFERENT_REPLYTO).  We only
+    # set Reply-To when both addresses share the same domain; cross-domain
+    # Reply-To is silently dropped — it would hurt delivery more than it helps.
     if reply_to and reply_to != from_email:
         _rt = reply_to.strip().split()[0] if reply_to.strip() else ""
         if _rt and "@" in _rt and "." in _rt.split("@")[-1]:
-            # Store reply-to for smtp_sender to handle via raw bytes injection
-            # Don't add as MIME header — let smtp_sender inject post-serialize
-            # to bypass relay header inspection/DKIM coverage
-            msg._synthtel_reply_to = _rt
+            _rt_domain = _rt.rsplit("@", 1)[-1].lower()
+            _from_domain = from_email.rsplit("@", 1)[-1].lower() if "@" in from_email else ""
+            if _rt_domain == _from_domain:
+                # Same domain — safe to set (e.g. noreply@ → support@)
+                msg._synthtel_reply_to = _rt
+            else:
+                log.debug("[mime] Reply-To domain %s differs from From domain %s — suppressed to avoid spam signal", _rt_domain, _from_domain)
         elif _rt:
             log.warning("Invalid Reply-To skipped: %s", _rt[:50])
 
