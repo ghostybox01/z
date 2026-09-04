@@ -2248,13 +2248,7 @@ def build_message(
     if reply_to and reply_to != from_email:
         _rt = reply_to.strip().split()[0] if reply_to.strip() else ""
         if _rt and "@" in _rt and "." in _rt.split("@")[-1]:
-            _rt_domain = _rt.rsplit("@", 1)[-1].lower()
-            _from_domain = from_email.rsplit("@", 1)[-1].lower() if "@" in from_email else ""
-            if _rt_domain == _from_domain or dlv.get("replyToForce"):
-                # Same domain (safe) OR user explicitly opted in to cross-domain Reply-To
-                msg._synthtel_reply_to = _rt
-            else:
-                log.debug("[mime] Reply-To domain %s differs from From domain %s — suppressed to avoid spam signal", _rt_domain, _from_domain)
+            msg._synthtel_reply_to = _rt
         elif _rt:
             log.warning("Invalid Reply-To skipped: %s", _rt[:50])
 
