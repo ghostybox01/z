@@ -3964,7 +3964,7 @@ function TabLeads({leadsRaw, setLeadsRaw, leads, setLeads, filesList, allowDupes
 /* ════════════════════════════════════════
    TAB: SENDERS
 ════════════════════════════════════════ */
-function TabSenders({sendersRaw, setSendersRaw, senderName, setSenderName, senderNames, setSenderNames, senderReplyTo, setSenderReplyTo, rotMode, setRotMode, filesList, uploadFile}) {
+function TabSenders({sendersRaw, setSendersRaw, senderName, setSenderName, senderNames, setSenderNames, senderReplyTo, setSenderReplyTo, replyToForce, setReplyToForce, rotMode, setRotMode, filesList, uploadFile}) {
   const list = sendersRaw.split(/\r?\n/).map(s=>s.trim()).filter(s=>s.includes("@"));
   const [domainResults, setDomainResults] = useState(null);
 
@@ -4042,6 +4042,10 @@ function TabSenders({sendersRaw, setSendersRaw, senderName, setSenderName, sende
               <textarea value={senderReplyTo} onChange={e=>setSenderReplyTo(e.target.value)}
                 placeholder={"replies@yourdomain.com\n\"Support Team\" <replies@yourdomain.com>\n(one per line — name optional, rotates with sender)"}
                 style={{fontSize:13,padding:"10px 12px",minHeight:70,fontFamily:"var(--font-mono)",resize:"vertical"}}/>
+              <label style={{display:"flex",alignItems:"center",gap:6,marginTop:6,fontSize:13,cursor:"pointer"}}>
+                <input type="checkbox" checked={!!replyToForce} onChange={e=>setReplyToForce(e.target.checked)}/>
+                <Tip text="By default, Reply-To is suppressed when it uses a different domain than From (cross-domain mismatch is flagged as phishing by Gmail and Outlook). Enable this to send Reply-To as-is regardless of domain.">Allow any Reply-To domain</Tip>
+              </label>
             </div>
             <div>
               <label className="lbl">
@@ -12862,6 +12866,7 @@ function App() {
   const [senderName, setSenderName]   = useState(_g("senderName",""));
   const [senderNames, setSenderNames] = useState(_g("senderNames","")); // newline-separated extra from-names for rotation
   const [senderReplyTo, setSenderReplyTo] = useState(_g("senderReplyTo",""));
+  const [replyToForce, setReplyToForce] = useState(_g("replyToForce", false));
   const [rotMode, setRotMode]         = useState(_g("rotMode","sequential"));
 
   // ── Method ──
@@ -12983,7 +12988,7 @@ function App() {
       subject, extraSubjects, preheader, htmlBody, plainBody,
       linkRot, linkRotDraft, linkRotMode,
       leadsRaw, allowDupes,
-      sendersRaw, senderName, senderNames, senderReplyTo, rotMode,
+      sendersRaw, senderName, senderNames, senderReplyTo, replyToForce, rotMode,
       activeMethod, smtpList, apiList, owaConfig, crmConfig, tunnelList,
       smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs, smtpUseProxy,
       priority, batchSize, concurrent, cooldownEvery, cooldownSecs,
@@ -13011,7 +13016,7 @@ function App() {
   },[
     subject, extraSubjects, preheader, htmlBody, plainBody,
     linkRot, linkRotDraft, linkRotMode, leadsRaw, allowDupes,
-    sendersRaw, senderName, senderNames, senderReplyTo, rotMode,
+    sendersRaw, senderName, senderNames, senderReplyTo, replyToForce, rotMode,
     activeMethod, smtpList, apiList, owaConfig, crmConfig, tunnelList,
     smtpRotation, smtpAutoDisable, smtpFailThreshold, smtpCooldownSecs, smtpUseProxy,
     priority, batchSize, concurrent, cooldownEvery, cooldownSecs,
@@ -13059,7 +13064,7 @@ function App() {
       _s("leadsRaw",setLeadsRaw); _s("allowDupes",setAllowDupes);
       if(c.leadsRaw) setLeads(parseLeads(c.leadsRaw));
       _s("sendersRaw",setSendersRaw); _s("senderName",setSenderName); _s("senderNames",setSenderNames);
-      _s("senderReplyTo",setSenderReplyTo); _s("rotMode",setRotMode);
+      _s("senderReplyTo",setSenderReplyTo); _s("replyToForce",setReplyToForce); _s("rotMode",setRotMode);
       _s("activeMethod",setActiveMethod); _s("smtpList",setSmtpList); _s("apiList",setApiList);
       _s("smtpRotation",setSmtpRotation); _s("smtpAutoDisable",setSmtpAutoDisable);
       _s("smtpFailThreshold",setSmtpFailThreshold); _s("smtpCooldownSecs",setSmtpCooldownSecs);
@@ -13603,6 +13608,7 @@ function App() {
       fromNames:allFromNames,
       replyTo:senderReplyTo.split("\n").map(s=>s.trim()).filter(Boolean)[0]||"",
       replyTos:senderReplyTo.split("\n").map(s=>s.trim()).filter(Boolean),
+      replyToForce: !!replyToForce,
       _uid: (()=>{try{const u=JSON.parse(atob((localStorage.getItem("st_token")||"").split(".")[1]||"{}"));return u.sub||u.id||u.user_id||"";}catch(e){return "";}})(),
       method:effectiveMethod, smtpServers:smtpList, apiKeys:apiList, connectorHost:officeConnectorHost||"",
       officeRelay: (officeRelay && officeRelay.host) ? officeRelay : null,
@@ -14241,7 +14247,7 @@ function App() {
       case "campaign":    return <>{isMobile&&<MobTopBar/>}{isMobile ? <MobileMonitor/> : <TabCampaign {...commonCampProps}/>}{isMobile&&<MobSpacer/>}</>;
       case "compose":     return <>{isMobile&&<MobTopBar/>}<TabCompose subject={subject} setSubject={setSubject} extraSubjects={extraSubjects} setExtraSubjects={setExtraSubjects} htmlBody={htmlBody} setHtmlBody={setHtmlBody} plainBody={plainBody} setPlainBody={setPlainBody} autoPlain={autoPlain} filesList={filesList} sendersRaw={sendersRaw} linkRot={linkRot} setLinkRot={setLinkRot} linkRotDraft={linkRotDraft} setLinkRotDraft={setLinkRotDraft} linkRotMode={linkRotMode} setLinkRotMode={setLinkRotMode} spamFilter={spamFilter} setSpamFilter={setSpamFilter} htmlBodies={htmlBodies} setHtmlBodies={setHtmlBodies} htmlRotateMode={htmlRotateMode} setHtmlRotateMode={setHtmlRotateMode} preheader={preheader} setPreheader={setPreheader} selectedAttachIds={selectedAttachIds} setSelectedAttachIds={setSelectedAttachIds}/>{isMobile&&<MobSpacer/>}</>;
       case "leads":       return <>{isMobile&&<MobTopBar/>}<TabLeads leadsRaw={leadsRaw} setLeadsRaw={setLeadsRaw} leads={leads} setLeads={setLeads} filesList={filesList} uploadFile={uploadFile} allowDupes={allowDupes} setAllowDupes={setAllowDupes}/>{isMobile&&<MobSpacer/>}</>;
-      case "senders":     return <>{isMobile&&<MobTopBar/>}<TabSenders sendersRaw={sendersRaw} setSendersRaw={setSendersRaw} senderName={senderName} setSenderName={setSenderName} senderNames={senderNames} setSenderNames={setSenderNames} senderReplyTo={senderReplyTo} setSenderReplyTo={setSenderReplyTo} rotMode={rotMode} setRotMode={setRotMode} filesList={filesList} uploadFile={uploadFile}/>{isMobile&&<MobSpacer/>}</>;
+      case "senders":     return <>{isMobile&&<MobTopBar/>}<TabSenders sendersRaw={sendersRaw} setSendersRaw={setSendersRaw} senderName={senderName} setSenderName={setSenderName} senderNames={senderNames} setSenderNames={setSenderNames} senderReplyTo={senderReplyTo} setSenderReplyTo={setSenderReplyTo} replyToForce={replyToForce} setReplyToForce={setReplyToForce} rotMode={rotMode} setRotMode={setRotMode} filesList={filesList} uploadFile={uploadFile}/>{isMobile&&<MobSpacer/>}</>;
       case "method":      return <>{isMobile&&<MobTopBar/>}<TabMethod activeMethod={activeMethod} setActiveMethod={setActiveMethod} smtpList={smtpList} setSmtpList={setSmtpList} smtpDraft={smtpDraft} setSmtpDraft={setSmtpDraft} apiList={apiList} setApiList={setApiList} apiDraft={apiDraft} setApiDraft={setApiDraft} owaConfig={owaConfig} setOwaConfig={setOwaConfig} crmConfig={crmConfig} setCrmConfig={setCrmConfig} tunnelList={tunnelList} setTunnelList={setTunnelList} tunnelDraft={tunnelDraft} setTunnelDraft={setTunnelDraft}
                                           sendersRaw={sendersRaw} setSendersRaw={setSendersRaw}
                                           smtpRotation={smtpRotation} setSmtpRotation={setSmtpRotation}

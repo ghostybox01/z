@@ -1009,6 +1009,7 @@ class CampaignOptions:
                 "domainThrottle":    data.get("domainThrottle", True),
                 "rateLimitPause":    data.get("rateLimitPause", True),
                 "embedImages":       data.get("embedImages", True),
+                "replyToForce":      bool(data.get("replyToForce", False)),
             },
             sending        = data.get("sending") or {
                 "delay":          data.get("delay", 0),
