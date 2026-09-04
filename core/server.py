@@ -410,7 +410,7 @@ LOGIN_ATTEMPTS: dict = {}  # ip → {count, last_attempt}
 _CAMP_STREAM_END = object()
 
 
-def _campaign_worker(uid, data, run_id, camp_name, total_count, tg_msg_id, started_at):
+def _campaign_worker(uid, data, run_id, camp_name, total_count, tg_msg_id, started_at, run_uuid=None):
     """Run a campaign in a background thread.
 
     Pushes every event from `process_campaign(data)` onto the per-user
@@ -730,15 +730,20 @@ def _campaign_worker(uid, data, run_id, camp_name, total_count, tg_msg_id, start
                 pass
 
         with active_campaigns_lock:
-            if uid and ACTIVE_CAMPAIGNS.get(uid, 0) > 0:
-                ACTIVE_CAMPAIGNS[uid] -= 1
-            if uid and ACTIVE_CAMPAIGNS.get(uid, 0) <= 0:
-                LIVE_CAMPAIGN_STATS.pop(uid, None)
-                CAMPAIGN_CONTROLS.pop(uid, None)
-                CAMPAIGN_THREADS.pop(uid, None)
-                # Keep CAMPAIGN_QUEUES[uid] alive briefly so any in-flight
-                # tail readers can drain the sentinel.  A subsequent /api/send
-                # for the same uid replaces the queue cleanly.
+            # Only clean up if controls still belong to THIS run.  If the user
+            # force-stopped and started a new campaign, the new run owns the
+            # controls and we must not touch them.
+            current_uuid = (CAMPAIGN_CONTROLS.get(uid) or {}).get("_run_uuid")
+            if run_uuid is None or current_uuid == run_uuid:
+                if uid and ACTIVE_CAMPAIGNS.get(uid, 0) > 0:
+                    ACTIVE_CAMPAIGNS[uid] -= 1
+                if uid and ACTIVE_CAMPAIGNS.get(uid, 0) <= 0:
+                    LIVE_CAMPAIGN_STATS.pop(uid, None)
+                    CAMPAIGN_CONTROLS.pop(uid, None)
+                    CAMPAIGN_THREADS.pop(uid, None)
+                    # Keep CAMPAIGN_QUEUES[uid] alive briefly so any in-flight
+                    # tail readers can drain the sentinel.  A subsequent /api/send
+                    # for the same uid replaces the queue cleanly.
 
 
 db_lock = Lock()
@@ -4010,10 +4015,12 @@ if(code && window.opener){{
                     "method": data.get("method", "smtp"),
                     "started_at": started_at,
                 }
+                _run_uuid = secrets.token_hex(8)
                 CAMPAIGN_CONTROLS[uid] = {
                     "paused": False,
                     "abort": False,
                     "stats": {"sent": 0, "failed": 0, "total": total_count},
+                    "_run_uuid": _run_uuid,
                 }
                 # Fresh queue per run.  maxsize is generous so a slow tailer
                 # never blocks the campaign loop in practice; if it does,
@@ -4068,7 +4075,7 @@ if(code && window.opener){{
             # Spawn the background worker.  It outlives this HTTP request.
             worker = threading.Thread(
                 target=_campaign_worker,
-                args=(uid, data, run_id, camp_name, total_count, tg_msg_id, started_at),
+                args=(uid, data, run_id, camp_name, total_count, tg_msg_id, started_at, _run_uuid),
                 daemon=True,
                 name=f"campaign-{uid}",
             )
@@ -4192,6 +4199,11 @@ if(code && window.opener){{
                     ctrl["abort"] = True
                     if live:
                         live["status"] = "stopping"
+                    # Release the campaign slot immediately so the user can
+                    # start a new campaign without waiting for the worker to
+                    # unblock from its current network call.
+                    if uid in ACTIVE_CAMPAIGNS:
+                        ACTIVE_CAMPAIGNS[uid] = 0
                     # Push a synthetic "stopping" notice + immediate "done"
                     # so the UI flips state right away.  The real worker
                     # will append its own done shortly after; the polling
