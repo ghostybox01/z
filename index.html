@@ -7185,6 +7185,8 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
   const [npPortResults, setNpPortResults] = useState({});
   const [npTestingAll, setNpTestingAll] = useState(false);
   const [npSelected, setNpSelected] = useState(new Set());
+  const [npIspProbe, setNpIspProbe] = useState({});
+  const [npIspProbing, setNpIspProbing] = useState(false);
 
   const NP_ISPS = {
     CA: [
@@ -7265,6 +7267,37 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
   function npRemoveKey(){
     localStorage.removeItem("9proxy_key");
     setNpApiKey(""); setNpKeyOk(false); setNpError(""); setNpNeedsLogin(false);
+  }
+
+  async function npProbeIsps(){
+    if(!npApiKey){ showToast("err","No Key","Add your 9Proxy API key first."); return; }
+    if(npIspProbing) return;
+    setNpIspProbing(true); setNpIspProbe({});
+    const ispsToTest = (NP_ISPS[npCountry]||NP_ISPS.CA).filter(i=>i.value&&i.smtp);
+    for(const isp of ispsToTest){
+      setNpIspProbe(prev=>({...prev,[isp.value]:"testing"}));
+      try{
+        const r = await apiCall("/api/9proxy/fetch",{method:"POST",body:JSON.stringify({
+          key:npApiKey.trim(), country:npCountry, isp:isp.value, count:1,
+          planType:npPlan==="ip"?"premium":"free"
+        })});
+        const d = await r.json();
+        if(d.status!=="ok"||!d.data){ setNpIspProbe(prev=>({...prev,[isp.value]:"no_proxy"})); continue; }
+        const items = Array.isArray(d.data)?d.data:(d.data.data||[]);
+        if(!items.length){ setNpIspProbe(prev=>({...prev,[isp.value]:"no_proxy"})); continue; }
+        const px = items[0];
+        const host = px.address||px.host||px.ip||"";
+        const port = px.port||px.proxy_port||"";
+        const user = px.username||""; const pass = px.password||"";
+        const raw = "socks5://"+(user?(user+(pass?":"+pass:"")+"@"):"")+host+":"+port;
+        const tr = await apiCall("/api/test-proxy",{method:"POST",body:JSON.stringify({
+          proxy:raw, ispSmtpHost:isp.smtp, ispSmtpPort:25
+        })});
+        const td = await tr.json();
+        setNpIspProbe(prev=>({...prev,[isp.value]:td.status==="ok"?"open":"blocked"}));
+      } catch(e){ setNpIspProbe(prev=>({...prev,[isp.value]:"error"})); }
+    }
+    setNpIspProbing(false);
   }
 
   async function npFetchProxies(){
@@ -7599,6 +7632,34 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
               </div>
             </div>
 
+            {/* ISP Port 25 Probe */}
+            {(Object.keys(npIspProbe).length>0||npIspProbing) && (
+              <div style={{marginBottom:14,padding:"12px 14px",background:"var(--bg2)",borderRadius:8,border:"1px solid var(--border)"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                  <span style={{fontWeight:700,fontSize:13}}>Port 25 ISP Probe Results</span>
+                  {!npIspProbing && <button className="btn btn-g btn-sm" onClick={()=>setNpIspProbe({})}>Clear</button>}
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {(NP_ISPS[npCountry]||NP_ISPS.CA).filter(i=>i.value&&i.smtp).map(isp=>{
+                    const st = npIspProbe[isp.value];
+                    const color = st==="open"?"var(--ok)":st==="blocked"?"var(--err)":st==="testing"?"var(--warn, #f59e0b)":"var(--t3)";
+                    const icon = st==="open"?"✓":st==="blocked"?"✗":st==="testing"?"…":st==="no_proxy"?"–":"·";
+                    const clickable = st==="open";
+                    return (
+                      <button key={isp.value}
+                        className={"btn btn-sm "+(npIsp===isp.value?"btn-p":"btn-g")}
+                        style={{fontSize:11,display:"flex",alignItems:"center",gap:4,opacity:st==="no_proxy"?0.4:1,cursor:clickable?"pointer":"default"}}
+                        onClick={()=>{ if(clickable){setNpIsp(isp.value); setNpSmtpHost(isp.smtp);} }}>
+                        <span style={{color,fontWeight:700}}>{icon}</span>
+                        <span>{isp.name.replace(/ \(AS\d+\)/,"")}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {npIspProbing && <div style={{fontSize:11,color:"var(--t3)",marginTop:8}}>Testing each ISP — click a ✓ ISP to select it, then Fetch Proxies…</div>}
+              </div>
+            )}
+
             {/* Country + ISP */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
               <div>
@@ -7610,17 +7671,22 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
                 </select>
               </div>
               <div>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
-                  <label className="lbl" style={{margin:0}}>ISP</label>
-                  <button className={"btn btn-sm "+(npPort25Only?"btn-p":"btn-g")} style={{fontSize:11,padding:"2px 8px",height:22}}
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+                  <label className="lbl" style={{margin:0,flex:1}}>ISP</label>
+                  <button className={"btn btn-sm "+(npPort25Only?"btn-p":"btn-g")} style={{fontSize:11,padding:"2px 7px",height:20,flexShrink:0}}
                     onClick={()=>{setNpPort25Only(v=>!v);setNpIsp("");}}>
-                    {npPort25Only?"⚡ Port 25 only":"⚡ Port 25 filter"}
+                    {npPort25Only?"⚡ :25 on":"⚡ :25"}
+                  </button>
+                  <button className="btn btn-g btn-sm" style={{fontSize:11,padding:"2px 7px",height:20,flexShrink:0}}
+                    disabled={npIspProbing||!npKeyOk}
+                    onClick={npProbeIsps}>
+                    {npIspProbing?"…":"Probe"}
                   </button>
                 </div>
                 <select value={npIsp} onChange={e=>setNpIsp(e.target.value)}
                   style={{width:"100%",fontSize:14,padding:"10px 12px"}}>
                   {npIspList.map(i=>(
-                    <option key={i.value} value={i.value}>{i.port25?"⚡ ":""}{i.name}</option>
+                    <option key={i.value} value={i.value}>{i.name}</option>
                   ))}
                 </select>
               </div>
