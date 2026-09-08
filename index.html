@@ -7513,8 +7513,17 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
                 <span>Go to <strong>Campaign → Method: Direct MX</strong>. SynthTel connects on port 25 through each proxy, rotating per email automatically. No extra config needed.</span>
               </div>
             </div>
-            <Info type="w" style={{marginTop:10}}>Not all ISPs have port 25 outbound open. Pick ISPs known to allow outbound SMTP — Cogeco, Rogers, and Bell CA residential lines usually work. Use the <strong>Test All (port 25)</strong> button in the Direct MX tab to verify before sending.</Info>
+            <Info type="w" style={{marginTop:10}}>Not all ISPs have port 25 outbound open. <strong>Best choices for port 25:</strong> Cogeco (AS15290), Rogers (AS812), Bell Canada (AS577). After fetching, click <strong>⚡ Test All Port 25</strong> in the staging card below — proxies that pass turn green and get auto-selected for import.</Info>
           </div>
+
+          {/* Server IP reminder */}
+          {serverIp && (
+            <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:8,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10,fontSize:13,flexWrap:"wrap"}}>
+              <span style={{color:"var(--t2)"}}>🖥️ Whitelist this VPS IP in your 9proxy dashboard → Whitelist IP:</span>
+              <code style={{fontFamily:"var(--font-mono)",fontWeight:700,color:"var(--ok)",fontSize:14}}>{serverIp}</code>
+              <button className="btn btn-g btn-xs" onClick={()=>copyToClipboard(serverIp)}>📋 Copy</button>
+            </div>
+          )}
 
           {/* API Key Card */}
           <div className="card mb14">
