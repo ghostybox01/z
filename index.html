@@ -7181,6 +7181,10 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
   const [npFetching, setNpFetching] = useState(false);
   const [npError, setNpError] = useState("");
   const [npResult, setNpResult] = useState(null);
+  const [npStaging, setNpStaging] = useState([]);
+  const [npPortResults, setNpPortResults] = useState({});
+  const [npTestingAll, setNpTestingAll] = useState(false);
+  const [npSelected, setNpSelected] = useState(new Set());
 
   const NP_ISPS = {
     CA: [
@@ -7293,15 +7297,50 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
             city: px.city || "",
           };
         });
-        setProxies(prev=>[...prev, ...newProxies]);
-        setNpResult({count: newProxies.length, port: newProxies[0]?.port || "auto"});
-        showToast("ok","Fetched", newProxies.length+" proxies imported with SMTP "+smtpHost+":25");
+        setNpStaging(newProxies);
+        setNpPortResults({});
+        setNpSelected(new Set());
+        setNpResult(null);
+        showToast("ok","Fetched", newProxies.length+" proxies ready — test port 25 below");
       } else {
         setNpError(d.message || "API error — check your key and balance");
       }
     } catch(e){ setNpError(e.message); }
     setNpFetching(false);
   }
+  async function npTestAllPort25(){
+    if(!npStaging.length) return;
+    setNpTestingAll(true);
+    const smtpHost = npSmtpHost || "smtp.shaw.ca";
+    for(let i=0;i<npStaging.length;i++){
+      const px = npStaging[i];
+      setNpPortResults(prev=>({...prev,[i]:{status:"testing"}}));
+      try{
+        const r = await apiCall("/api/test-proxy",{method:"POST",body:JSON.stringify({
+          proxy: px.raw,
+          ispSmtpHost: smtpHost,
+          ispSmtpPort: 25
+        })});
+        const d = await r.json();
+        const ok = d.status==="ok";
+        setNpPortResults(prev=>({...prev,[i]:{status:ok?"ok":"failed",ms:d.latency_ms,msg:d.message}}));
+        if(ok) setNpSelected(prev=>{ const n=new Set(prev); n.add(i); return n; });
+      } catch(e){
+        setNpPortResults(prev=>({...prev,[i]:{status:"failed",msg:e.message}}));
+      }
+    }
+    setNpTestingAll(false);
+  }
+
+  function npImportSelected(){
+    const toImport = npStaging.filter((_,i)=>npSelected.has(i));
+    if(!toImport.length){ showToast("warn","None selected","Check proxies to import first."); return; }
+    setProxies(prev=>[...prev,...toImport]);
+    setNpStaging([]); setNpPortResults({}); setNpSelected(new Set());
+    setNpResult({count:toImport.length, port:toImport[0]?.port||"auto"});
+    showToast("ok","Imported",toImport.length+" proxies added to SOCKS5 list");
+  }
+
   React.useEffect(()=>{
     apiCall("/api/server-ip").then(r=>r.json()).then(d=>{if(d.ip) setServerIp(d.ip);}).catch(()=>{});
   },[]);
@@ -7611,6 +7650,67 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
             {!npKeyOk && <div className="dim2 xs mt4" style={{textAlign:"center"}}>Add and verify your API key first</div>}
             {npError && <div style={{color:"var(--err)",fontSize:12,marginTop:10,padding:"8px 12px",background:"rgba(239,68,68,.1)",borderRadius:6}}>{npError}</div>}
           </div>
+
+          {/* Port 25 staging area */}
+          {npStaging.length>0 && (
+            <div className="card mb14">
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+                <div className="card-title" style={{margin:0}}>Port 25 Test — {npStaging.length} proxies fetched</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button className="btn btn-g btn-sm" onClick={npTestAllPort25} disabled={npTestingAll}>
+                    {npTestingAll?"Testing…":"⚡ Test All Port 25"}
+                  </button>
+                  <button className="btn btn-p btn-sm" onClick={npImportSelected} disabled={npSelected.size===0}>
+                    {"Import "+npSelected.size+" Selected"}
+                  </button>
+                </div>
+              </div>
+
+              {/* select helpers */}
+              <div style={{display:"flex",gap:8,marginBottom:10}}>
+                <button className="btn btn-g btn-xs" onClick={()=>setNpSelected(new Set(npStaging.map((_,i)=>i)))}>All</button>
+                <button className="btn btn-g btn-xs" onClick={()=>{
+                  const p=new Set();
+                  Object.entries(npPortResults).forEach(([i,r])=>{ if(r.status==="ok") p.add(parseInt(i)); });
+                  setNpSelected(p);
+                }}>Passing only</button>
+                <button className="btn btn-g btn-xs" onClick={()=>setNpSelected(new Set())}>None</button>
+                {Object.keys(npPortResults).length>0 && (
+                  <span style={{fontSize:12,color:"var(--t2)",alignSelf:"center",marginLeft:4}}>
+                    {Object.values(npPortResults).filter(r=>r.status==="ok").length}/{npStaging.length} open
+                  </span>
+                )}
+              </div>
+
+              {/* proxy list */}
+              <div style={{maxHeight:320,overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>
+                {npStaging.map((px,i)=>{
+                  const res=npPortResults[i];
+                  const sel=npSelected.has(i);
+                  return (
+                    <div key={i} style={{
+                      display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                      background:sel?"rgba(99,102,241,.12)":"var(--bg2)",
+                      borderRadius:6,border:"1px solid "+(sel?"#6366f1":"var(--border)"),
+                      cursor:"pointer",userSelect:"none"
+                    }} onClick={()=>setNpSelected(prev=>{const n=new Set(prev);n.has(i)?n.delete(i):n.add(i);return n;})}>
+                      <input type="checkbox" checked={sel} onChange={()=>{}} style={{cursor:"pointer",flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontFamily:"var(--font-mono)",fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {px.host}:{px.port}
+                        </div>
+                        <div style={{fontSize:11,color:"var(--t2)"}}>{px.ispSmtpHost}:25</div>
+                      </div>
+                      {!res && <span style={{fontSize:12,color:"var(--t2)"}}>untested</span>}
+                      {res?.status==="testing" && <span style={{fontSize:12,color:"#f59e0b"}}>⏳ testing…</span>}
+                      {res?.status==="ok" && <span style={{fontSize:12,color:"var(--ok)",fontWeight:600}}>✓ open{res.ms?` (${res.ms}ms)`:""}</span>}
+                      {res?.status==="failed" && <span style={{fontSize:12,color:"var(--err)"}}>✗ blocked</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
