@@ -4584,8 +4584,6 @@ if(code && window.opener){{
 
         # ── 911proxy: scan gateway ports from VPS ────────────────────────
         elif p == "/api/911proxy/scan":
-            if not (sess := self._auth()):
-                return
             import socket
             host = "proxy.911proxy.com"
             results = {}
