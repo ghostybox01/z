@@ -1614,6 +1614,8 @@ const SMTP_PRESETS = [
   {name:"SendGrid",              host:"smtp.sendgrid.net",                         port:587, ssl:false, note:"Username is always 'apikey'. Password is your SendGrid API Key."},
   {name:"Mailgun",               host:"smtp.mailgun.org",                          port:587, ssl:false, note:"Username: postmaster@yourdomain.com. Password: Mailgun SMTP password (not API key)."},
   {name:"SMTP2GO",               host:"mail.smtp2go.com",                          port:587, ssl:false, note:"Username/password from SMTP2GO → Settings → SMTP Users. Prefer Method → API with an api-… key for campaigns."},
+  {name:"Brevo (SMTP Relay)",    host:"smtp-relay.brevo.com",                      port:587, ssl:false, note:"Username: your Brevo account login email. Password: SMTP key from Brevo → SMTP & API → SMTP (not the API key)."},
+  {name:"Brevo (Transactional)", host:"smtp-mail.brevo.com",                       port:587, ssl:false, note:"Username: your Brevo account login email. Password: SMTP key from Brevo → SMTP & API → SMTP."},
   ..._SES_PRESETS,
 ];
 
@@ -5824,7 +5826,12 @@ New-InboundConnector -Name 'SynthTel-Sender' -ConnectorType OnPremises -SenderDo
                 color: testR["draft"].status==="ok" ? "#4ade80" : "#f87171"}}>
                 {testR["draft"].status==="ok"
                   ? "✓ " + (testR["draft"].message||"Connected & authenticated")
-                  : "✗ " + (testR["draft"].message||"Failed")}
+                  : "✗ " + (testR["draft"].message||"Connection failed")}
+                {testR["draft"].status!=="ok" && (testR["draft"].log||[]).length>0 && (
+                  <div style={{marginTop:6,opacity:0.75,fontFamily:"var(--font-mono)",fontSize:11,whiteSpace:"pre-wrap"}}>
+                    {(testR["draft"].log||[]).join("\n")}
+                  </div>
+                )}
               </div>
             )}
           </div>
