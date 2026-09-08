@@ -4582,6 +4582,51 @@ if(code && window.opener){{
             except Exception as e:
                 self._json(200, {"ok": False, "error": str(e)})
 
+        # ── 911proxy: scan gateway ports from VPS ────────────────────────
+        elif p == "/api/911proxy/scan":
+            if not (sess := self._auth()):
+                return
+            import socket
+            host = "proxy.911proxy.com"
+            results = {}
+            for port in [1080, 8080, 8888, 9000, 9050, 10000, 10001, 10800, 11080, 16000, 20000, 30000]:
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(3)
+                    r = s.connect_ex((host, port))
+                    s.close()
+                    if r == 0:
+                        results[str(port)] = "open"
+                except:
+                    pass
+            self._json(200, {"host": host, "open_ports": results})
+
+        # ── 911proxy: test one connection ─────────────────────────────────
+        elif p == "/api/911proxy/test":
+            if not (sess := self._auth()):
+                return
+            try:
+                data = self._read_body()
+            except:
+                self._json(400, {"error": "Invalid JSON"}); return
+            host = data.get("host", "proxy.911proxy.com")
+            port = int(data.get("port", 10000))
+            user = data.get("user", "")
+            passwd = data.get("pass", "")
+            smtp_host = data.get("smtp_host", "smtp.rogers.com")
+            raw = f"socks5://{user}:{passwd}@{host}:{port}" if user else f"socks5://{host}:{port}"
+            import socks, socket as _socket
+            try:
+                s = socks.socksocket()
+                s.set_proxy(socks.SOCKS5, host, port, True, user, passwd)
+                s.settimeout(10)
+                s.connect((smtp_host, 25))
+                banner = s.recv(256).decode(errors="ignore").strip()
+                s.close()
+                self._json(200, {"ok": True, "banner": banner, "proxy": raw})
+            except Exception as e:
+                self._json(200, {"ok": False, "error": str(e), "proxy": raw})
+
         # ── 9proxy: fetch proxies server-side (avoids CORS) ──────────────
         elif p == "/api/nineproxy/fetch":
             if not (sess := self._auth()):
