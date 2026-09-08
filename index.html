@@ -7189,40 +7189,42 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
   const NP_ISPS = {
     CA: [
       {name:"Any ISP",                    value:"",          smtp:""},
-      {name:"Shaw Communications (AS6327)",value:"as6327",   smtp:"smtp.shaw.ca"},
-      {name:"Bell Canada (AS577)",         value:"as577",    smtp:"smtp.bell.net"},
-      {name:"Rogers Communications (AS812)",value:"as812",   smtp:"smtp.rogers.com"},
+      {name:"Shaw Communications (AS6327)",value:"as6327",   smtp:"smtp.shaw.ca",    port25:true},
+      {name:"Bell Canada (AS577)",         value:"as577",    smtp:"smtp.bell.net",   port25:true},
+      {name:"Rogers Communications (AS812)",value:"as812",   smtp:"smtp.rogers.com", port25:true},
       {name:"Telus (AS852)",               value:"as852",    smtp:"smtp.telus.net"},
-      {name:"Eastlink (AS11260)",          value:"as11260",  smtp:"smtp.eastlink.ca"},
-      {name:"SaskTel (AS803)",             value:"as803",    smtp:"smtp.sasktel.net"},
-      {name:"Cogeco (AS15290)",            value:"as15290",  smtp:"smtp.cogeco.ca"},
+      {name:"Eastlink (AS11260)",          value:"as11260",  smtp:"smtp.eastlink.ca",port25:true},
+      {name:"SaskTel (AS803)",             value:"as803",    smtp:"smtp.sasktel.net",port25:true},
+      {name:"Cogeco (AS15290)",            value:"as15290",  smtp:"smtp.cogeco.ca",  port25:true},
       {name:"Videotron (AS5769)",          value:"as5769",   smtp:"smtp.videotron.ca"},
       {name:"TekSavvy (AS5645)",           value:"as5645",   smtp:"mail.teksavvy.com"},
-      {name:"Bell MTS (AS7122)",           value:"as7122",   smtp:"smtp.mts.net"},
+      {name:"Bell MTS (AS7122)",           value:"as7122",   smtp:"smtp.mts.net",    port25:true},
       {name:"Northwestel (AS7865)",        value:"as7865",   smtp:"smtp.northwestel.net"},
       {name:"Tbaytel (AS11814)",           value:"as11814",  smtp:"smtp.tbaytel.net"},
     ],
     US: [
       {name:"Any ISP",                    value:"",          smtp:""},
-      {name:"Comcast / Xfinity (AS7922)", value:"as7922",    smtp:"smtp.comcast.net"},
-      {name:"AT&T (AS7018)",              value:"as7018",    smtp:"outbound.att.net"},
-      {name:"Charter / Spectrum (AS20115)",value:"as20115",  smtp:"smtp.charter.net"},
-      {name:"Cox Communications (AS22773)",value:"as22773",  smtp:"smtp.cox.net"},
+      {name:"Comcast / Xfinity (AS7922)", value:"as7922",    smtp:"smtp.comcast.net",    port25:true},
+      {name:"AT&T (AS7018)",              value:"as7018",    smtp:"outbound.att.net",     port25:true},
+      {name:"Charter / Spectrum (AS20115)",value:"as20115",  smtp:"smtp.charter.net",    port25:true},
+      {name:"Cox Communications (AS22773)",value:"as22773",  smtp:"smtp.cox.net",         port25:true},
       {name:"Verizon (AS701)",            value:"as701",     smtp:"outgoing.verizon.net"},
-      {name:"CenturyLink / Lumen (AS209)",value:"as209",    smtp:"smtp.centurylink.net"},
-      {name:"Frontier (AS5650)",          value:"as5650",    smtp:"smtp.frontier.com"},
-      {name:"Windstream (AS7029)",        value:"as7029",    smtp:"smtp.windstream.net"},
+      {name:"CenturyLink / Lumen (AS209)",value:"as209",    smtp:"smtp.centurylink.net", port25:true},
+      {name:"Frontier (AS5650)",          value:"as5650",    smtp:"smtp.frontier.com",    port25:true},
+      {name:"Windstream (AS7029)",        value:"as7029",    smtp:"smtp.windstream.net",  port25:true},
       {name:"Mediacom (AS30036)",         value:"as30036",   smtp:"smtp.mediacombb.net"},
       {name:"Consolidated (AS382)",       value:"as382",     smtp:"smtp.consolidated.net"},
       {name:"Suddenlink / Altice (AS19108)",value:"as19108", smtp:"smtp.suddenlink.net"},
       {name:"WOW! Internet (AS12083)",    value:"as12083",   smtp:"smtp.wowway.com"},
       {name:"Atlantic Broadband (AS6128)",value:"as6128",    smtp:"smtp.atlanticbb.net"},
-      {name:"Midcontinent (AS11232)",     value:"as11232",   smtp:"smtp.midco.net"},
+      {name:"Midcontinent (AS11232)",     value:"as11232",   smtp:"smtp.midco.net",       port25:true},
       {name:"RCN (AS6079)",              value:"as6079",     smtp:"smtp.rcn.com"},
     ]
   };
 
-  const npIspList = NP_ISPS[npCountry] || NP_ISPS.CA;
+  const [npPort25Only, setNpPort25Only] = useState(false);
+  const npIspListAll = NP_ISPS[npCountry] || NP_ISPS.CA;
+  const npIspList = npPort25Only ? npIspListAll.filter(i=>!i.value||i.port25) : npIspListAll;
 
   // Auto-fill SMTP host when ISP changes
   React.useEffect(()=>{
@@ -7608,11 +7610,17 @@ function TabProxies({proxies, setProxies, proxyDraft, setProxyDraft, proxyType, 
                 </select>
               </div>
               <div>
-                <label className="lbl">ISP</label>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
+                  <label className="lbl" style={{margin:0}}>ISP</label>
+                  <button className={"btn btn-sm "+(npPort25Only?"btn-p":"btn-g")} style={{fontSize:11,padding:"2px 8px",height:22}}
+                    onClick={()=>{setNpPort25Only(v=>!v);setNpIsp("");}}>
+                    {npPort25Only?"⚡ Port 25 only":"⚡ Port 25 filter"}
+                  </button>
+                </div>
                 <select value={npIsp} onChange={e=>setNpIsp(e.target.value)}
                   style={{width:"100%",fontSize:14,padding:"10px 12px"}}>
                   {npIspList.map(i=>(
-                    <option key={i.value} value={i.value}>{i.name}</option>
+                    <option key={i.value} value={i.value}>{i.port25?"⚡ ":""}{i.name}</option>
                   ))}
                 </select>
               </div>
